@@ -6,7 +6,8 @@ otherwise, it needs a signed-in user: see ``unshelve.api.deps.current_user``.
 
 from fastapi import APIRouter
 
-from unshelve.api.routes import auth
+from unshelve.api.routes import auth, items
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
+api_router.include_router(items.router)
