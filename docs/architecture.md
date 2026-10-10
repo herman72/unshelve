@@ -2,6 +2,15 @@
 
 This document describes the shape of the system. The reasons behind each choice are in the [decision records](adr/README.md).
 
+## Diagrams
+
+| File | What it shows | How to open it |
+|---|---|---|
+| [architecture-explorer.html](architecture-explorer.html) | An interactive map of the system. Play five flows step by step (save an item, weekly digest, search, publish, a worker dies), or open one service to see what it does, what it never does and what happens when it stops. | Download or clone, then open the file in a browser. |
+| [architecture.drawio](architecture.drawio) | Five editable pages: system overview, pipeline of one item, job lifecycle, item states, data model. | [draw.io](https://www.drawio.com/) desktop, app.diagrams.net, or the draw.io extension of your editor. |
+
+The explorer, the draw.io overview page and the diagram below use the same components and the same names. When the system changes, change all three.
+
 ## Components
 
 ```mermaid
