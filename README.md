@@ -38,6 +38,8 @@ A Python service (FastAPI API, worker, Telegram bot) on Postgres with pgvector, 
 
 More detail: [docs/architecture.md](docs/architecture.md), [docs/product.md](docs/product.md), and the decision records in [docs/adr](docs/adr/README.md).
 
+To see the data move, open [docs/architecture-explorer.html](docs/architecture-explorer.html) in a browser: it plays each flow through the system step by step. The same design is in [docs/architecture.drawio](docs/architecture.drawio) as editable diagrams.
+
 ## Roadmap
 
 | Milestone | Result |
