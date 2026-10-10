@@ -1,0 +1,42 @@
+# Secrets and private data: never commit these
+.env
+.env.*
+!.env.example
+/data/
+/var/
+/exports/
+*.private.md
+*.private.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+playwright-report/
+test-results/
+
+# Tooling
+.claude/
+.idea/
+.vscode/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
