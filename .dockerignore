@@ -1,0 +1,19 @@
+# Keep build contexts small and keep secrets and private data out of images.
+.git
+.github
+.env
+.env.*
+!.env.example
+data
+var
+exports
+docs
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/node_modules
+**/.next
+**/*.tsbuildinfo
+.claude
+.DS_Store

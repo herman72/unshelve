@@ -1,0 +1,102 @@
+# The whole stack. From the repository root: `docker compose up -d --build --wait`.
+# Ports are bound to 127.0.0.1 only. Nothing here needs an inbound connection from the internet.
+name: unshelve
+
+x-app: &app
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile.api
+  image: unshelve-api:dev
+  env_file:
+    - path: ../.env
+      required: false
+  environment:
+    UNSHELVE_DATABASE_URL: postgresql+psycopg://unshelve:${UNSHELVE_DB_PASSWORD:-unshelve}@db:5432/unshelve
+    UNSHELVE_LOG_JSON: "true"
+  restart: unless-stopped
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.7-pg17
+    environment:
+      POSTGRES_USER: unshelve
+      POSTGRES_PASSWORD: ${UNSHELVE_DB_PASSWORD:-unshelve}
+      POSTGRES_DB: unshelve
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${UNSHELVE_DB_PORT:-54329}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U unshelve -d unshelve"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  migrate:
+    <<: *app
+    command: ["unshelve", "migrate"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app
+    command: ["unshelve", "api", "--host", "0.0.0.0", "--port", "8000"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${UNSHELVE_API_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/api/v1/readyz', timeout=2)"
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  worker:
+    <<: *app
+    command: ["unshelve", "worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  bot:
+    <<: *app
+    command: ["unshelve", "bot"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    image: unshelve-web:dev
+    environment:
+      UNSHELVE_API_INTERNAL_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${UNSHELVE_WEB_PORT:-3000}:3000"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  db-data:

@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1
+# Next.js standalone build. Build context: the repository root.
+FROM node:24-slim AS build
+
+ENV PNPM_HOME=/pnpm \
+    PATH=/pnpm:$PATH \
+    NEXT_TELEMETRY_DISABLED=1
+RUN npm install --global pnpm@10.10.0
+
+WORKDIR /repo
+
+# Manifests first: the install layer is rebuilt only when dependencies change.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json apps/web/
+COPY packages/api-client/package.json packages/api-client/
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+COPY apps/web/ apps/web/
+COPY packages/api-client/ packages/api-client/
+
+# /api is proxied to this address. It is baked into the build (see next.config.ts).
+ARG UNSHELVE_API_INTERNAL_URL=http://api:8000
+ENV UNSHELVE_API_INTERNAL_URL=$UNSHELVE_API_INTERNAL_URL
+RUN pnpm --filter @unshelve/web build
+
+
+FROM node:24-slim
+
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0
+
+WORKDIR /app
+# The standalone output mirrors the monorepo layout, so the server is at apps/web/server.js.
+COPY --from=build --chown=node:node /repo/apps/web/.next/standalone ./
+COPY --from=build --chown=node:node /repo/apps/web/.next/static ./apps/web/.next/static
+
+USER node
+EXPOSE 3000
+CMD ["node", "apps/web/server.js"]
