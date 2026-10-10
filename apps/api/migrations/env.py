@@ -8,6 +8,7 @@ asynchronously. The URL comes from the settings unless the caller sets ``sqlalch
 from alembic import context
 from sqlalchemy import create_engine, pool
 
+import unshelve.db.models  # noqa: F401  # pyright: ignore[reportUnusedImport] - registers the tables
 from unshelve.config import get_settings
 from unshelve.db.base import Base
 
