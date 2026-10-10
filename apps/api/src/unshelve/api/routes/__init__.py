@@ -1,0 +1,12 @@
+"""The routes of the HTTP API, one module per area.
+
+Every router here is mounted under ``/api/v1`` by ``create_app``. Unless a route says
+otherwise, it needs a signed-in user: see ``unshelve.api.deps.current_user``.
+"""
+
+from fastapi import APIRouter
+
+from unshelve.api.routes import auth
+
+api_router = APIRouter()
+api_router.include_router(auth.router)
