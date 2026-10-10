@@ -4,6 +4,190 @@
  */
 
 export interface paths {
+    "/api/v1/admin/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Jobs
+         * @description A page of queue jobs, filtered by state and kind.
+         */
+        get: operations["list_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/jobs/{job_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Job
+         * @description Put a dead job back in the queue. A job in any other state is a 409.
+         */
+        post: operations["retry_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout
+         * @description End the current session.
+         */
+        post: operations["logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/magic/consume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Consume Magic Link
+         * @description Trade the one-time token from a login link for a session cookie.
+         */
+        post: operations["consume_magic_link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/digests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Digests
+         * @description A page of past digests.
+         */
+        get: operations["list_digests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/digests/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview Digest
+         * @description The picks a digest would contain now, for a reading time budget. Nothing is sent.
+         */
+        post: operations["preview_digest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/goals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Goals
+         * @description All goals. Archived goals are left out unless the query asks for them.
+         */
+        get: operations["list_goals"];
+        put?: never;
+        /**
+         * Create Goal
+         * @description Add a goal. A goal that clashes with an existing one is a 409.
+         */
+        post: operations["create_goal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/goals/{goal_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Goal
+         * @description Change a goal or archive it. Fields that are left out stay as they are.
+         */
+        patch: operations["update_goal"];
+        trace?: never;
+    };
+    "/api/v1/goals/{goal_id}/focus": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Focus Goal
+         * @description Make this the focus goal. There is at most one focus goal.
+         */
+        post: operations["focus_goal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/healthz": {
         parameters: {
             query?: never;
@@ -16,6 +200,237 @@ export interface paths {
          * @description The process is up. Checks nothing else, so a database outage does not restart the API.
          */
         get: operations["healthz"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Items
+         * @description A page of items, filtered and sorted by the query.
+         */
+        get: operations["list_items"];
+        put?: never;
+        /**
+         * Create Item
+         * @description Save an item by hand: a link, a note, or both.
+         */
+        post: operations["create_item"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/items/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Item
+         * @description One item in full.
+         */
+        get: operations["get_item"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update Item
+         * @description Change the title, the notes or the tags. Fields that are left out stay as they are.
+         */
+        patch: operations["update_item"];
+        trace?: never;
+    };
+    "/api/v1/items/{item_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Item Events
+         * @description A page of the item's history.
+         */
+        get: operations["list_item_events"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/items/{item_id}/goals/{goal_id}/label": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Goal Label
+         * @description Confirm or reject the score of one goal for this item. A null label removes the verdict.
+         */
+        put: operations["set_goal_label"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/items/{item_id}/public-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Public Preview
+         * @description Exactly what the public feed would contain for this item, shown before publishing.
+         */
+        get: operations["get_public_preview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/items/{item_id}/reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reprocess Item
+         * @description Send a failed or finished item back to the start of the pipeline.
+         *
+         *     The answer comes at once and the work happens later, on the worker. An item that is still
+         *     being processed cannot be sent back: 409.
+         */
+        post: operations["reprocess_item"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/items/{item_id}/similar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Similar Items
+         * @description The saved items that are closest in meaning to this one.
+         */
+        get: operations["list_similar_items"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/items/{item_id}/transition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transition Item
+         * @description Move the item to another reading status. A move the state machine forbids is a 409.
+         */
+        post: operations["transition_item"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/items/{item_id}/visibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Item Visibility
+         * @description Publish the item or make it private again.
+         */
+        put: operations["set_item_visibility"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Me
+         * @description The signed-in user and their settings.
+         */
+        get: operations["get_me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Queue
+         * @description The items the user plans to read, with the queue limit and how much of it is used.
+         */
+        get: operations["get_queue"];
         put?: never;
         post?: never;
         delete?: never;
@@ -44,10 +459,294 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Search Items
+         * @description Hybrid search: keyword, trigram and vector results, fused into one ranking.
+         */
+        get: operations["search_items"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create Overview
+         * @description An answer built only from saved items. Every statement points at its sources.
+         */
+        post: operations["create_overview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Stats
+         * @description Items and jobs by state, how much was read lately, and what the model calls cost.
+         */
+        get: operations["get_stats"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tags": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Tags
+         * @description Every tag with the number of items that carry it.
+         */
+        get: operations["list_tags"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * Actor
+         * @enum {string}
+         */
+        Actor: "user" | "worker" | "system";
+        /** Citation */
+        Citation: {
+            /** Item Id */
+            item_id: number;
+            /**
+             * Quote
+             * @description The passage that supports the statement.
+             */
+            quote: string;
+        };
+        /** DigestOut */
+        DigestOut: {
+            /** Id */
+            id: number;
+            /** Period Key */
+            period_key: string;
+            /** Picks */
+            picks: components["schemas"]["DigestPick"][];
+            /** Sent At */
+            sent_at: string | null;
+            /** Total Minutes */
+            total_minutes: number;
+        };
+        /** DigestPage */
+        DigestPage: {
+            /** Items */
+            items: components["schemas"]["DigestOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as ?cursor= to get the next page. Null on the last page.
+             */
+            next_cursor?: string | null;
+        };
+        /** DigestPick */
+        DigestPick: {
+            item: components["schemas"]["ItemSummary"];
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "focus_goal" | "other_goal" | "saved_again" | "random";
+        };
+        /** DigestPreview */
+        DigestPreview: {
+            /** Picks */
+            picks: components["schemas"]["DigestPick"][];
+            /** Total Minutes */
+            total_minutes: number;
+        };
+        /** DigestPreviewRequest */
+        DigestPreviewRequest: {
+            /**
+             * Goal Id
+             * @description Defaults to the focus goal.
+             */
+            goal_id?: number | null;
+            /**
+             * Minutes
+             * @description The reading time budget.
+             * @default 60
+             */
+            minutes: number;
+        };
+        /**
+         * EnrichState
+         * @description Processing state. Only workers change it.
+         * @enum {string}
+         */
+        EnrichState: "pending" | "fetched" | "enriched" | "ready" | "failed";
+        /** EventOut */
+        EventOut: {
+            actor: components["schemas"]["Actor"];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** From Status */
+            from_status: string | null;
+            /** Id */
+            id: number;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** To Status */
+            to_status: string | null;
+            /** Type */
+            type: string;
+        };
+        /** EventPage */
+        EventPage: {
+            /** Items */
+            items: components["schemas"]["EventOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as ?cursor= to get the next page. Null on the last page.
+             */
+            next_cursor?: string | null;
+        };
+        /** FieldProblem */
+        FieldProblem: {
+            /** Detail */
+            detail: string;
+            /**
+             * Pointer
+             * @description JSON pointer to the invalid value, e.g. /body/title
+             */
+            pointer: string;
+        };
+        /** GoalCreate */
+        GoalCreate: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Ends On */
+            ends_on?: string | null;
+            /** Keywords */
+            keywords?: string[];
+            /** Starts On */
+            starts_on?: string | null;
+            /** Title */
+            title: string;
+        };
+        /**
+         * GoalLabel
+         * @description The user's verdict on a relevance score. No label means "not reviewed".
+         * @enum {string}
+         */
+        GoalLabel: "confirmed" | "rejected";
+        /** GoalList */
+        GoalList: {
+            /** Items */
+            items: components["schemas"]["GoalOut"][];
+        };
+        /** GoalOut */
+        GoalOut: {
+            /** Archived At */
+            archived_at: string | null;
+            /** Description */
+            description: string;
+            /** Ends On */
+            ends_on: string | null;
+            /** Id */
+            id: number;
+            /** Is Focus */
+            is_focus: boolean;
+            /** Keywords */
+            keywords: string[];
+            /** Slug */
+            slug: string;
+            /** Starts On */
+            starts_on: string | null;
+            /** Title */
+            title: string;
+            /**
+             * Version
+             * @description Goes up when the meaning of the goal changes.
+             */
+            version: number;
+        };
+        /**
+         * GoalScore
+         * @description How relevant an item is to one goal.
+         */
+        GoalScore: {
+            /** Goal Id */
+            goal_id: number;
+            /** Goal Slug */
+            goal_slug: string;
+            /** Goal Title */
+            goal_title: string;
+            /** @description The user's verdict. Null means not reviewed. */
+            label: components["schemas"]["GoalLabel"] | null;
+            /** Reason */
+            reason: string;
+            /** Score */
+            score: number;
+        };
+        /**
+         * GoalUpdate
+         * @description Fields that are left out stay as they are.
+         */
+        GoalUpdate: {
+            /** Archived */
+            archived?: boolean | null;
+            /** Description */
+            description?: string | null;
+            /** Ends On */
+            ends_on?: string | null;
+            /** Keywords */
+            keywords?: string[] | null;
+            /** Starts On */
+            starts_on?: string | null;
+            /** Title */
+            title?: string | null;
+        };
         /** Health */
         Health: {
             /**
@@ -62,6 +761,459 @@ export interface components {
              */
             version: string;
         };
+        /**
+         * ItemCreate
+         * @description Save something by hand: a link, a note, or both.
+         */
+        ItemCreate: {
+            /** Text */
+            text?: string | null;
+            /** Url */
+            url?: string | null;
+        };
+        /** ItemDetail */
+        ItemDetail: {
+            /**
+             * Allowed Transitions
+             * @description The statuses this item can move to now.
+             */
+            allowed_transitions: components["schemas"]["ItemStatus"][];
+            /** Author */
+            author: string | null;
+            /**
+             * Capture Count
+             * @description How many times this was saved.
+             */
+            capture_count: number;
+            /** Duplicate Of Id */
+            duplicate_of_id: number | null;
+            enrich_state: components["schemas"]["EnrichState"];
+            /** Est Minutes */
+            est_minutes: number | null;
+            /** Extra Links */
+            extra_links: string[];
+            /**
+             * First Captured At
+             * Format: date-time
+             */
+            first_captured_at: string;
+            /** Goals */
+            goals: components["schemas"]["GoalScore"][];
+            /** Id */
+            id: number;
+            /** Key Points */
+            key_points: string[];
+            kind: components["schemas"]["ItemKind"];
+            /** Lang */
+            lang: string | null;
+            /**
+             * Last Captured At
+             * Format: date-time
+             */
+            last_captured_at: string;
+            /**
+             * Note
+             * @description Private. Never published.
+             */
+            note: string | null;
+            /**
+             * Partial
+             * @description Enriched from the saved text; the source was not fetched.
+             */
+            partial: boolean;
+            /**
+             * Public Note
+             * @description Shown with the item when it is public.
+             */
+            public_note: string | null;
+            /** Public Slug */
+            public_slug: string | null;
+            /** Published At */
+            published_at: string | null;
+            /** Read At */
+            read_at: string | null;
+            /** Site */
+            site: string | null;
+            status: components["schemas"]["ItemStatus"];
+            /** Summary */
+            summary: string | null;
+            /** Tags */
+            tags: components["schemas"]["TagRef"][];
+            /** Title */
+            title: string | null;
+            /** @description The goal with the highest score, if any. */
+            top_goal: components["schemas"]["GoalScore"] | null;
+            /** Url */
+            url: string | null;
+            visibility: components["schemas"]["Visibility"];
+        };
+        /**
+         * ItemKind
+         * @enum {string}
+         */
+        ItemKind: "article" | "video" | "post" | "repo" | "paper" | "image" | "note" | "book" | "pdf" | "unknown";
+        /** ItemPage */
+        ItemPage: {
+            /** Items */
+            items: components["schemas"]["ItemSummary"][];
+            /**
+             * Next Cursor
+             * @description Pass as ?cursor= to get the next page. Null on the last page.
+             */
+            next_cursor?: string | null;
+        };
+        /**
+         * ItemStatus
+         * @description Reading state. Only the user changes it.
+         * @enum {string}
+         */
+        ItemStatus: "inbox" | "queued" | "reading" | "done" | "archived";
+        /**
+         * ItemSummary
+         * @description An item as shown in lists.
+         */
+        ItemSummary: {
+            /** Author */
+            author: string | null;
+            /**
+             * Capture Count
+             * @description How many times this was saved.
+             */
+            capture_count: number;
+            enrich_state: components["schemas"]["EnrichState"];
+            /** Est Minutes */
+            est_minutes: number | null;
+            /**
+             * First Captured At
+             * Format: date-time
+             */
+            first_captured_at: string;
+            /** Id */
+            id: number;
+            kind: components["schemas"]["ItemKind"];
+            /** Lang */
+            lang: string | null;
+            /**
+             * Last Captured At
+             * Format: date-time
+             */
+            last_captured_at: string;
+            /**
+             * Partial
+             * @description Enriched from the saved text; the source was not fetched.
+             */
+            partial: boolean;
+            /** Published At */
+            published_at: string | null;
+            /** Read At */
+            read_at: string | null;
+            /** Site */
+            site: string | null;
+            status: components["schemas"]["ItemStatus"];
+            /** Summary */
+            summary: string | null;
+            /** Tags */
+            tags: components["schemas"]["TagRef"][];
+            /** Title */
+            title: string | null;
+            /** @description The goal with the highest score, if any. */
+            top_goal: components["schemas"]["GoalScore"] | null;
+            /** Url */
+            url: string | null;
+            visibility: components["schemas"]["Visibility"];
+        };
+        /**
+         * ItemUpdate
+         * @description Fields that are left out stay as they are. ``null`` clears a field.
+         */
+        ItemUpdate: {
+            /** Note */
+            note?: string | null;
+            /** Public Note */
+            public_note?: string | null;
+            /**
+             * Tags
+             * @description Replaces the item's tags.
+             */
+            tags?: string[] | null;
+            /** Title */
+            title?: string | null;
+        };
+        /**
+         * JobKind
+         * @enum {string}
+         */
+        JobKind: "ingest_capture" | "ingest_album" | "fetch_item" | "enrich_item" | "embed_item" | "score_item" | "send_digest" | "stale_sweep" | "publish_feed";
+        /** JobOut */
+        JobOut: {
+            /** Attempts */
+            attempts: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Finished At */
+            finished_at: string | null;
+            /** Id */
+            id: number;
+            kind: components["schemas"]["JobKind"];
+            /** Last Error */
+            last_error: string | null;
+            /** Locked By */
+            locked_by: string | null;
+            /** Locked Until */
+            locked_until: string | null;
+            /** Max Attempts */
+            max_attempts: number;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /**
+             * Run After
+             * Format: date-time
+             */
+            run_after: string;
+            state: components["schemas"]["JobState"];
+        };
+        /** JobPage */
+        JobPage: {
+            /** Items */
+            items: components["schemas"]["JobOut"][];
+            /**
+             * Next Cursor
+             * @description Pass as ?cursor= to get the next page. Null on the last page.
+             */
+            next_cursor?: string | null;
+        };
+        /**
+         * JobState
+         * @enum {string}
+         */
+        JobState: "pending" | "running" | "done" | "dead";
+        /** LabelRequest */
+        LabelRequest: {
+            /** @description Null removes the label. */
+            label: components["schemas"]["GoalLabel"] | null;
+        };
+        /** MagicConsumeRequest */
+        MagicConsumeRequest: {
+            /** Token */
+            token: string;
+        };
+        /** Me */
+        Me: {
+            /** Display Name */
+            display_name: string | null;
+            /** Id */
+            id: number;
+            /** Queue Limit */
+            queue_limit: number;
+            /** Telegram User Id */
+            telegram_user_id: number;
+            /** Timezone */
+            timezone: string;
+        };
+        /**
+         * Overview
+         * @description An answer built only from saved items. Every statement points at its sources.
+         */
+        Overview: {
+            /** Segments */
+            segments: components["schemas"]["OverviewSegment"][];
+            /** Sources */
+            sources: components["schemas"]["ItemSummary"][];
+        };
+        /** OverviewRequest */
+        OverviewRequest: {
+            /**
+             * Limit
+             * @description How many items to read.
+             * @default 12
+             */
+            limit: number;
+            /** Q */
+            q: string;
+            /** Status */
+            status?: components["schemas"]["ItemStatus"][] | null;
+        };
+        /** OverviewSegment */
+        OverviewSegment: {
+            /** Citations */
+            citations: components["schemas"]["Citation"][];
+            /** Text */
+            text: string;
+        };
+        /**
+         * Problem
+         * @description RFC 9457 problem details. The media type on the wire is application/problem+json.
+         */
+        Problem: {
+            /** Detail */
+            detail?: string | null;
+            /**
+             * Errors
+             * @description Present on validation errors (422).
+             */
+            errors?: components["schemas"]["FieldProblem"][] | null;
+            /** Status */
+            status: number;
+            /** Title */
+            title: string;
+            /**
+             * Type
+             * @default about:blank
+             */
+            type: string;
+        };
+        /**
+         * PublicItem
+         * @description Exactly what the public feed contains for an item. Mirrors the pub.items view.
+         */
+        PublicItem: {
+            /** Author */
+            author: string | null;
+            /** Est Minutes */
+            est_minutes: number | null;
+            /** Id */
+            id: string;
+            /** Key Points */
+            key_points: string[];
+            kind: components["schemas"]["ItemKind"];
+            /** Lang */
+            lang: string | null;
+            /** Note */
+            note: string | null;
+            /** Published At */
+            published_at: string | null;
+            /** Site */
+            site: string | null;
+            /** Summary */
+            summary: string | null;
+            /** Tags */
+            tags: string[];
+            /** Title */
+            title: string | null;
+            /** Url */
+            url: string | null;
+        };
+        /** Queue */
+        Queue: {
+            /** Items */
+            items: components["schemas"]["ItemSummary"][];
+            /** Limit */
+            limit: number;
+            /** Used */
+            used: number;
+        };
+        /**
+         * RetrieverRanks
+         * @description The position of the item in each retriever's result, before fusion. Null: not found.
+         */
+        RetrieverRanks: {
+            /** Fts */
+            fts: number | null;
+            /** Trigram */
+            trigram: number | null;
+            /** Vector */
+            vector: number | null;
+        };
+        /** SearchHit */
+        SearchHit: {
+            item: components["schemas"]["ItemSummary"];
+            ranks: components["schemas"]["RetrieverRanks"];
+            /** Score */
+            score: number;
+            /** Snippet */
+            snippet: string | null;
+        };
+        /** SearchPage */
+        SearchPage: {
+            /** Items */
+            items: components["schemas"]["SearchHit"][];
+            /**
+             * Next Cursor
+             * @description Pass as ?cursor= to get the next page. Null on the last page.
+             */
+            next_cursor?: string | null;
+        };
+        /** SimilarItem */
+        SimilarItem: {
+            item: components["schemas"]["ItemSummary"];
+            /** Similarity */
+            similarity: number;
+        };
+        /** SimilarItems */
+        SimilarItems: {
+            /** Items */
+            items: components["schemas"]["SimilarItem"][];
+        };
+        /** Stats */
+        Stats: {
+            /** Items By Enrich State */
+            items_by_enrich_state: {
+                [key: string]: number;
+            };
+            /** Items By Status */
+            items_by_status: {
+                [key: string]: number;
+            };
+            /** Jobs By State */
+            jobs_by_state: {
+                [key: string]: number;
+            };
+            /** Llm Cost Usd Last 30 Days */
+            llm_cost_usd_last_30_days: number;
+            /** Median Unread Age Days */
+            median_unread_age_days: number | null;
+            /** Read Last 7 Days */
+            read_last_7_days: number;
+        };
+        /** TagList */
+        TagList: {
+            /** Items */
+            items: components["schemas"]["TagOut"][];
+        };
+        /** TagOut */
+        TagOut: {
+            /** Is Public */
+            is_public: boolean;
+            /** Item Count */
+            item_count: number;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+        };
+        /** TagRef */
+        TagRef: {
+            /** Is Public */
+            is_public: boolean;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+        };
+        /** TransitionRequest */
+        TransitionRequest: {
+            to: components["schemas"]["ItemStatus"];
+        };
+        /**
+         * Visibility
+         * @enum {string}
+         */
+        Visibility: "private" | "public";
+        /** VisibilityRequest */
+        VisibilityRequest: {
+            visibility: components["schemas"]["Visibility"];
+        };
+        /** VisibilityResult */
+        VisibilityResult: {
+            /** @description The published record. Null when private. */
+            public: components["schemas"]["PublicItem"] | null;
+            visibility: components["schemas"]["Visibility"];
+        };
     };
     responses: never;
     parameters: never;
@@ -71,6 +1223,450 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_jobs: {
+        parameters: {
+            query?: {
+                state?: components["schemas"]["JobState"][] | null;
+                kind?: components["schemas"]["JobKind"][] | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobPage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    retry_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    consume_magic_link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MagicConsumeRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_digests: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestPage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    preview_digest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DigestPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DigestPreview"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_goals: {
+        parameters: {
+            query?: {
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_goal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoalCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_goal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                goal_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GoalUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    focus_goal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                goal_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalOut"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     healthz: {
         parameters: {
             query?: never;
@@ -87,6 +1683,636 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    list_items: {
+        parameters: {
+            query?: {
+                status?: components["schemas"]["ItemStatus"][] | null;
+                kind?: components["schemas"]["ItemKind"][] | null;
+                tag?: string[] | null;
+                goal_id?: number | null;
+                /** @description Needs goal_id. */
+                min_score?: number | null;
+                visibility?: components["schemas"]["Visibility"] | null;
+                sort?: "captured_desc" | "captured_asc" | "relevance";
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemPage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_item: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_item: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    update_item: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ItemUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_item_events: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventPage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    set_goal_label: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+                goal_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LabelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GoalScore"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_public_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicItem"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    reprocess_item: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_similar_items: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SimilarItems"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    transition_item: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ItemDetail"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    set_item_visibility: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                item_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisibilityRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisibilityResult"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_me: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Me"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_queue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Queue"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
                 };
             };
         };
@@ -114,7 +2340,155 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    search_items: {
+        parameters: {
+            query: {
+                q: string;
+                status?: components["schemas"]["ItemStatus"][] | null;
+                kind?: components["schemas"]["ItemKind"][] | null;
+                tag?: string[] | null;
+                goal_id?: number | null;
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchPage"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    create_overview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OverviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Overview"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    get_stats: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Stats"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    list_tags: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagList"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
             };
         };
     };
