@@ -50,6 +50,20 @@ More detail: [docs/architecture.md](docs/architecture.md), [docs/product.md](doc
 | M5 Publish | Public feed and site search |
 | M6 Ship | Deployment, backups, observability, documentation |
 
+## Development
+
+You need Docker, [uv](https://docs.astral.sh/uv/), Node.js 20.9 or newer and pnpm 10.
+
+```bash
+make setup   # install Python and Node dependencies
+make up      # build and start the stack: web on :3000, API on :8000
+make check   # lint, type check, tests and the API contract check
+```
+
+The stack runs with fake providers and recorded pages by default, so it needs no accounts and no keys. Copy `.env.example` to `.env` to connect a Telegram bot and real providers.
+
+`make help` lists every target.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
