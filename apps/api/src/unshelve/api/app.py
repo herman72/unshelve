@@ -8,6 +8,8 @@ from fastapi.routing import APIRoute
 
 from unshelve import __version__
 from unshelve.api import ops
+from unshelve.api.errors import install_error_handlers
+from unshelve.api.routes import api_router
 from unshelve.config import Settings, get_settings
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.log import configure_logging
@@ -41,5 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         generate_unique_id_function=_operation_id,
     )
+    install_error_handlers(app)
     app.include_router(ops.router, prefix=API_PREFIX)
+    app.include_router(api_router, prefix=API_PREFIX)
     return app
