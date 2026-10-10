@@ -1,26 +1,53 @@
 @import "tailwindcss";
 
+/* Colours are variables, so dark mode changes them in one place. Pairs used for text keep a
+   contrast of at least 4.5:1 on --background and on --surface. */
 :root {
+  color-scheme: light dark;
   --background: #ffffff;
   --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --muted: #52525b; /* secondary text, and the border of form fields */
+  --surface: #f4f4f5; /* cards */
+  --border: #d4d4d8; /* decoration only: never the sole sign of a control */
+  --accent: #1d4ed8; /* links and the focus ring */
+  --warning: #92400e;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+    --muted: #a1a1aa;
+    --surface: #18181b;
+    --border: #3f3f46;
+    --accent: #93c5fd;
+    --warning: #fbbf24;
   }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-warning: var(--warning);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* One focus ring for every control, so keyboard users can always see where they are. It sits
+   in the base layer, so a utility class can still change it on purpose. */
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 }

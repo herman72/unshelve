@@ -14,7 +14,7 @@ async function readStatus(): Promise<Status> {
 export function StatusLine({ ok, children }: { ok: boolean | null; children: React.ReactNode }) {
   const dot = ok === null ? "bg-zinc-400" : ok ? "bg-emerald-500" : "bg-red-500";
   return (
-    <p className="flex items-center gap-2 font-mono text-sm text-zinc-600 dark:text-zinc-400">
+    <p className="flex items-center gap-2 font-mono text-sm text-muted">
       <span aria-hidden className={`inline-block size-2 rounded-full ${dot}`} />
       {children}
     </p>
