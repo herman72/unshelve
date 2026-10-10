@@ -21,6 +21,13 @@ async def test_readyz_reports_an_unreachable_database(client_for: ClientFactory)
         response = await client.get("/api/v1/readyz")
 
     assert response.status_code == 503
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.json() == {
+        "type": "about:blank",
+        "title": "Service Unavailable",
+        "status": 503,
+        "detail": "database is not reachable",
+    }
 
 
 @pytest.mark.db
