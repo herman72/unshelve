@@ -1,0 +1,8 @@
+packages:
+  - apps/web
+  - packages/*
+
+# Dependencies whose install scripts are not needed (pnpm asks otherwise).
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver
