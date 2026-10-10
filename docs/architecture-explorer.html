@@ -1,0 +1,629 @@
+<!doctype html>
+<!--
+  Interactive architecture explorer for Unshelve. Open this file in a browser.
+  It is self-contained except for two web fonts. The data it draws (nodes, edges, flows,
+  services) is at the top of the script; keep it in step with docs/architecture.md.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>html{color-scheme:light}body{margin:0}[hidden]{display:none!important}</style>
+<title>Unshelve Architecture</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a transit map of the system. One line per flow; the map stays put while the
+   panel under it switches between the flow player and one service's fact sheet. */
+:root {
+  --ground: #f1f4f7;
+  --surface: #ffffff;
+  --ink: #101b2d;
+  --muted: #566274;
+  --rule: #d3dae3;
+  --node: #ffffff;
+  --node-service: #e8eef7;
+  --track: #aab4c2;
+  --line-capture: #0a8a84;
+  --line-digest: #b96c00;
+  --line-search: #4f43c9;
+  --line-publish: #c22f48;
+  --line-failure: #55606e;
+  --line: var(--line-capture);
+  --on-line: #ffffff;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0d1420; --surface: #151f30; --ink: #e9eef6; --muted: #9aa8ba; --rule: #283650;
+    --node: #17233a; --node-service: #1e2d4b; --track: #4a5a75;
+    --line-capture: #3cc9c1; --line-digest: #f0a93a; --line-search: #a094ff;
+    --line-publish: #f26a80; --line-failure: #a9b4c2; --on-line: #0d1420;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0d1420; --surface: #151f30; --ink: #e9eef6; --muted: #9aa8ba; --rule: #283650;
+  --node: #17233a; --node-service: #1e2d4b; --track: #4a5a75;
+  --line-capture: #3cc9c1; --line-digest: #f0a93a; --line-search: #a094ff;
+  --line-publish: #f26a80; --line-failure: #a9b4c2; --on-line: #0d1420;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+.page { max-width: 1040px; margin-inline: auto; padding-inline: 20px; padding-block: 28px 56px; display: grid; gap: 22px; }
+[data-flow="capture"] { --line: var(--line-capture); }
+[data-flow="digest"] { --line: var(--line-digest); }
+[data-flow="search"] { --line: var(--line-search); }
+[data-flow="publish"] { --line: var(--line-publish); }
+[data-flow="failure"] { --line: var(--line-failure); }
+
+.masthead { display: grid; gap: 6px; }
+.eyebrow { margin: 0; font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+h1 { margin: 0; font-family: var(--display); font-stretch: 112%; font-weight: 750; font-size: clamp(24px, 4vw, 34px); line-height: 1.12; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { margin: 0; max-width: 66ch; color: var(--muted); }
+
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--line); outline-offset: 2px; }
+
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--rule); }
+.tab { border: 0; background: none; padding: 8px 12px; cursor: pointer; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+.tab .mono { font-family: var(--mono); font-weight: 500; font-size: 13px; }
+
+.lines { display: flex; flex-wrap: wrap; gap: 8px; }
+.line-btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--rule); background: var(--surface); padding: 6px 12px 6px 10px; border-radius: 999px; cursor: pointer; font-weight: 600; font-size: 14px; }
+.line-btn::before { content: ""; width: 18px; height: 6px; border-radius: 3px; background: var(--line); }
+.line-btn[aria-pressed="true"] { background: var(--line); border-color: var(--line); color: var(--on-line); }
+.line-btn[aria-pressed="true"]::before { background: var(--on-line); }
+
+.console { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px 18px; align-items: start; background: var(--surface); border: 1px solid var(--rule); border-left: 6px solid var(--line); border-radius: 6px; padding: 14px 16px; }
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.btn { border: 1px solid var(--rule); background: var(--ground); border-radius: 6px; padding: 7px 11px; cursor: pointer; font-weight: 600; min-width: 40px; }
+.btn:hover { border-color: var(--ink); }
+.btn-play { background: var(--line); border-color: var(--line); color: var(--on-line); min-width: 84px; }
+.speed { font-family: var(--mono); font-size: 13px; }
+.now { min-width: 0; display: grid; gap: 4px; }
+.now-count { font-family: var(--mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.now-title { margin: 0; font-family: var(--display); font-stretch: 108%; font-weight: 700; font-size: 18px; line-height: 1.25; }
+.now-text { margin: 0; max-width: 70ch; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 0; padding: 0; list-style: none; }
+.chip { font-family: var(--mono); font-size: 12px; padding: 2px 7px; border-radius: 4px; border: 1px solid var(--rule); background: var(--ground); }
+
+.map { margin: 0; display: grid; gap: 8px; }
+.map-scroll { overflow-x: auto; background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; }
+#map { display: block; width: 100%; min-width: 760px; height: auto; color: var(--ink); font-family: var(--body); }
+.map figcaption { color: var(--muted); font-size: 13px; max-width: 80ch; }
+
+.node-shape { fill: var(--node); stroke: currentColor; stroke-width: 1.4; }
+.node.service .node-shape { fill: var(--node-service); }
+.node.outside .node-shape { stroke-dasharray: 5 4; }
+.node-fold, .node-lid { fill: none; stroke: currentColor; stroke-width: 1.4; }
+.node-title { fill: currentColor; font-size: 14px; font-weight: 700; }
+.node.service .node-title { font-family: var(--mono); font-weight: 500; }
+.node-sub { fill: var(--muted); font-size: 11.5px; }
+.node[data-tab] { cursor: pointer; }
+.node.is-active .node-shape, .node.is-focus .node-shape { stroke: var(--line); stroke-width: 3; }
+.node.is-down .node-shape { stroke-dasharray: 3 5; }
+.node.is-down .node-title, .node.is-down .node-sub { opacity: 0.45; }
+.node-cross { stroke: var(--line-publish); stroke-width: 3; stroke-linecap: round; }
+.edge-track { fill: none; stroke: var(--track); stroke-width: 2; stroke-linejoin: round; }
+.edge.is-visited .edge-track { stroke: var(--line); opacity: 0.45; stroke-width: 3; }
+.edge.is-active .edge-track { stroke: var(--line); opacity: 1; stroke-width: 4; }
+.edge-label { fill: var(--muted); font-family: var(--mono); font-size: 11px; }
+.edge.is-active .edge-label { fill: currentColor; }
+.packet { fill: var(--line); stroke: var(--surface); stroke-width: 3; }
+.is-dim { opacity: 0.28; }
+
+.steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; counter-reset: step; }
+.step { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: baseline; width: 100%; text-align: left; border: 0; background: none; padding: 7px 8px; border-radius: 6px; cursor: pointer; }
+.step::before { counter-increment: step; content: counter(step); font-family: var(--mono); font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.step:hover { background: var(--surface); }
+.step[aria-current="step"] { background: var(--surface); box-shadow: inset 4px 0 0 var(--line); }
+.step-title { font-weight: 650; }
+.step-text { color: var(--muted); }
+.section-label { margin: 0 0 6px; font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+
+.sheet { display: grid; gap: 18px; }
+.sheet-head { display: grid; gap: 6px; border-left: 6px solid var(--ink); padding-left: 14px; }
+.sheet-head h2 { margin: 0; font-family: var(--display); font-stretch: 110%; font-weight: 750; font-size: 24px; line-height: 1.15; }
+.sheet-head p { margin: 0; max-width: 66ch; }
+.cmd { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px 28px; }
+.fact { min-width: 0; }
+.fact ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.fact p { margin: 0; }
+.fact.never li::marker { content: "✕  "; color: var(--line-publish); }
+.sheet .lines { margin-top: 2px; }
+
+@media (max-width: 640px) {
+  .console { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}
+</style>
+</head>
+<body>
+<div class="page" id="page" data-flow="capture">
+  <header class="masthead">
+    <p class="eyebrow">Unshelve · system design</p>
+    <h1>How a saved link becomes something you read</h1>
+    <p class="lede">Five processes, one database. Pick a flow and press Play to follow the data through the system, or open a service to see what it does, what it must never do, and what happens when it stops.</p>
+  </header>
+
+  <nav class="tabs" id="tabs" role="tablist" aria-label="Views"></nav>
+
+  <section id="player" aria-label="Flow player" style="display:grid;gap:14px">
+    <div class="lines" id="lines" role="group" aria-label="Flows"></div>
+    <div class="console">
+      <div class="transport">
+        <button class="btn" id="prev" type="button" aria-label="Previous step">‹</button>
+        <button class="btn btn-play" id="play" type="button">Play</button>
+        <button class="btn" id="next" type="button" aria-label="Next step">›</button>
+        <button class="btn speed" id="speed" type="button" aria-label="Playback speed">1×</button>
+      </div>
+      <div class="now" aria-live="polite">
+        <span class="now-count" id="now-count"></span>
+        <h2 class="now-title" id="now-title"></h2>
+        <p class="now-text" id="now-text"></p>
+        <ul class="chips" id="now-chips"></ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="sheet" id="sheet-head-wrap" hidden>
+    <div class="sheet-head">
+      <span class="cmd" id="sheet-cmd"></span>
+      <h2 id="sheet-name"></h2>
+      <p id="sheet-one"></p>
+    </div>
+  </section>
+
+  <figure class="map">
+    <div class="map-scroll">
+      <svg id="map" viewBox="0 0 970 606" role="img" aria-label="Map of the Unshelve system: you and Telegram on the left, the bot and the worker next to them, Postgres in the centre, the API and the web app on the right, and the public feed along the bottom."></svg>
+    </div>
+    <figcaption id="map-caption">Solid boxes are Unshelve's own processes. Dashed boxes are outside the system. The moving dot is the data of the current step.</figcaption>
+  </figure>
+
+  <section id="steps-wrap">
+    <p class="section-label">All steps of this flow</p>
+    <ol class="steps" id="steps"></ol>
+  </section>
+
+  <section class="sheet" id="sheet" hidden>
+    <div class="facts" id="facts"></div>
+    <div>
+      <p class="section-label">Flows that pass through here</p>
+      <div class="lines" id="sheet-flows"></div>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const NS = "http://www.w3.org/2000/svg";
+  const $ = (id) => document.getElementById(id);
+  const svgEl = (name, attrs, parent) => {
+    const node = document.createElementNS(NS, name);
+    for (const key in attrs) node.setAttribute(key, attrs[key]);
+    if (parent) parent.appendChild(node);
+    return node;
+  };
+  const htmlEl = (name, className, text) => {
+    const node = document.createElement(name);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+
+  // ---- The system ------------------------------------------------------------------------
+  const NODES = [
+    { id: "phone", x: 30, y: 30, kind: "person", title: "You", sub: "Telegram app" },
+    { id: "telegram", x: 30, y: 160, kind: "outside", title: "Telegram", sub: "keeps updates 24 h" },
+    { id: "pages", x: 30, y: 300, kind: "outside", title: "The web", sub: "articles, videos, posts" },
+    { id: "bot", x: 280, y: 160, kind: "service", title: "bot", sub: "long polling", tab: "bot" },
+    { id: "worker", x: 280, y: 400, kind: "service", title: "worker", sub: "runs jobs", tab: "worker" },
+    { id: "browser", x: 530, y: 30, kind: "person", title: "You", sub: "browser" },
+    { id: "db", x: 530, y: 260, w: 170, h: 110, kind: "store", title: "Postgres", sub: "data · job queue · vectors", tab: "db" },
+    { id: "providers", x: 530, y: 400, w: 170, kind: "outside", title: "Model providers", sub: "LLM · embeddings" },
+    { id: "web", x: 780, y: 30, kind: "service", title: "web app", sub: "Next.js", tab: "web" },
+    { id: "api", x: 780, y: 160, kind: "service", title: "api", sub: "FastAPI", tab: "api" },
+    { id: "feed", x: 280, y: 520, kind: "file", title: "feed.json", sub: "public items only", tab: "public" },
+    { id: "site", x: 530, y: 520, kind: "outside", title: "Your site", sub: "search in the browser", tab: "public" },
+    { id: "visitor", x: 780, y: 520, kind: "person", title: "Visitor", sub: "" },
+  ];
+  // pts run from the first node to the second. label: [text, x, y, anchor]
+  const EDGES = [
+    { id: "phone-telegram", pts: [[110, 86], [110, 160]], label: ["posts", 120, 128, "start"] },
+    { id: "telegram-bot", pts: [[190, 188], [280, 188]], label: ["polls", 235, 180, "middle"] },
+    { id: "bot-db", pts: [[440, 188], [590, 188], [590, 260]], label: ["captures + jobs", 512, 180, "middle"] },
+    { id: "db-worker", pts: [[530, 315], [420, 315], [420, 400]], label: ["jobs · results", 476, 307, "middle"] },
+    { id: "worker-pages", pts: [[280, 414], [235, 414], [235, 328], [190, 328]], label: ["fetch", 227, 376, "end"] },
+    { id: "worker-telegram", pts: [[300, 400], [300, 262], [110, 262], [110, 216]], label: ["weekly digest", 205, 254, "middle"] },
+    { id: "worker-providers", pts: [[440, 428], [530, 428]], label: ["model calls", 485, 420, "middle"] },
+    { id: "worker-feed", pts: [[360, 456], [360, 520]], label: ["publish", 370, 492, "start"] },
+    { id: "browser-web", pts: [[690, 58], [780, 58]], label: ["HTTPS", 735, 50, "middle"] },
+    { id: "web-api", pts: [[860, 86], [860, 160]], label: ["/api proxy", 870, 128, "start"] },
+    { id: "api-db", pts: [[780, 188], [740, 188], [740, 300], [700, 300]], label: ["SQL", 750, 250, "start"] },
+    { id: "api-providers", pts: [[860, 216], [860, 428], [700, 428]], label: ["model calls", 870, 330, "start"] },
+    { id: "feed-site", pts: [[440, 548], [530, 548]], label: ["fetched", 485, 540, "middle"] },
+    { id: "site-visitor", pts: [[690, 548], [780, 548]], label: ["pages", 735, 540, "middle"] },
+  ];
+
+  // dir: 1 follows pts, -1 goes back. bounce: there and back (a request and its answer).
+  const FLOWS = [
+    { id: "capture", name: "Save an item", steps: [
+      { edge: "phone-telegram", dir: 1, title: "You post a link", text: "You send a link, a post or a screenshot to your private channel. Your habit does not change.", chips: [] },
+      { edge: "telegram-bot", dir: 1, title: "The bot collects it", text: "The bot asks Telegram for new posts (long polling). No inbound port is open, so this works on a laptop or behind a home router.", chips: ["channel_post"] },
+      { edge: "bot-db", dir: 1, title: "Stored once, first job queued", text: "One transaction writes the capture and the first job. A unique key on chat, message and edit makes a repeated delivery a no-op.", chips: ["CaptureEnvelope", "captures", "jobs"] },
+      { edge: "db-worker", dir: 1, title: "The worker claims the job", text: "It takes the job with a lease and resolves the capture to an item. Saving the same thing again raises a counter. It does not create a second item.", chips: ["ingest_capture", "items", "item_keys"] },
+      { edge: "worker-pages", dir: 1, bounce: true, title: "Fetch the page", text: "The Fetcher reads the page. It refuses private addresses and oversized bodies. A dead link is not fatal: the item continues with the text you saved.", chips: ["fetch_item", "SSRF guard"] },
+      { edge: "db-worker", dir: -1, title: "Text stored, next job queued", text: "The result and the next job are written in the same transaction. A crash cannot lose the step.", chips: ["item_contents", "jobs"] },
+      { edge: "worker-providers", dir: 1, bounce: true, title: "Summarise", text: "A model writes the summary, tags and reading time. It has no tools and a fixed output schema, and it never sees your goals.", chips: ["enrich_item", "llm_calls"] },
+      { edge: "worker-providers", dir: 1, bounce: true, title: "Embed", text: "The item card and the long text become vectors for search.", chips: ["embed_item", "chunks"] },
+      { edge: "worker-providers", dir: 1, bounce: true, title: "Score against your goals", text: "Each goal gets a score from 0 to 3 and a one-sentence reason. You confirm or reject it later, and those labels become the evaluation set.", chips: ["score_item", "item_goals"] },
+      { edge: "db-worker", dir: -1, title: "Ready in your inbox", text: "The item has a summary, tags and scores. Its reading status is still inbox: only you change that.", chips: ["enrich_state = ready"] },
+    ] },
+    { id: "digest", name: "Weekly digest", steps: [
+      { edge: "db-worker", dir: 1, title: "A digest job is due", text: "send_digest becomes runnable once a week. The worker claims it like any other job.", chips: ["send_digest"] },
+      { edge: "db-worker", dir: -1, bounce: true, title: "Pick what to read", text: "A pure function picks unread items for your focus goal within a time budget, plus one random item so your labels are not biased towards what the system already likes.", chips: ["items", "item_goals"] },
+      { edge: "worker-telegram", dir: 1, title: "Send it to your private chat", text: "One digest per week. A unique key on owner and week means a repeated job sends nothing.", chips: ["digests"] },
+      { edge: "phone-telegram", dir: -1, title: "You get a few picks", text: "Each pick shows why it was chosen and how long it takes, with buttons for Reading, Done and Archive.", chips: [] },
+      { edge: "phone-telegram", dir: 1, title: "You tap Reading", text: "The tap goes back to Telegram.", chips: [] },
+      { edge: "telegram-bot", dir: 1, title: "The bot receives the tap", text: "Only your own Telegram user id is accepted. Everyone else is ignored.", chips: ["callback_query"] },
+      { edge: "bot-db", dir: 1, title: "Status and event, together", text: "The status change and an event row are written in one transaction. Nothing is ever deleted, and the event log cannot be edited.", chips: ["items.status", "events"] },
+    ] },
+    { id: "search", name: "Search", steps: [
+      { edge: "browser-web", dir: 1, title: "You ask a question", text: "For example: what do I already have about vector indexes?", chips: [] },
+      { edge: "web-api", dir: 1, title: "Same-origin proxy", text: "The web app forwards /api to the API. The browser talks to one origin, so the session cookie needs no CORS setup.", chips: ["GET /api/v1/search"] },
+      { edge: "api-providers", dir: 1, bounce: true, title: "Embed the query", text: "The question becomes a vector in the same space as the stored items.", chips: ["embed_query"] },
+      { edge: "api-db", dir: 1, bounce: true, title: "Three searches, fused", text: "Full text, trigram and vector search each return ranked items. Reciprocal rank fusion merges the three rankings into one.", chips: ["items.fts", "u_norm()", "chunks", "RRF"] },
+      { edge: "api-providers", dir: 1, bounce: true, title: "Overview with citations", text: "A model answers from the retrieved passages only. Every statement points at the item it came from.", chips: ["POST /search/overview"] },
+      { edge: "web-api", dir: -1, title: "Results come back", text: "Each hit carries its rank in each of the three searches, so you can see why it was found.", chips: [] },
+      { edge: "browser-web", dir: -1, title: "You see what you have", text: "Read and unread items are marked, so you know what is left before you look for more.", chips: [] },
+    ] },
+    { id: "publish", name: "Publish", steps: [
+      { edge: "browser-web", dir: 1, title: "You make an item public", text: "First you see the exact record that visitors will get.", chips: [] },
+      { edge: "web-api", dir: 1, title: "The request reaches the API", text: "Your session is checked. Every route except the health probes needs one.", chips: ["PUT /items/{id}/visibility"] },
+      { edge: "api-db", dir: 1, title: "Visibility and a job", text: "The item becomes public and a publish job is queued, in one transaction.", chips: ["items.visibility", "publish_feed"] },
+      { edge: "db-worker", dir: 1, title: "Read as the publisher role", text: "The job connects with a database role that can read one view, pub.items, and nothing else.", chips: ["unshelve_publisher", "pub.items"] },
+      { edge: "worker-feed", dir: 1, title: "Write feed.json", text: "A static file with public items only. A private item cannot be in it, because the role that builds the file cannot read it.", chips: ["feed.json"] },
+      { edge: "feed-site", dir: 1, title: "Your site fetches the feed", text: "The site keeps working with the last feed when Unshelve is offline.", chips: [] },
+      { edge: "site-visitor", dir: 1, title: "A visitor searches in the browser", text: "No public API exists, so there is nothing to attack and nothing to pay for.", chips: [] },
+    ] },
+    { id: "failure", name: "A worker dies", steps: [
+      { edge: "db-worker", dir: 1, title: "Claim with a lease", text: "The job is running. The lease ends in 60 seconds unless a heartbeat extends it.", chips: ["locked_by", "locked_until", "attempts = 1"] },
+      { node: "worker", down: true, title: "The worker stops", text: "A crash, a deploy, a closed laptop. No heartbeat arrives, and nobody says that the job is finished.", chips: [] },
+      { node: "db", down: true, title: "The lease runs out", text: "The reaper returns the job to pending. Delivery is at-least-once, which is why every handler must be safe to run twice.", chips: ["reap_expired", "state = pending"] },
+      { edge: "db-worker", dir: 1, title: "Claimed again", text: "A worker takes the job a second time. The attempt counter went up, and it is the fencing token.", chips: ["attempts = 2"] },
+      { edge: "db-worker", dir: -1, title: "Complete, as the current holder", text: "complete() succeeds only for the current claim. A late write from the old worker carries attempt 1 and is refused.", chips: ["state = done"] },
+    ] },
+  ];
+
+  const SERVICES = [
+    { id: "bot", name: "bot", cmd: "unshelve bot", one: "Collects every post in your channel and serves your private chat.",
+      does: ["Polls Telegram for channel posts and button taps", "Turns each post into one CaptureEnvelope", "Writes the capture and the first job in one transaction", "Sends you a one-time sign-in link when you ask"],
+      never: ["Fetches a URL", "Calls a model", "Answers anyone but your Telegram user id"],
+      writes: ["captures", "jobs", "items.status", "events", "auth_tokens"],
+      stops: "Telegram keeps undelivered updates for 24 hours. For a longer gap, import a Telegram Desktop export again: import is idempotent, so only the missing posts are added.",
+      flows: ["capture", "digest"] },
+    { id: "worker", name: "worker", cmd: "unshelve worker", one: "Runs every slow or fragile step as a job.",
+      does: ["Claims jobs with a lease and extends it with a heartbeat", "Resolves captures to items, with deduplication", "Fetches, summarises, embeds and scores", "Sends the weekly digest", "Publishes the feed as a restricted role"],
+      never: ["Holds a database transaction across a network call", "Gives fetched text to a model that has tools", "Assumes that a job runs only once"],
+      writes: ["items", "item_keys", "item_contents", "chunks", "item_goals", "llm_calls", "digests"],
+      stops: "Its leases run out and the reaper returns the jobs to the queue. Capture continues, because the bot is a separate process.",
+      flows: ["capture", "digest", "publish", "failure"] },
+    { id: "api", name: "api", cmd: "unshelve api", one: "The HTTP API behind the web app.",
+      does: ["Lists, edits and moves items through their states", "Runs hybrid search and overview answers", "Manages goals and your labels", "Turns a one-time link into a session"],
+      never: ["Serves a public endpoint", "Answers a protected route without a session", "Returns an error that is not a problem document"],
+      writes: ["items", "goals", "item_goals", "events", "sessions", "jobs"],
+      stops: "You cannot open the web app. Capture, enrichment and the digest continue without it.",
+      flows: ["search", "publish"] },
+    { id: "web", name: "web app", cmd: "node apps/web/server.js", one: "The Next.js app you read and search in.",
+      does: ["Shows the inbox, the reading queue, search and goals", "Forwards /api to the API, so the browser sees one origin", "Reads the sign-in token from the URL fragment and posts it"],
+      never: ["Keeps data of its own", "Talks to Postgres", "Sends the sign-in token in a GET request"],
+      writes: ["nothing: all state is in Postgres"],
+      stops: "The Telegram side still works: capture, the digest and the status buttons.",
+      flows: ["search", "publish"] },
+    { id: "db", name: "Postgres", cmd: "pgvector/pgvector:pg17", one: "One database for the data, the job queue, full-text search and vectors.",
+      does: ["Keeps every capture as it arrived", "Is the job queue: SKIP LOCKED to claim, leases to recover", "Normalises mixed English and Persian text with u_norm()", "Stores vectors with their embedding set, so a model change is a backfill", "Exposes public items through one view in the pub schema"],
+      never: ["Lets the publisher role read a base table", "Accepts a running job without a lease", "Allows an event to be changed or deleted"],
+      writes: ["19 tables", "CHECK constraints", "u_norm()", "pub.items"],
+      stops: "Everything waits. Committed data is safe. Backups and a restore drill arrive in milestone M6.",
+      flows: ["capture", "search", "failure"] },
+    { id: "public", name: "public feed", cmd: "job: publish_feed", one: "What visitors can see: a static file built by a role that cannot read private data.",
+      does: ["Reads pub.items as unshelve_publisher", "Writes feed.json and pushes it to your site", "Lets your site search the feed in the browser"],
+      never: ["Offers a public API", "Contains a private note, a goal or a non-public tag", "Runs a model for a visitor"],
+      writes: ["feed.json"],
+      stops: "The last feed stays online. New public items wait for the next run.",
+      flows: ["publish"] },
+  ];
+  const TABS = [{ id: "overview", label: "Overview" }].concat(SERVICES.map((s) => ({ id: s.id, label: s.name, mono: s.id !== "public" && s.id !== "db" })));
+
+  // ---- Draw the map ----------------------------------------------------------------------
+  const map = $("map");
+  const edgeLayer = svgEl("g", {}, map);
+  const nodeLayer = svgEl("g", {}, map);
+  const edgeById = {};
+  const nodeById = {};
+
+  for (const edge of EDGES) {
+    const group = svgEl("g", { class: "edge" }, edgeLayer);
+    const d = "M" + edge.pts.map((p) => p.join(",")).join(" L");
+    const path = svgEl("path", { class: "edge-track", d }, group);
+    const [text, x, y, anchor] = edge.label;
+    svgEl("text", { class: "edge-label", x, y, "text-anchor": anchor }, group).textContent = text;
+    const [a, b] = edge.id.split("-");
+    edgeById[edge.id] = { group, path, a, b };
+  }
+
+  for (const node of NODES) {
+    const w = node.w || 160;
+    const h = node.h || 56;
+    const group = svgEl("g", { class: "node " + node.kind }, nodeLayer);
+    if (node.kind === "store") {
+      const ry = 11;
+      svgEl("path", { class: "node-shape", d: `M${node.x},${node.y + ry} A${w / 2},${ry} 0 0 1 ${node.x + w},${node.y + ry} V${node.y + h - ry} A${w / 2},${ry} 0 0 1 ${node.x},${node.y + h - ry} Z` }, group);
+      svgEl("path", { class: "node-lid", d: `M${node.x},${node.y + ry} A${w / 2},${ry} 0 0 0 ${node.x + w},${node.y + ry}` }, group);
+    } else if (node.kind === "file") {
+      const f = 14;
+      svgEl("path", { class: "node-shape", d: `M${node.x},${node.y} H${node.x + w - f} L${node.x + w},${node.y + f} V${node.y + h} H${node.x} Z` }, group);
+      svgEl("path", { class: "node-fold", d: `M${node.x + w - f},${node.y} V${node.y + f} H${node.x + w}` }, group);
+    } else {
+      svgEl("rect", { class: "node-shape", x: node.x, y: node.y, width: w, height: h, rx: node.kind === "person" ? h / 2 : 7 }, group);
+    }
+    const cx = node.x + w / 2;
+    const cy = node.y + h / 2 + (node.kind === "store" ? 8 : 0);
+    svgEl("text", { class: "node-title", x: cx, y: node.sub ? cy - 3 : cy + 5, "text-anchor": "middle" }, group).textContent = node.title;
+    if (node.sub) svgEl("text", { class: "node-sub", x: cx, y: cy + 14, "text-anchor": "middle" }, group).textContent = node.sub;
+    const cross = svgEl("g", { class: "node-cross-wrap" }, group);
+    svgEl("line", { class: "node-cross", x1: node.x + w - 22, y1: node.y + 10, x2: node.x + w - 10, y2: node.y + 22 }, cross);
+    svgEl("line", { class: "node-cross", x1: node.x + w - 10, y1: node.y + 10, x2: node.x + w - 22, y2: node.y + 22 }, cross);
+    cross.setAttribute("visibility", "hidden");
+    if (node.tab) {
+      group.setAttribute("data-tab", node.tab);
+      group.setAttribute("tabindex", "0");
+      group.setAttribute("role", "button");
+      group.setAttribute("aria-label", "Open " + node.title);
+      group.addEventListener("click", () => selectTab(node.tab));
+      group.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectTab(node.tab); }
+      });
+    }
+    nodeById[node.id] = { group, cross, node, cx: node.x + w / 2, cy: node.y + h / 2 };
+  }
+  const packet = svgEl("circle", { class: "packet", r: 8, cx: 0, cy: 0 }, map);
+
+  // ---- State -----------------------------------------------------------------------------
+  const page = $("page");
+  const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const SPEEDS = [1, 2, 0.5];
+  const state = { tab: "overview", flow: FLOWS[0], step: 0, playing: false, speed: 1 };
+  let frame = 0;
+  let timer = 0;
+
+  const flowById = (id) => FLOWS.find((f) => f.id === id);
+
+  function stopMotion() {
+    cancelAnimationFrame(frame);
+    clearTimeout(timer);
+  }
+
+  function pointOn(edge, t) {
+    const length = edge.path.getTotalLength();
+    return edge.path.getPointAtLength(Math.max(0, Math.min(1, t)) * length);
+  }
+
+  function placePacket(step, t) {
+    if (step.edge) {
+      const point = pointOn(edgeById[step.edge], step.dir === 1 ? t : 1 - t);
+      packet.setAttribute("cx", point.x);
+      packet.setAttribute("cy", point.y);
+    } else {
+      const target = nodeById[step.node];
+      packet.setAttribute("cx", target.cx);
+      packet.setAttribute("cy", target.cy - 40);
+    }
+  }
+
+  function paintMap() {
+    const flowMode = state.tab === "overview";
+    const step = state.flow.steps[state.step];
+    for (const id in edgeById) {
+      const edge = edgeById[id];
+      const visited = flowMode && state.flow.steps.slice(0, state.step).some((s) => s.edge === id);
+      const active = flowMode && step.edge === id;
+      const near = !flowMode && [edge.a, edge.b].some((n) => nodeById[n].node.tab === state.tab);
+      edge.group.setAttribute("class", "edge" + (active ? " is-active" : visited ? " is-visited" : "") + (!flowMode && !near ? " is-dim" : ""));
+    }
+    let workerDown = false;
+    if (flowMode && state.flow.id === "failure") workerDown = state.step === 1 || state.step === 2;
+    for (const id in nodeById) {
+      const entry = nodeById[id];
+      const onEdge = flowMode && step.edge && (edgeById[step.edge].a === id || edgeById[step.edge].b === id);
+      const onNode = flowMode && step.node === id;
+      const focus = !flowMode && entry.node.tab === state.tab;
+      const neighbour = !flowMode && Object.keys(edgeById).some((key) => {
+        const edge = edgeById[key];
+        const other = edge.a === id ? edge.b : edge.b === id ? edge.a : null;
+        return other && nodeById[other].node.tab === state.tab;
+      });
+      const down = id === "worker" && workerDown;
+      entry.group.setAttribute("class", "node " + entry.node.kind + (onEdge || onNode ? " is-active" : "") + (focus ? " is-focus" : "") + (down ? " is-down" : "") + (!flowMode && !focus && !neighbour ? " is-dim" : ""));
+      entry.cross.setAttribute("visibility", down ? "visible" : "hidden");
+    }
+    packet.setAttribute("visibility", flowMode ? "visible" : "hidden");
+  }
+
+  function paintNow() {
+    const steps = state.flow.steps;
+    const step = steps[state.step];
+    $("now-count").textContent = state.flow.name + " · step " + (state.step + 1) + " of " + steps.length;
+    $("now-title").textContent = step.title;
+    $("now-text").textContent = step.text;
+    const chips = $("now-chips");
+    chips.replaceChildren(...step.chips.map((c) => htmlEl("li", "chip", c)));
+    const atEnd = state.step === steps.length - 1;
+    $("play").textContent = state.playing ? "Pause" : atEnd ? "Replay" : "Play";
+    $("prev").disabled = state.step === 0;
+    $("next").disabled = atEnd;
+    document.querySelectorAll("#steps .step").forEach((button, index) => {
+      if (index === state.step) button.setAttribute("aria-current", "step");
+      else button.removeAttribute("aria-current");
+    });
+  }
+
+  function showStep(index, animate, onDone) {
+    stopMotion();
+    state.step = index;
+    const step = state.flow.steps[index];
+    paintMap();
+    paintNow();
+    const finish = () => { if (onDone) onDone(); };
+    if (!animate || reducedMotion || !step.edge) {
+      placePacket(step, step.bounce ? 0 : animate ? 1 : 0);
+      if (animate) timer = setTimeout(finish, 900 / state.speed);
+      return;
+    }
+    const duration = (step.bounce ? 1900 : 1200) / state.speed;
+    const start = performance.now();
+    const tick = (now) => {
+      const p = Math.min(1, (now - start) / duration);
+      const eased = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      const t = step.bounce ? 1 - Math.abs(1 - 2 * eased) : eased;
+      placePacket(step, t);
+      if (p < 1) frame = requestAnimationFrame(tick);
+      else finish();
+    };
+    frame = requestAnimationFrame(tick);
+  }
+
+  function playFrom(index) {
+    state.playing = true;
+    showStep(index, true, () => {
+      if (!state.playing) return;
+      if (state.step >= state.flow.steps.length - 1) { state.playing = false; paintNow(); return; }
+      timer = setTimeout(() => playFrom(state.step + 1), 1500 / state.speed);
+    });
+  }
+
+  function pause() {
+    state.playing = false;
+    stopMotion();
+    paintNow();
+  }
+
+  function selectFlow(id, autoplay) {
+    pause();
+    state.flow = flowById(id);
+    state.step = 0;
+    page.setAttribute("data-flow", id);
+    document.querySelectorAll("#lines .line-btn").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.flow === id)));
+    const list = $("steps");
+    list.replaceChildren(...state.flow.steps.map((step, index) => {
+      const item = htmlEl("li");
+      const button = htmlEl("button", "step");
+      button.type = "button";
+      const body = htmlEl("span");
+      body.append(htmlEl("span", "step-title", step.title + ". "), htmlEl("span", "step-text", step.text));
+      button.append(body);
+      button.addEventListener("click", () => { pause(); showStep(index, true); });
+      item.append(button);
+      return item;
+    }));
+    if (autoplay) playFrom(0);
+    else showStep(0, false);
+  }
+
+  function selectTab(id) {
+    pause();
+    state.tab = id;
+    const flowMode = id === "overview";
+    document.querySelectorAll("#tabs .tab").forEach((t) => t.setAttribute("aria-selected", String(t.dataset.tab === id)));
+    $("player").hidden = !flowMode;
+    $("steps-wrap").hidden = !flowMode;
+    $("sheet").hidden = flowMode;
+    $("sheet-head-wrap").hidden = flowMode;
+    $("map-caption").textContent = flowMode
+      ? "Solid boxes are Unshelve's own processes. Dashed boxes are outside the system. The moving dot is the data of the current step."
+      : "This service and the parts it talks to are highlighted. Select another box on the map to open it.";
+    if (!flowMode) paintSheet(SERVICES.find((s) => s.id === id));
+    paintMap();
+    try { history.replaceState(null, "", "#" + id); } catch (error) { /* the hash is a convenience */ }
+  }
+
+  function factBlock(label, items, className) {
+    const block = htmlEl("div", "fact" + (className ? " " + className : ""));
+    block.append(htmlEl("p", "section-label", label));
+    const list = htmlEl("ul");
+    list.append(...items.map((text) => htmlEl("li", "", text)));
+    block.append(list);
+    return block;
+  }
+
+  function paintSheet(service) {
+    $("sheet-cmd").textContent = service.cmd;
+    $("sheet-name").textContent = service.name;
+    $("sheet-one").textContent = service.one;
+    const stops = htmlEl("div", "fact");
+    stops.append(htmlEl("p", "section-label", "If it stops"), htmlEl("p", "", service.stops));
+    const writes = htmlEl("div", "fact");
+    writes.append(htmlEl("p", "section-label", "Writes"));
+    const chips = htmlEl("ul", "chips");
+    chips.append(...service.writes.map((w) => htmlEl("li", "chip", w)));
+    writes.append(chips);
+    $("facts").replaceChildren(factBlock("Does", service.does), factBlock("Never", service.never, "never"), writes, stops);
+    $("sheet-flows").replaceChildren(...service.flows.map((id) => {
+      const flow = flowById(id);
+      const button = htmlEl("button", "line-btn", "Play: " + flow.name);
+      button.type = "button";
+      button.setAttribute("data-flow", id);
+      button.setAttribute("aria-pressed", "false");
+      button.addEventListener("click", () => { selectTab("overview"); selectFlow(id, true); });
+      return button;
+    }));
+  }
+
+  // ---- Controls --------------------------------------------------------------------------
+  $("tabs").append(...TABS.map((tab) => {
+    const button = htmlEl("button", "tab");
+    button.type = "button";
+    button.setAttribute("role", "tab");
+    button.dataset.tab = tab.id;
+    button.append(htmlEl("span", tab.mono ? "mono" : "", tab.label));
+    button.addEventListener("click", () => selectTab(tab.id));
+    return button;
+  }));
+  $("lines").append(...FLOWS.map((flow) => {
+    const button = htmlEl("button", "line-btn", flow.name);
+    button.type = "button";
+    button.dataset.flow = flow.id;
+    button.setAttribute("data-flow", flow.id);
+    button.addEventListener("click", () => selectFlow(flow.id, false));
+    return button;
+  }));
+  $("play").addEventListener("click", () => {
+    if (state.playing) { pause(); return; }
+    const atEnd = state.step === state.flow.steps.length - 1;
+    playFrom(atEnd ? 0 : state.step);
+  });
+  $("prev").addEventListener("click", () => { pause(); showStep(Math.max(0, state.step - 1), true); });
+  $("next").addEventListener("click", () => { pause(); showStep(Math.min(state.flow.steps.length - 1, state.step + 1), true); });
+  $("speed").addEventListener("click", () => {
+    state.speed = SPEEDS[(SPEEDS.indexOf(state.speed) + 1) % SPEEDS.length];
+    $("speed").textContent = state.speed + "×";
+  });
+
+  selectFlow("capture", false);
+  const initial = (location.hash || "").slice(1);
+  selectTab(TABS.some((t) => t.id === initial) ? initial : "overview");
+})();
+</script>
+</body>
+</html>
