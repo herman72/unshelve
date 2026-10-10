@@ -1,0 +1,77 @@
+{
+  "components": {
+    "schemas": {
+      "Health": {
+        "properties": {
+          "status": {
+            "const": "ok",
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "default": "0.1.0",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "title": "Health",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Unshelve",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/healthz": {
+      "get": {
+        "description": "The process is up. Checks nothing else, so a database outage does not restart the API.",
+        "operationId": "healthz",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Healthz",
+        "tags": [
+          "ops"
+        ]
+      }
+    },
+    "/api/v1/readyz": {
+      "get": {
+        "description": "The process can serve requests: the database answers.",
+        "operationId": "readyz",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Readyz",
+        "tags": [
+          "ops"
+        ]
+      }
+    }
+  }
+}
