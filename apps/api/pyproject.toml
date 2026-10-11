@@ -83,4 +83,5 @@ addopts = "-ra --strict-markers --strict-config"
 markers = [
   "db: needs a running Postgres (make db)",
   "live: needs real credentials; never runs in CI",
+  "slow: waits for a real timeout (about 2 s)",
 ]
