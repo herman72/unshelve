@@ -106,21 +106,26 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
         item = await _item_waiting_for(session, payload.item_id, EnrichState.PENDING)
         if item is None:
             return
-        capture = (
-            await session.execute(
-                sa.select(Capture).where(Capture.item_id == item.id).order_by(Capture.id).limit(1)
+        # An item of an album has one capture for each photo. The first versions only: an edit
+        # of a message is a capture too, and it does not belong in the text a second time.
+        captures = (
+            (
+                await session.execute(
+                    sa.select(Capture)
+                    .where(Capture.item_id == item.id, Capture.edit_seq == 0)
+                    .order_by(Capture.message_id, Capture.id)
+                )
             )
-        ).scalar_one_or_none()
+            .scalars()
+            .all()
+        )
 
+    forwarded = next((c.forward_origin for c in captures if c.forward_origin), None)
     source = SourceRef(
         url=item.canonical_url,
-        text=capture.text if capture else "",
-        media=[MediaRef.model_validate(media) for media in capture.media] if capture else [],
-        forward_origin=(
-            ForwardOrigin.model_validate(capture.forward_origin)
-            if capture and capture.forward_origin
-            else None
-        ),
+        text="\n\n".join(c.text for c in captures if c.text),
+        media=[MediaRef.model_validate(media) for c in captures for media in c.media],
+        forward_origin=ForwardOrigin.model_validate(forwarded) if forwarded else None,
     )
     # For now, one extractor that returns the saved text itself. It does not open the link, so
     # an item with a link is marked as partial. M2 chooses among real extractors here.
@@ -189,15 +194,27 @@ async def enrich_item(ctx: JobContext, payload: EnrichItemPayload) -> None:
     if text is None:
         raise Permanent(f"item {item.id} has no text to enrich")
 
-    result = await services.llm.generate(
-        task="enrich_item",
-        prompt_version=PROMPT_VERSION,
-        system=SYSTEM_PROMPT,
-        parts=[TextPart(text=text[:MAX_MODEL_INPUT_CHARS])],
-        schema=Card,
-        max_output_tokens=1024,
-    )
-    card = result.value
+    if text.strip():
+        result = await services.llm.generate(
+            task="enrich_item",
+            prompt_version=PROMPT_VERSION,
+            system=SYSTEM_PROMPT,
+            parts=[TextPart(text=text[:MAX_MODEL_INPUT_CHARS])],
+            schema=Card,
+            max_output_tokens=1024,
+        )
+        card = result.value
+        written: dict[str, Any] = {
+            # A title that the source gave is kept. The model's title fills an empty one.
+            "title": sa.func.coalesce(Item.title, card.title[:MAX_TITLE_LENGTH]),
+            "summary": card.summary,
+            "key_points": card.key_points,
+            "est_minutes": reading_minutes(text),
+        }
+    else:
+        # Photos without a caption have no text. A model that gets no text invents some, so
+        # it is not asked. The item keeps an empty card until a later step reads the photos.
+        written = {}
 
     async with services.sessions() as session:
         moved = await _advance(
@@ -205,12 +222,8 @@ async def enrich_item(ctx: JobContext, payload: EnrichItemPayload) -> None:
             item.id,
             start=EnrichState.FETCHED,
             end=EnrichState.ENRICHED,
-            # A title that the source gave is kept. The model's title fills an empty one.
-            title=sa.func.coalesce(Item.title, card.title[:MAX_TITLE_LENGTH]),
-            summary=card.summary,
-            key_points=card.key_points,
-            est_minutes=reading_minutes(text),
             enrich_version=ENRICH_VERSION,
+            **written,
         )
         if moved:
             await queue.enqueue(
