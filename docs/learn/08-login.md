@@ -265,4 +265,4 @@ Yes, the second request still waits. The two requests want to change the same ro
 - [URI fragment](https://developer.mozilla.org/en-US/docs/Web/URI/Reference/Fragment), MDN. It says that the fragment is not sent to the server.
 - [Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html), OWASP. A list of the rules that a good session follows.
 
-Previous: [7. Stacked pull requests with git](07-stacked-pull-requests.md) · Back to the [list of notes](README.md)
+Previous: [7. Stacked pull requests with git](07-stacked-pull-requests.md) · Next: [9. The walking skeleton](09-walking-skeleton.md)

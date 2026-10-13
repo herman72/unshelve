@@ -74,6 +74,8 @@ docker compose exec api unshelve auth link
 
 Open the link that it prints. It works once, for 5 minutes. [How the sign-in works](docs/learn/08-login.md) explains each step.
 
+To save your first item and see the worker finish it, follow "Try it yourself" in [the walking skeleton note](docs/learn/09-walking-skeleton.md#try-it-yourself).
+
 `make help` lists every target.
 
 ## Contributing
