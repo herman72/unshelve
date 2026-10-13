@@ -211,6 +211,21 @@ async def test_the_model_gets_at_most_the_start_of_a_long_text(services: Service
     assert len(llm.calls[0].text) <= steps.MAX_MODEL_INPUT_CHARS
 
 
+async def test_an_item_without_text_is_not_sent_to_the_model(services: Services) -> None:
+    llm = FakeLLM()
+    services = dataclasses.replace(services, llm=llm)
+    item_id = await _save(services.sessions, text="", url=None)
+    worker = _worker(services)
+
+    while await worker.run_one():
+        pass
+
+    item = await _item(services.sessions, item_id)
+    assert llm.calls == []
+    assert item.enrich_state is EnrichState.READY
+    assert (item.title, item.summary, item.key_points, item.est_minutes) == (None, None, [], None)
+
+
 async def test_embed_stores_one_vector_and_the_item_is_ready(services: Services) -> None:
     item_id = await _save(services.sessions)
     worker = _worker(services)
