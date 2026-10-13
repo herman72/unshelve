@@ -152,6 +152,10 @@ def _stop(message: str) -> typer.Exit:
     return typer.Exit(code=1)
 
 
+def _posts(number: int) -> str:
+    return f"{number} post" if number == 1 else f"{number} posts"
+
+
 async def _import(
     database_url: str,
     owner_telegram_id: int,
@@ -237,7 +241,7 @@ def import_export(
         _import(settings.database_url, settings.owner_telegram_id, envelopes, dry_run=dry_run)
     )
 
-    typer.echo(f'Export of "{chat.title}": {len(messages)} posts, into the chat {chat_id}.')
+    typer.echo(f'Export of "{chat.title}": {_posts(len(messages))}, into the chat {chat_id}.')
     if messages:
         first, last = messages[0].sent_at, messages[-1].sent_at
         typer.echo(
@@ -250,10 +254,14 @@ def import_export(
     scope = " (in the whole export)" if since is not None or limit is not None else ""
     for kind, number in sorted(chat.left_out.items()):
         typer.echo(f"Not imported{scope}: {number} x {kind}.")
+    one_new, one_repeat = count.stored == 1, count.repeats == 1
     if dry_run:
         typer.echo(
-            f"Dry run: {count.stored} posts are new, {count.repeats} are stored already. "
-            "Nothing was changed."
+            f"Dry run: {_posts(count.stored)} {'is' if one_new else 'are'} new, "
+            f"{count.repeats} {'is' if one_repeat else 'are'} stored already. Nothing was changed."
         )
     else:
-        typer.echo(f"Stored {count.stored} new posts. {count.repeats} were stored already.")
+        typer.echo(
+            f"Stored {count.stored} new {'post' if one_new else 'posts'}. "
+            f"{count.repeats} {'was' if one_repeat else 'were'} stored already."
+        )

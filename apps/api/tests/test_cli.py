@@ -279,6 +279,27 @@ def test_import_keeps_an_album_that_the_limit_cut(
     ]
 
 
+def test_import_counts_one_post_as_one_post(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    options = (MADE_UP, "--timezone", "Europe/Helsinki")
+
+    one = _import(monkeypatch, tmp_path, private_database_url, *options, "--limit", "1")
+    two = _import(
+        monkeypatch, tmp_path, private_database_url, *options, "--limit", "2", "--dry-run"
+    )
+    again = _import(monkeypatch, tmp_path, private_database_url, *options, "--limit", "1")
+
+    assert one.stdout.splitlines()[0] == (
+        'Export of "Unshelve test": 1 post, into the chat -1001234567890.'
+    )
+    assert one.stdout.splitlines()[-1] == "Stored 1 new post. 0 were stored already."
+    assert two.stdout.splitlines()[-1] == (
+        "Dry run: 1 post is new, 1 is stored already. Nothing was changed."
+    )
+    assert again.stdout.splitlines()[-1] == "Stored 0 new posts. 1 was stored already."
+
+
 def test_import_takes_the_chat_from_an_option(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
 ) -> None:
