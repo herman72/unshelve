@@ -64,6 +64,7 @@ async def enqueue(
     owner_id: int | None = None,
     dedupe_key: str | None = None,
     run_after: datetime | None = None,
+    delay: timedelta | None = None,
     priority: int = 0,
     max_attempts: int = 5,
 ) -> int | None:
@@ -71,7 +72,10 @@ async def enqueue(
 
     "The same work" is a pending job with the same ``kind`` and ``dedupe_key``. A job that is
     running does not count: by the time it finishes, the data may have changed again.
+
+    ``delay`` moves the start of the job: no worker takes it before that time has passed.
     """
+    starts_at = _now(run_after) if delay is None else _now(run_after) + delay
     statement = (
         postgresql.insert(Job)
         .values(
@@ -79,7 +83,7 @@ async def enqueue(
             kind=kind,
             payload=payload.model_dump(mode="json"),
             dedupe_key=dedupe_key,
-            run_after=_now(run_after),
+            run_after=starts_at,
             priority=priority,
             max_attempts=max_attempts,
         )
