@@ -11,6 +11,8 @@ This document describes the shape of the system. The reasons behind each choice 
 
 The explorer, the draw.io overview page and the diagram below use the same components and the same names. When the system changes, change all three.
 
+For a slower explanation of each part, with examples and exercises, read the [learning notes](learn/README.md).
+
 ## Components
 
 ```mermaid
