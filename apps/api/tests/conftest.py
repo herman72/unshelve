@@ -67,15 +67,25 @@ async def db(engine: AsyncEngine) -> AsyncGenerator[AsyncSession]:
 
 
 @pytest.fixture
-async def committed_db(template_db: str) -> AsyncGenerator[async_sessionmaker[AsyncSession]]:
-    """A private database for tests that need real commits on several connections."""
+def private_database_url(template_db: str) -> Generator[str]:
+    """The URL of a database that one test owns, for work that is really committed."""
     name = unique_name("unshelve_c")
-    engine = create_engine(create_database(TEST_SERVER_URL, name, template=template_db))
+    try:
+        yield create_database(TEST_SERVER_URL, name, template=template_db)
+    finally:
+        drop_database(TEST_SERVER_URL, name)
+
+
+@pytest.fixture
+async def committed_db(
+    private_database_url: str,
+) -> AsyncGenerator[async_sessionmaker[AsyncSession]]:
+    """Sessions on the test's private database, for real commits on several connections."""
+    engine = create_engine(private_database_url)
     try:
         yield create_session_factory(engine)
     finally:
         await engine.dispose()
-        drop_database(TEST_SERVER_URL, name)
 
 
 # --- Application -------------------------------------------------------------------------
