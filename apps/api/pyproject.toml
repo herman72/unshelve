@@ -14,10 +14,12 @@ dependencies = [
     "pgvector>=0.5.1",
     "psycopg[binary,pool]>=3.3.6",
     "pydantic-settings>=2.15.0",
+    "selectolax>=0.4",
     "sqlalchemy[asyncio]>=2.1.4",
     "structlog>=26.1.0",
     "trafilatura>=2.3.1",
     "typer>=0.27.3",
+    "tzdata>=2025.2",
     "uvicorn[standard]>=0.54.0",
 ]
 
