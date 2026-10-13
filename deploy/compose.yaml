@@ -49,6 +49,9 @@ services:
         condition: service_completed_successfully
     ports:
       - "127.0.0.1:${UNSHELVE_API_PORT:-8000}:8000"
+    volumes:
+      # Exports of Telegram chats, for `unshelve import /imports/<folder>`. Read only.
+      - ../exports:/imports:ro
     healthcheck:
       test:
         - CMD

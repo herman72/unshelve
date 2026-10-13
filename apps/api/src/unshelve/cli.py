@@ -2,7 +2,10 @@
 
 import asyncio
 import json
+from datetime import datetime
 from pathlib import Path
+from typing import Annotated
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
 import typer
@@ -15,6 +18,8 @@ from unshelve.bot.runner import run_bot
 from unshelve.config import get_settings
 from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
+from unshelve.ingest import importer
+from unshelve.ingest.export_html import ExportFormatError, read_export
 from unshelve.log import configure_logging
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
@@ -140,3 +145,115 @@ def auth_link() -> None:
     # The link goes to stdout and the note to stderr, so that a script can capture the link.
     typer.echo(f"{settings.web_base_url.rstrip('/')}/login#token={token}")
     typer.echo(f"This link works once, for {minutes} minutes.", err=True)
+
+
+def _stop(message: str) -> typer.Exit:
+    typer.echo(message, err=True)
+    return typer.Exit(code=1)
+
+
+async def _import(
+    database_url: str,
+    owner_telegram_id: int,
+    envelopes: list[importer.CaptureEnvelope],
+    *,
+    dry_run: bool,
+) -> importer.ImportCount:
+    engine = create_engine(database_url)
+    try:
+        sessions = create_session_factory(engine)
+        if dry_run:
+            return await importer.count_new(sessions, owner_telegram_id, envelopes)
+        return await importer.import_envelopes(sessions, owner_telegram_id, envelopes)
+    finally:
+        await engine.dispose()
+
+
+@app.command("import")
+def import_export(
+    folder: Annotated[
+        Path,
+        typer.Argument(
+            exists=True,
+            file_okay=False,
+            help="The folder of the export. It has a file messages.html.",
+        ),
+    ],
+    timezone: Annotated[
+        str,
+        typer.Option(
+            help="The time zone of the computer that made the export, for example "
+            "Europe/Helsinki. The export has clock times only.",
+        ),
+    ],
+    chat_id: Annotated[
+        int | None,
+        typer.Option(help="The id of the chat of the export. Not necessary with one capture chat."),
+    ] = None,
+    since: Annotated[
+        datetime | None,
+        typer.Option(formats=["%Y-%m-%d"], help="Import the posts of this day and later."),
+    ] = None,
+    limit: Annotated[
+        int | None, typer.Option(min=1, help="Import this number of posts at most.")
+    ] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Show what an import would do, and change nothing.")
+    ] = False,
+) -> None:
+    """Import the HTML export of a Telegram chat ("Export chat history").
+
+    Each post of the export is stored like a post from the bot. A post that is stored already
+    is skipped, so this command is safe to run again.
+    """
+    settings = get_settings()
+    if settings.owner_telegram_id is None:
+        raise _stop("UNSHELVE_OWNER_TELEGRAM_ID is not set. The posts need an owner.")
+    try:
+        zone = ZoneInfo(timezone)
+    except (ZoneInfoNotFoundError, ValueError):
+        raise _stop(
+            f"{timezone!r} is not the name of a time zone. Use a name such as Europe/Helsinki."
+        ) from None
+    if chat_id is None:
+        if len(settings.capture_chat_ids) != 1:
+            known = ", ".join(str(known_id) for known_id in settings.capture_chat_ids) or "none"
+            raise _stop(
+                "Give the chat of the export with --chat-id. An export does not hold the id "
+                f"of its chat. The capture chats in your settings: {known}."
+            )
+        chat_id = settings.capture_chat_ids[0]
+    try:
+        chat = read_export(folder)
+    except ExportFormatError as error:
+        raise _stop(f"This export cannot be read: {error}") from None
+
+    # The albums are found in the whole export. So a limit that cuts an album in two parts
+    # gives the two parts the same album.
+    albums = importer.album_groups(chat.messages)
+    messages = importer.in_range(chat.messages, since=since, limit=limit)
+    envelopes = importer.to_envelopes(messages, chat_id=chat_id, zone=zone, albums=albums)
+    count = asyncio.run(
+        _import(settings.database_url, settings.owner_telegram_id, envelopes, dry_run=dry_run)
+    )
+
+    typer.echo(f'Export of "{chat.title}": {len(messages)} posts, into the chat {chat_id}.')
+    if messages:
+        first, last = messages[0].sent_at, messages[-1].sent_at
+        typer.echo(
+            f"From {first:%Y-%m-%d %H:%M} to {last:%Y-%m-%d %H:%M}, clock time of {zone.key}."
+        )
+    found = {envelope.media_group_id for envelope in envelopes if envelope.media_group_id}
+    if found:
+        typer.echo(f"Albums found: {len(found)}. Each album becomes one item.")
+    # The reader counts these in the whole export, also when this import takes a part of it.
+    scope = " (in the whole export)" if since is not None or limit is not None else ""
+    for kind, number in sorted(chat.left_out.items()):
+        typer.echo(f"Not imported{scope}: {number} x {kind}.")
+    if dry_run:
+        typer.echo(
+            f"Dry run: {count.stored} posts are new, {count.repeats} are stored already. "
+            "Nothing was changed."
+        )
+    else:
+        typer.echo(f"Stored {count.stored} new posts. {count.repeats} were stored already.")
