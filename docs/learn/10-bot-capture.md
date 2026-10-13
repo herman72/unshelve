@@ -221,7 +221,7 @@ An edit of a post is stored as a message of its own, with the time of the edit a
 
 Do this after the pull request is merged. Your file `.env` has the token and the two ids already.
 
-1. Run `make up`. It builds the stack with the new code.
+1. Run `git pull`, and then `make up`. The first command gets the new code. The second builds the stack with it.
 2. Post a link in the channel "Unshelve test".
 3. Read the last lines of the log of the bot:
 
@@ -286,4 +286,4 @@ This is why the mistake is dangerous. It works for most messages, and it fails o
 - [Styled text with message entities](https://core.telegram.org/api/entities), Telegram. Read the part "Entity length". It says that lengths are in UTF-16 units.
 - [Long-polling](https://docs.aiogram.dev/en/latest/dispatcher/long_polling.html), the documentation of aiogram, the library that the bot uses.
 
-Previous: [9. The walking skeleton](09-walking-skeleton.md) · Back to the [list of notes](README.md)
+Previous: [9. The walking skeleton](09-walking-skeleton.md) · Next: [11. The importer](11-export-importer.md)

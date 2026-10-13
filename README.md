@@ -78,6 +78,14 @@ To save your first item and see the worker finish it, follow "Try it yourself" i
 
 To capture from a Telegram channel, put the token of your bot into `.env`, make the bot an administrator of the channel, and add the id of the channel to `UNSHELVE_CAPTURE_CHAT_IDS`. [The bot note](docs/learn/10-bot-capture.md) explains each step and how to find the id.
 
+The bot gets only new posts. To bring in the old posts of a channel, export the chat in Telegram ("Export chat history"), move the folder of the export into `exports/`, and import it. Give the time zone of the computer that made the export:
+
+```bash
+docker compose exec api unshelve import /imports/ChatExport_2026-10-13 --timezone Europe/Helsinki --dry-run
+```
+
+The dry run shows what the import would store. Run the command again without `--dry-run` to store the posts. It is safe to run two times. [The importer note](docs/learn/11-export-importer.md) explains each step.
+
 `make help` lists every target.
 
 ## Contributing
