@@ -1,0 +1,437 @@
+<!doctype html>
+<!--
+  Interactive simulator of the Unshelve job queue. Open this file in a browser.
+  The rules in the script mirror apps/api/src/unshelve/queue/store.py.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>html{color-scheme:light}body{margin:0}[hidden]{display:none!important}</style>
+<title>Job Queue Simulator</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one jobs table in the middle, like the real database table. Stories on top drive it
+   step by step; the explanation under the table says what changed and why, in plain words. */
+:root {
+  --ground: #f1f4f7; --surface: #ffffff; --ink: #101b2d; --muted: #566274; --rule: #d3dae3;
+  --accent: #4f43c9; --on-accent: #ffffff; --flash: #fff3c4;
+  --pending: #b96c00; --running: #4f43c9; --done: #0a8a84; --dead: #c22f48;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0d1420; --surface: #151f30; --ink: #e9eef6; --muted: #9aa8ba; --rule: #283650;
+    --accent: #a094ff; --on-accent: #0d1420; --flash: #4a3f12;
+    --pending: #f0a93a; --running: #a094ff; --done: #3cc9c1; --dead: #f26a80; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0d1420; --surface: #151f30; --ink: #e9eef6; --muted: #9aa8ba; --rule: #283650;
+  --accent: #a094ff; --on-accent: #0d1420; --flash: #4a3f12;
+  --pending: #f0a93a; --running: #a094ff; --done: #3cc9c1; --dead: #f26a80; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--display); font-size: 15px; line-height: 1.5; }
+.page { max-width: 980px; margin-inline: auto; padding-inline: 20px; padding-block: 28px 56px; display: grid; gap: 20px; }
+.eyebrow { margin: 0; font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+h1 { margin: 0; font-stretch: 112%; font-weight: 750; font-size: clamp(24px, 4vw, 32px); line-height: 1.15; text-wrap: balance; }
+h2 { margin: 0; font-stretch: 108%; font-weight: 700; font-size: 18px; }
+p { margin: 0; }
+.lede { max-width: 66ch; color: var(--muted); }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:disabled { opacity: 0.4; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pills { display: flex; flex-wrap: wrap; gap: 8px; }
+.pill { border: 1px solid var(--rule); background: var(--surface); border-radius: 999px; padding: 6px 13px; font-weight: 600; font-size: 14px; }
+.pill[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--ground); }
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; display: grid; gap: 10px; }
+.label { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.story-top { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.btn { border: 1px solid var(--rule); background: var(--ground); border-radius: 6px; padding: 8px 12px; font-weight: 600; }
+.btn:hover:not(:disabled) { border-color: var(--ink); }
+.btn-main { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.steps { margin: 0; padding-left: 22px; display: grid; gap: 2px; color: var(--muted); }
+.steps li.is-done { color: var(--ink); }
+.steps li.is-next { color: var(--ink); font-weight: 700; }
+.world { display: grid; gap: 14px; }
+.clock { font-family: var(--mono); font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 700px; font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th { font-weight: 500; color: var(--muted); font-size: 12px; }
+tr:last-child td { border-bottom: 0; }
+td.is-changed { background: var(--flash); }
+.state { display: inline-block; padding: 1px 8px; border-radius: 4px; border: 1.5px solid currentColor; font-weight: 500; }
+.state.pending { color: var(--pending); } .state.running { color: var(--running); }
+.state.done { color: var(--done); } .state.dead { color: var(--dead); }
+.note { color: var(--muted); font-size: 12px; }
+.empty { padding: 14px; color: var(--muted); font-family: var(--display); }
+.workers { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.worker { border: 1px solid var(--rule); border-radius: 6px; padding: 10px 12px; background: var(--surface); display: grid; gap: 2px; }
+.worker b { font-family: var(--mono); font-weight: 500; }
+.worker.is-dead { border-style: dashed; color: var(--muted); }
+.said { border-left: 6px solid var(--accent); }
+.said.is-refused { border-left-color: var(--dead); }
+.said .what { font-weight: 650; font-size: 16px; }
+.said .why { max-width: 72ch; }
+pre { margin: 0; overflow-x: auto; background: var(--ground); border-radius: 6px; padding: 10px 12px; font-family: var(--mono); font-size: 12.5px; line-height: 1.45; }
+.free { display: grid; gap: 10px; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.row .who { font-family: var(--mono); min-width: 34px; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px 24px; }
+.rules p { max-width: 46ch; }
+.refs { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="page">
+  <header style="display:grid;gap:6px">
+    <p class="eyebrow">Unshelve · the job queue</p>
+    <h1>What happens to one job, step by step</h1>
+    <p class="lede">The table below is the real <code>jobs</code> table, made small. Pick a story and press the button. After each step, the changed cells are yellow, and the text says what happened and why.</p>
+  </header>
+
+  <div class="pills" id="stories" role="group" aria-label="Stories"></div>
+
+  <section class="panel" id="story-panel">
+    <div class="story-top">
+      <div><span class="label" id="story-count"></span><h2 id="story-name"></h2></div>
+      <div class="row">
+        <button class="btn" id="restart" type="button">Start again</button>
+        <button class="btn btn-main" id="next" type="button"></button>
+      </div>
+    </div>
+    <p id="story-intro"></p>
+    <ol class="steps" id="steps"></ol>
+  </section>
+
+  <section class="panel free" id="free-panel" hidden>
+    <h2>Free play: you are the workers</h2>
+    <div class="row"><span class="who">all</span>
+      <button class="btn" data-act="add" type="button">Add a job</button>
+      <button class="btn" data-act="tick" type="button">Clock +30 s</button>
+      <button class="btn" data-act="reap" type="button">Run the reaper</button>
+      <button class="btn" data-act="reset" type="button">Empty the table</button>
+    </div>
+    <div class="row" id="free-w1"></div>
+    <div class="row" id="free-w2"></div>
+  </section>
+
+  <section class="world">
+    <div class="row" style="justify-content:space-between">
+      <span class="label">The jobs table</span>
+      <span>Time now: <span class="clock" id="clock"></span></span>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>id</th><th>state</th><th>attempts</th><th>run_after</th><th>locked_by</th><th>locked_until</th><th>last_error</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table></div>
+    <div class="workers" id="workers"></div>
+  </section>
+
+  <section class="panel said" id="said" aria-live="polite">
+    <span class="label">What happened</span>
+    <p class="what" id="what"></p>
+    <p class="why" id="why"></p>
+    <pre id="sql" hidden></pre>
+  </section>
+
+  <section class="panel">
+    <h2>The three ideas</h2>
+    <div class="rules">
+      <div><p class="label">1 · One job, one worker</p><p>Two workers ask at the same moment. The database gives the first job to one of them. The other one skips that row and takes the next job. It does not wait. This is <code>FOR UPDATE SKIP LOCKED</code>.</p></div>
+      <div><p class="label">2 · A lease is a lock with an end time</p><p>A worker holds a job for 60 seconds. If it is alive, it asks for more time (heartbeat). If it dies, nobody asks, the time ends, and the reaper gives the job back.</p></div>
+      <div><p class="label">3 · The attempt number is a ticket</p><p>Each time a job is taken, <code>attempts</code> goes up by 1. A worker must show its ticket to finish the job. An old ticket is refused. This is called a fencing token.</p></div>
+    </div>
+    <p class="label" style="margin-top:6px">To read more</p>
+    <ul class="refs">
+      <li><a href="https://www.postgresql.org/docs/current/sql-select.html#SQL-FOR-UPDATE-SHARE">PostgreSQL manual, "The Locking Clause"</a>: read the paragraph about SKIP LOCKED.</li>
+      <li><a href="https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html">How to do distributed locking</a> by Martin Kleppmann: read the part "Making the lock safe with fencing tokens". It has a picture of the slow worker story.</li>
+      <li><a href="https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html">Amazon SQS visibility timeout</a>: the same lease idea in a well-known product.</li>
+    </ul>
+  </section>
+</div>
+
+<script>
+/*LOGIC-START*/
+const LEASE = 60;
+const clockText = (t) => {
+  const total = 12 * 3600 + t;
+  const pad = (n) => String(n).padStart(2, "0");
+  return pad(Math.floor(total / 3600) % 24) + ":" + pad(Math.floor(total / 60) % 60) + ":" + pad(total % 60);
+};
+const newState = () => ({
+  clock: 0, nextId: 1, jobs: [],
+  workers: { w1: { status: "idle", claim: null, tx: null }, w2: { status: "idle", claim: null, tx: null } },
+});
+const jobOf = (s, id) => s.jobs.find((j) => j.id === id);
+const said = (ok, what, why, sql) => ({ ok, what, why, sql: sql || "" });
+const cannotAct = (s, w) => (s.workers[w].status === "dead" ? w + " is dead. It cannot do anything." : s.workers[w].status === "frozen" ? w + " is frozen. It cannot do anything now." : "");
+
+function addJob(s, max) {
+  const job = { id: s.nextId++, state: "pending", attempts: 0, max: max || 3, run_after: s.clock, locked_by: null, locked_until: null, last_error: null, rowlock: null };
+  s.jobs.push(job);
+  return said(true, "Job " + job.id + " is added.", "It is pending: it waits for a worker. Nobody holds it, so locked_by is empty.",
+    "INSERT INTO jobs (state, attempts, run_after)\nVALUES ('pending', 0, now());");
+}
+function advance(s, seconds) {
+  s.clock += seconds;
+  return said(true, seconds + " seconds pass. It is now " + clockText(s.clock) + ".", "Nothing changes in the table when time passes. Something must look at the table to see that a lease is over.");
+}
+const CLAIM_SQL = "UPDATE jobs\nSET state = 'running', attempts = attempts + 1,\n    locked_by = :worker, locked_until = now() + 60 s\nWHERE id = (\n  SELECT id FROM jobs\n  WHERE state = 'pending' AND run_after <= now()\n  ORDER BY priority, run_after, id\n  LIMIT 1\n  FOR UPDATE SKIP LOCKED   -- skip rows that another worker is taking\n);";
+function claimBegin(s, w) {
+  const stop = cannotAct(s, w);
+  if (stop) return said(false, stop, "");
+  const free = s.jobs.filter((j) => j.state === "pending" && j.run_after <= s.clock && j.rowlock === null)
+    .sort((a, b) => a.run_after - b.run_after || a.id - b.id);
+  if (free.length === 0) {
+    const waiting = s.jobs.find((j) => j.state === "pending" && j.run_after > s.clock);
+    const locked = s.jobs.find((j) => j.state === "pending" && j.rowlock !== null);
+    const why = locked ? "Job " + locked.id + " is pending, but " + locked.rowlock + " is taking it at this moment. SKIP LOCKED jumps over that row, so " + w + " gets an answer at once and does not wait."
+      : waiting ? "Job " + waiting.id + " is pending, but it must wait until " + clockText(waiting.run_after) + " (run_after). It is too early."
+      : "No job is pending.";
+    return said(false, w + " asks for a job and gets nothing.", why, CLAIM_SQL);
+  }
+  free[0].rowlock = w;
+  s.workers[w].tx = free[0].id;
+  return said(true, w + " starts to take job " + free[0].id + ". Its transaction is still open.", "The row is locked for a very short time. Other workers cannot take this row now. They also do not wait for it.", CLAIM_SQL);
+}
+function claimCommit(s, w) {
+  const worker = s.workers[w];
+  const job = jobOf(s, worker.tx);
+  if (!job) return said(false, w + " has no open transaction.", "");
+  job.rowlock = null; job.state = "running"; job.attempts += 1; job.locked_by = w; job.locked_until = s.clock + LEASE;
+  worker.tx = null; worker.claim = { id: job.id, attempts: job.attempts }; worker.status = "working";
+  return said(true, w + " now holds job " + job.id + ". This is attempt " + job.attempts + ".",
+    "The job is running. " + w + " has a lease until " + clockText(job.locked_until) + ". " + w + " remembers its ticket: job " + job.id + ", attempt " + job.attempts + ".", CLAIM_SQL);
+}
+function claim(s, w) {
+  const skipped = s.jobs.find((j) => j.state === "pending" && j.rowlock !== null && j.rowlock !== w && j.run_after <= s.clock);
+  const begun = claimBegin(s, w);
+  if (!begun.ok) return begun;
+  const result = claimCommit(s, w);
+  if (skipped) result.why += " It jumped over job " + skipped.id + ", because " + skipped.rowlock + " is taking that row at this moment. It did not wait (SKIP LOCKED).";
+  return result;
+}
+// The fencing check: the row must still be running, held by this worker, with the same attempt number.
+function heldBy(s, w) {
+  const c = s.workers[w].claim;
+  if (!c) return null;
+  const job = jobOf(s, c.id);
+  return job && job.state === "running" && job.locked_by === w && job.attempts === c.attempts ? job : null;
+}
+const HELD_SQL = "WHERE id = :id AND state = 'running'\n  AND locked_by = :worker AND attempts = :ticket   -- the ticket check";
+function refused(s, w, action) {
+  const c = s.workers[w].claim;
+  if (!c) return said(false, w + " holds no job, so it cannot " + action + ".", "");
+  const job = jobOf(s, c.id);
+  const now = "The row now says: state " + job.state + ", locked_by " + (job.locked_by || "nobody") + ", attempt " + job.attempts + ".";
+  s.workers[w].claim = null; s.workers[w].status = "idle";
+  return said(false, "Refused: " + w + " wants to " + action + " job " + c.id + " with the ticket \"attempt " + c.attempts + "\".",
+    now + " The ticket of " + w + " is old, so no row matches and nothing is changed. " + w + " must throw its result away (LeaseLostError).", "UPDATE jobs SET ...\n" + HELD_SQL + ";\n-- 0 rows changed");
+}
+function heartbeat(s, w) {
+  const stop = cannotAct(s, w);
+  if (stop) return said(false, stop, "");
+  const job = heldBy(s, w);
+  if (!job) return refused(s, w, "extend the lease of");
+  job.locked_until = s.clock + LEASE;
+  return said(true, w + " says \"I am alive\". The lease of job " + job.id + " now ends at " + clockText(job.locked_until) + ".", "A heartbeat moves the end of the lease to now + 60 seconds. A worker that is alive does this again and again while it works.",
+    "UPDATE jobs SET locked_until = now() + 60 s\n" + HELD_SQL + ";");
+}
+function complete(s, w) {
+  const stop = cannotAct(s, w);
+  if (stop) return said(false, stop, "");
+  const job = heldBy(s, w);
+  if (!job) return refused(s, w, "complete");
+  job.state = "done"; job.locked_by = null; job.locked_until = null;
+  s.workers[w].claim = null; s.workers[w].status = "idle";
+  return said(true, w + " completes job " + job.id + ".", "The job is done and the lease is removed. A job without a lease is never \"running\": the database has a rule (a CHECK constraint) for that.",
+    "UPDATE jobs SET state = 'done', finished_at = now(),\n    locked_by = NULL, locked_until = NULL\n" + HELD_SQL + ";");
+}
+function fail(s, w, retryAfter) {
+  const stop = cannotAct(s, w);
+  if (stop) return said(false, stop, "");
+  const job = heldBy(s, w);
+  if (!job) return refused(s, w, "report a failure of");
+  const dead = retryAfter === null || job.attempts >= job.max;
+  job.locked_by = null; job.locked_until = null;
+  s.workers[w].claim = null; s.workers[w].status = "idle";
+  if (dead) {
+    job.state = "dead"; job.last_error = retryAfter === null ? "cannot succeed" : "timeout";
+    return said(true, "Job " + job.id + " is dead.", retryAfter === null ? "The worker said that this job can never succeed, so no more attempts are made."
+      : "This was attempt " + job.attempts + " of " + job.max + ". All attempts are used, so the job stops. A person must look at it.", "UPDATE jobs SET state = 'dead', last_error = :error,\n    locked_by = NULL, locked_until = NULL\n" + HELD_SQL + ";");
+  }
+  job.state = "pending"; job.run_after = s.clock + retryAfter; job.last_error = "timeout";
+  return said(true, "Job " + job.id + " failed. It waits until " + clockText(job.run_after) + " and then runs again.", "The job goes back to pending, but run_after is in the future. So no worker takes it immediately. This pause gives a broken website or a busy service time to recover.",
+    "UPDATE jobs SET state = 'pending', run_after = now() + 30 s,\n    last_error = :error, locked_by = NULL, locked_until = NULL\n" + HELD_SQL + ";");
+}
+function reap(s) {
+  const expired = s.jobs.filter((j) => j.state === "running" && j.locked_until < s.clock);
+  for (const job of expired) {
+    job.state = job.attempts >= job.max ? "dead" : "pending";
+    job.last_error = "the lease expired"; job.locked_by = null; job.locked_until = null;
+  }
+  const sql = "UPDATE jobs SET state = 'pending',   -- or 'dead' if attempts are used up\n    last_error = 'the lease expired',\n    locked_by = NULL, locked_until = NULL\nWHERE state = 'running' AND locked_until < now();";
+  if (expired.length === 0) {
+    const running = s.jobs.find((j) => j.state === "running");
+    return said(true, "The reaper looks at the table and changes nothing.", running ? "Job " + running.id + " is running, and its lease ends at " + clockText(running.locked_until) + ". It is now " + clockText(s.clock) + ", so the lease is still good. The reaper cannot know if the worker is dead or only slow. It only looks at the time."
+      : "No job is running.", sql);
+  }
+  return said(true, "The reaper takes back job " + expired.map((j) => j.id).join(", ") + ".", "The lease is over and nobody extended it. The job is pending again, so a worker can take it. attempts does not go down: the lost attempt counts.", sql);
+}
+function crash(s, w) {
+  s.workers[w].status = "dead"; s.workers[w].claim = null; s.workers[w].tx = null;
+  return said(true, w + " dies.", "Look at the table: nothing changed. The row still says \"running, locked_by " + w + "\". A dead worker cannot tell the database that it is dead. Only the end of the lease will show it.");
+}
+function freeze(s, w) {
+  s.workers[w].status = "frozen";
+  return said(true, w + " freezes. It is not dead, only very slow.", "For example: a long pause of the program, or a network problem. " + w + " still has its ticket in memory and still thinks that it holds the job.");
+}
+function wake(s, w) {
+  s.workers[w].status = s.workers[w].claim ? "working" : "idle";
+  return said(true, w + " wakes up.", w + " does not know how much time passed. It continues as if nothing happened.");
+}
+/*LOGIC-END*/
+
+(() => {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const make = (tag, className, text) => { const n = document.createElement(tag); if (className) n.className = className; if (text !== undefined) n.textContent = text; return n; };
+
+  const STORIES = [
+    { id: "normal", name: "Normal work", intro: "The simple case: one job, one worker, no problems.", steps: [
+      ["Add a job", (s) => addJob(s)], ["w1 asks for a job", (s) => claim(s, "w1")], ["30 seconds pass", (s) => advance(s, 30)],
+      ["w1 sends a heartbeat", (s) => heartbeat(s, "w1")], ["30 seconds pass", (s) => advance(s, 30)], ["w1 completes the job", (s) => complete(s, "w1")] ] },
+    { id: "dies", name: "A worker dies", intro: "The worker stops in the middle of the job. How does the job come back?", steps: [
+      ["Add a job", (s) => addJob(s)], ["w1 asks for a job", (s) => claim(s, "w1")], ["w1 dies", (s) => crash(s, "w1")],
+      ["30 seconds pass", (s) => advance(s, 30)], ["The reaper runs (too early)", (s) => reap(s)], ["40 seconds pass", (s) => advance(s, 40)],
+      ["The reaper runs again", (s) => reap(s)], ["w2 asks for a job", (s) => claim(s, "w2")], ["w2 completes the job", (s) => complete(s, "w2")] ] },
+    { id: "slow", name: "A slow worker comes back", intro: "The worker is not dead, only slow. It comes back after another worker took its job. Who wins?", steps: [
+      ["Add a job", (s) => addJob(s)], ["w1 asks for a job", (s) => claim(s, "w1")], ["w1 freezes", (s) => freeze(s, "w1")],
+      ["70 seconds pass", (s) => advance(s, 70)], ["The reaper runs", (s) => reap(s)], ["w2 asks for a job", (s) => claim(s, "w2")],
+      ["w1 wakes up", (s) => wake(s, "w1")], ["w1 tries to complete the job", (s) => complete(s, "w1")], ["w2 completes the job", (s) => complete(s, "w2")] ] },
+    { id: "same", name: "Two workers at the same moment", intro: "Two workers ask at exactly the same time. Each job must go to one worker only.", steps: [
+      ["Add a job", (s) => addJob(s)], ["Add a second job", (s) => addJob(s)], ["w1 starts to take a job", (s) => claimBegin(s, "w1")],
+      ["w2 asks at the same moment", (s) => claim(s, "w2")], ["w1 finishes its transaction", (s) => claimCommit(s, "w1")] ] },
+    { id: "fails", name: "A job that always fails", intro: "The website is down, so the job fails each time. This job may try 2 times.", steps: [
+      ["Add a job (2 attempts)", (s) => addJob(s, 2)], ["w1 asks for a job", (s) => claim(s, "w1")], ["w1 reports a failure", (s) => fail(s, "w1", 30)],
+      ["w2 asks for a job (too early)", (s) => claim(s, "w2")], ["30 seconds pass", (s) => advance(s, 30)], ["w2 asks for a job", (s) => claim(s, "w2")],
+      ["w2 reports a failure", (s) => fail(s, "w2", 30)] ] },
+  ];
+
+  let state = newState();
+  let before = "[]";
+  let story = STORIES[0];
+  let done = 0;
+
+  function show(result) {
+    $("what").textContent = result.what;
+    $("why").textContent = result.why;
+    $("sql").textContent = result.sql;
+    $("sql").hidden = !result.sql;
+    $("said").className = "panel said" + (result.ok ? "" : " is-refused");
+  }
+
+  function paint() {
+    $("clock").textContent = clockText(state.clock);
+    const old = {};
+    for (const job of JSON.parse(before)) old[job.id] = job;
+    const cell = (job, key, text) => {
+      const td = make("td", old[job.id] && old[job.id][key] !== job[key] ? "is-changed" : !old[job.id] ? "is-changed" : "");
+      if (typeof text === "string") td.textContent = text; else td.append(text);
+      return td;
+    };
+    const rows = state.jobs.map((job) => {
+      const tr = make("tr");
+      const stateCell = make("span");
+      stateCell.append(make("span", "state " + job.state, job.state));
+      if (job.rowlock) stateCell.append(make("span", "note", "  " + job.rowlock + " is taking this row"));
+      tr.append(make("td", "", String(job.id)), cell(job, job.rowlock ? "rowlock" : "state", stateCell), cell(job, "attempts", job.attempts + " of " + job.max),
+        cell(job, "run_after", clockText(job.run_after)), cell(job, "locked_by", job.locked_by || "–"),
+        cell(job, "locked_until", job.locked_until === null ? "–" : clockText(job.locked_until)), cell(job, "last_error", job.last_error || "–"));
+      return tr;
+    });
+    if (rows.length === 0) { const tr = make("tr"); const td = make("td", "empty", "The table is empty. Add a job."); td.colSpan = 7; tr.append(td); rows.push(tr); }
+    $("rows").replaceChildren(...rows);
+    $("workers").replaceChildren(...["w1", "w2"].map((name) => {
+      const worker = state.workers[name];
+      const card = make("div", "worker" + (worker.status === "dead" ? " is-dead" : ""));
+      const head = make("div"); head.append(make("b", "", name), document.createTextNode(" · " + worker.status));
+      const memory = worker.claim ? "In its memory: job " + worker.claim.id + ", ticket \"attempt " + worker.claim.attempts + "\"" : worker.tx ? "Taking job " + worker.tx + " (transaction open)" : "In its memory: nothing";
+      card.append(head, make("div", "note", memory));
+      return card;
+    }));
+    before = JSON.stringify(state.jobs);
+  }
+
+  function paintStory() {
+    const free = story === null;
+    $("story-panel").hidden = free;
+    $("free-panel").hidden = !free;
+    document.querySelectorAll("#stories .pill").forEach((p) => p.setAttribute("aria-pressed", String(p.dataset.story === (free ? "free" : story.id))));
+    if (free) return;
+    $("story-name").textContent = story.name;
+    $("story-intro").textContent = story.intro;
+    $("story-count").textContent = "Step " + Math.min(done + 1, story.steps.length) + " of " + story.steps.length;
+    $("steps").replaceChildren(...story.steps.map((step, index) => make("li", index < done ? "is-done" : index === done ? "is-next" : "", step[0])));
+    $("next").disabled = done >= story.steps.length;
+    $("next").textContent = done >= story.steps.length ? "End of the story" : "Next: " + story.steps[done][0];
+  }
+
+  function start(next) {
+    story = next;
+    done = 0;
+    state = newState();
+    before = "[]";
+    show(said(true, story ? "Press the button to start." : "The table is empty. Add a job, then let a worker ask for it.", story ? "Each step changes the table. Read the yellow cells first, then the text." : "Try to break it: let w1 take a job, freeze w1, move the clock, run the reaper, let w2 take the job, then wake w1 and complete."));
+    paintStory();
+    paint();
+  }
+
+  function act(result) { show(result); paint(); }
+
+  $("stories").append(...STORIES.concat([{ id: "free", name: "Free play" }]).map((item) => {
+    const pill = make("button", "pill", item.name);
+    pill.type = "button";
+    pill.dataset.story = item.id;
+    pill.addEventListener("click", () => start(item.id === "free" ? null : item));
+    return pill;
+  }));
+  $("next").addEventListener("click", () => {
+    if (!story || done >= story.steps.length) return;
+    const result = story.steps[done][1](state);
+    done += 1;
+    paintStory();
+    act(result);
+  });
+  $("restart").addEventListener("click", () => start(story));
+
+  const workerButtons = (name) => [
+    ["ask for a job", () => claim(state, name)], ["heartbeat", () => heartbeat(state, name)], ["complete", () => complete(state, name)],
+    ["fail, retry in 30 s", () => fail(state, name, 30)], ["fail for ever", () => fail(state, name, null)],
+    ["freeze", () => freeze(state, name)], ["wake up", () => wake(state, name)], ["die", () => crash(state, name)],
+  ];
+  for (const name of ["w1", "w2"]) {
+    const row = $("free-" + name);
+    row.append(make("span", "who", name), ...workerButtons(name).map(([label, run]) => {
+      const button = make("button", "btn", label);
+      button.type = "button";
+      button.addEventListener("click", () => act(run()));
+      return button;
+    }));
+  }
+  document.querySelectorAll("#free-panel [data-act]").forEach((button) => button.addEventListener("click", () => {
+    const kind = button.dataset.act;
+    if (kind === "reset") { start(null); return; }
+    act(kind === "add" ? addJob(state) : kind === "tick" ? advance(state, 30) : reap(state));
+  }));
+
+  start(STORIES[0]);
+})();
+</script>
+</body>
+</html>
