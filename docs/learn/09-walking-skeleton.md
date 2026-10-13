@@ -197,7 +197,7 @@ Why a thin path through all layers first, and not one finished step after the ot
 
 Do this after the pull request is merged.
 
-1. Run `make up`. It builds the stack with the new code.
+1. Run `git pull`, and then `make up`. The first command gets the new code. The second builds the stack with it.
 2. Sign in: the [README](../../README.md#development) says how.
 3. On the Unshelve page, open the developer console of your browser. Paste this one line and press Enter. Chrome can ask you to type `allow pasting` first.
 

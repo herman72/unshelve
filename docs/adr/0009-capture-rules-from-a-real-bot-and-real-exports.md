@@ -64,6 +64,8 @@ Not tested, and thus still open:
 - **The smallest set of rights.** The bot had all rights except "add new admins". Before the bot goes into the real channel of the owner, the capture test is repeated with fewer rights.
 - **Other kinds of posts:** an edited post, a video, a file, and an album with a caption. The package M1-1 records them as fixtures.
 - **One message in the two sources.** A new export that includes the ids 7 to 11 will show that the ids and the dates agree.
+- **The JSON export.** Decision 7 says that the importer also reads JSON. The importer of M1-2 reads HTML only, because no real JSON export was seen. A JSON reader is built when a user has such an export.
+- **An album in an export.** The code of Telegram Desktop (`export_output_html.cpp`) writes each part of an album as a normal message, with no mark. So the importer finds an album by signs: ids that follow each other and the same second. A real export of an album was not seen yet.
 
 ## Alternatives considered
 
