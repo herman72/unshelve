@@ -55,7 +55,55 @@ A copy of a template takes a few milliseconds. Each database has a random name, 
 
 Why: you and a coding agent can run the tests at the same moment against one Postgres. With random names, the two runs never see the rows of the other run. Tests that share data are the most common reason for tests that fail "sometimes".
 
-## 4. The privacy test
+## 4. A view: a window onto a table
+
+A *table* stores rows. A *view* stores nothing. A view is a saved question. Each time somebody reads the view, the database asks the question again and shows the answer.
+
+Here is a very small example. The table has two items:
+
+```text
+table items
+ id | title               | note            | visibility | source_note
+  1 | Postgres as a queue | I like this one | public     | found on Hacker News
+  2 | My salary plan      | do not share    | private    | from a friend
+```
+
+This is the saved question:
+
+```sql
+CREATE VIEW pub.items AS
+SELECT i.id, i.title               -- which columns to show
+FROM items i                       -- from which table
+WHERE i.visibility = 'public';     -- which rows to show
+```
+
+`FROM items i` gives the table the short name `i`. So `i.title` means "the column `title` of the table `items`".
+
+A person who reads the view gets this:
+
+```text
+view pub.items
+ id | title
+  1 | Postgres as a queue
+```
+
+Two things are hidden: the private row (item 2), and the private columns (`note` and `source_note`).
+
+Now add one column to the saved question: `SELECT i.id, i.title, i.source_note`. The view shows one more column:
+
+```text
+view pub.items
+ id | title               | source_note
+  1 | Postgres as a queue | found on Hacker News
+```
+
+This is the meaning of "add a column to the view". The column was in the table all the time. Now the window shows it too.
+
+**A comparison from daily life:** the table is the storeroom of a shop. The view is the shop window. People in the street see only the things that somebody put in the window.
+
+In Unshelve, the program that builds the public feed can read only the window `pub.items`. It cannot open the storeroom. The next part tests that.
+
+## 5. The privacy test
 
 This is the idea of `tests/db/test_public_boundary.py`:
 
