@@ -40,6 +40,8 @@ More detail: [docs/architecture.md](docs/architecture.md), [docs/product.md](doc
 
 To see the data move, open [docs/architecture-explorer.html](docs/architecture-explorer.html) in a browser: it plays each flow through the system step by step. The same design is in [docs/architecture.drawio](docs/architecture.drawio) as editable diagrams.
 
+New to the code? Start with the [learning notes](docs/learn/README.md): one short and simple note for each part of the system, each with examples and an exercise.
+
 ## Roadmap
 
 | Milestone | Result |

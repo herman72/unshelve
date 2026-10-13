@@ -35,6 +35,12 @@ Everything else depends on these. If your change needs a new field or a new meth
 - Every implementation of a Protocol passes the same conformance tests as its fake.
 - Text that came from the internet is untrusted. It is never given to a model that has tools, and it is escaped when rendered.
 
+## Learning notes
+
+A pull request that adds a feature also adds or updates one note in [`docs/learn/`](docs/learn/README.md). The note explains the feature in simple words: an example with real values first, each technical word explained in one sentence, a picture where it helps, one exercise, and one to three links for more reading.
+
+The note is reviewed together with the code. The description of the pull request can then be short and link to the note.
+
 ## Pull request description
 
 Each pull request explains:
