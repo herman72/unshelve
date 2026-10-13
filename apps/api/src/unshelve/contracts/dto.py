@@ -29,10 +29,14 @@ class MediaRef(Dto):
 
 
 class ForwardOrigin(Dto):
-    """Where a forwarded message came from (Bot API ``MessageOrigin``)."""
+    """Where a forwarded message came from (Bot API ``MessageOrigin``).
 
-    type: Literal["user", "hidden_user", "chat", "channel"]
-    date: AwareDatetime
+    An export gives less than the bot: the name of the source, sometimes a date, and no ids.
+    Its type is then "unknown".
+    """
+
+    type: Literal["user", "hidden_user", "chat", "channel", "unknown"]
+    date: AwareDatetime | None = None
     chat_id: int | None = None
     message_id: int | None = None
     name: str | None = None
