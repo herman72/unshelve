@@ -21,6 +21,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 7 | [Stacked pull requests with git](07-stacked-pull-requests.md) | The few git commands that keep a chain of pull requests healthy, and the mistakes to avoid | |
 | 8 | [Signing in with a one-time link](08-login.md) | How a link becomes a session, and why the database stores no secret | |
 | 9 | [The walking skeleton](09-walking-skeleton.md) | How a saved link becomes a finished item, and why each step is safe to run two times | [Job queue simulator](../queue-simulator.html) |
+| 10 | [The bot](10-bot-capture.md) | How a post in your channel becomes a stored message, and why no post is lost | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 
