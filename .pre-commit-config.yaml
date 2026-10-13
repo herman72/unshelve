@@ -3,9 +3,11 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # A recorded export keeps each byte that Telegram wrote, also a space at the end of a line.
       - id: trailing-whitespace
-        exclude: \.md$
+        exclude: \.md$|^apps/api/tests/ingest/fixtures/.*\.html$
       - id: end-of-file-fixer
+        exclude: ^apps/api/tests/ingest/fixtures/.*\.html$
       - id: check-yaml
       - id: check-toml
       - id: check-merge-conflict
