@@ -66,6 +66,14 @@ make check   # lint, type check, tests and the API contract check
 
 The stack runs with fake providers and recorded pages by default, so it needs no accounts and no keys. Copy `.env.example` to `.env` to connect a Telegram bot and real providers.
 
+To sign in to the web app, set `UNSHELVE_OWNER_TELEGRAM_ID` in `.env` (for a local trial, any number works), run `make up` again, and ask for a link:
+
+```bash
+docker compose exec api unshelve auth link
+```
+
+Open the link that it prints. It works once, for 5 minutes. [How the sign-in works](docs/learn/08-login.md) explains each step.
+
 `make help` lists every target.
 
 ## Contributing
