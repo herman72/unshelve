@@ -141,7 +141,42 @@ async def claim(
     second worker waits, then finds the row already taken) and without ``FOR UPDATE`` (both
     workers take the same row).
     """
-    raise NotImplementedError("M0-4 exercise")
+    runnable: list[sa.ColumnElement[bool]] = [
+        Job.state == JobState.PENDING,
+        Job.run_after <= _now(now),
+    ]
+    if kinds is not None:
+        runnable.append(Job.kind.in_(kinds))
+
+    next_id = (
+        sa.select(Job.id)
+        .where(*runnable)
+        .order_by(Job.priority, Job.run_after, Job.id)
+        .limit(1)
+        .with_for_update(skip_locked=True)
+        .scalar_subquery()
+    )
+    result = await session.execute(
+        sa.update(Job)
+        .where(Job.id == next_id)
+        .values(
+            state=JobState.RUNNING,
+            attempts=Job.attempts + 1,
+            locked_by=worker_id,
+            locked_until=_now(now) + lease,
+        )
+        .returning(
+            Job.id,
+            Job.kind,
+            Job.payload,
+            Job.attempts,
+            Job.max_attempts,
+            Job.locked_by,
+            Job.locked_until,
+        )
+    )
+    row = result.mappings().one_or_none()
+    return None if row is None else ClaimedJob(**row)
 
 
 async def complete(session: AsyncSession, job: ClaimedJob, *, now: datetime | None = None) -> None:
@@ -152,7 +187,19 @@ async def complete(session: AsyncSession, job: ClaimedJob, *, now: datetime | No
     there is no gap between them for another worker to slip into. How do you know whether the
     UPDATE matched a row?
     """
-    raise NotImplementedError("M0-4 exercise")
+    matched = await session.scalar(
+        sa.update(Job)
+        .where(_held_by(job))
+        .values(
+            state=JobState.DONE,
+            finished_at=_now(now),
+            locked_by=None,
+            locked_until=None,
+        )
+        .returning(Job.id)
+    )
+    if matched is None:
+        raise LeaseLostError(job)
 
 
 async def fail(
@@ -172,7 +219,20 @@ async def fail(
     In every case ``last_error`` is set and the lease is released. A dead job also gets
     ``finished_at``. Raises ``LeaseLostError`` when the claim is no longer valid.
     """
-    raise NotImplementedError("M0-4 exercise")
+    if retry_after is None or job.attempts >= job.max_attempts:
+        new_state, changes = JobState.DEAD, {"finished_at": _now(now)}
+    else:
+        new_state, changes = JobState.PENDING, {"run_after": _now(now) + retry_after}
+
+    state = await session.scalar(
+        sa.update(Job)
+        .where(_held_by(job))
+        .values(state=new_state, last_error=error, locked_by=None, locked_until=None, **changes)
+        .returning(Job.state)
+    )
+    if state is None:
+        raise LeaseLostError(job)
+    return state
 
 
 async def reap_expired(session: AsyncSession, *, now: datetime | None = None) -> int:
@@ -184,4 +244,23 @@ async def reap_expired(session: AsyncSession, *, now: datetime | None = None) ->
 
     Several workers may run the reaper at the same time. Make sure that this is harmless.
     """
-    raise NotImplementedError("M0-4 exercise")
+    # SKIP LOCKED: a row that another reaper or its worker is changing is left for next time.
+    expired = (
+        sa.select(Job.id)
+        .where(Job.state == JobState.RUNNING, Job.locked_until < _now(now))
+        .with_for_update(skip_locked=True)
+    )
+    used_up = Job.attempts >= Job.max_attempts
+    result = await session.execute(
+        sa.update(Job)
+        .where(Job.id.in_(expired))
+        .values(
+            state=sa.case((used_up, JobState.DEAD), else_=JobState.PENDING),
+            finished_at=sa.case((used_up, _now(now))),
+            last_error="the lease expired: the worker stopped without completing or failing",
+            locked_by=None,
+            locked_until=None,
+        )
+        .returning(Job.id)
+    )
+    return len(result.all())
