@@ -114,6 +114,56 @@ This is the idea of `tests/db/test_public_boundary.py`:
 
 Try it: add `i.note` to the view in the migration, then run the tests. The test fails. That is a test that really protects something.
 
+## 6. How to make a column public, or private again
+
+There are two different switches. Do not mix them.
+
+| Switch | It decides | Who uses it | Where |
+|---|---|---|---|
+| Rows | Which **items** are public | You, for each item, in the app | The value of `visibility` on the item |
+| Columns | Which **fields** of a public item are shown | A developer, in code | The column list of the view `pub.items` |
+
+```text
+                 title   summary   note   source_note
+item 1 (public)   show    show      –        –          <- only the columns in the view
+item 2 (private)   –       –        –        –          <- no column at all
+```
+
+**A new column that must stay private:** do nothing. A column is private until somebody adds it to the view.
+
+**To make a column public,** change two places:
+
+1. The view, in a new migration. The new column goes at the end of the list:
+
+```python
+op.execute("""
+    CREATE OR REPLACE VIEW pub.items AS
+    SELECT
+        ...the same columns as before, in the same order...,
+        i.source_note                -- the new column, at the end
+    FROM items i
+    WHERE i.visibility = 'public' AND i.duplicate_of_id IS NULL
+""")
+```
+
+2. The list in `tests/db/test_public_boundary.py`:
+
+```python
+PUBLIC_COLUMNS = [..., "tags", "source_note"]
+```
+
+**To make a public column private again,** do the opposite in a new migration. PostgreSQL cannot remove a column from a view with `CREATE OR REPLACE`. So the migration removes the view and creates it again without the column:
+
+```python
+op.execute("DROP VIEW pub.items")
+op.execute("CREATE VIEW pub.items AS SELECT ...the list without the column... FROM items i WHERE ...")
+op.execute("GRANT SELECT ON pub.items TO unshelve_publisher")   # a new view has no permissions
+```
+
+Then remove the name from `PUBLIC_COLUMNS`.
+
+One warning: data that was public for some time can be in other people's copies. To make a column private stops new readers. It does not take the data back.
+
 ## A choice that we made
 
 How do we store a value like the status of an item (`inbox`, `done`, ...)? There are two ways.
