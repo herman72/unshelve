@@ -81,7 +81,7 @@ docs/                this folder
 
 | Topic | Rule |
 |---|---|
-| Queue | `FOR UPDATE SKIP LOCKED` to claim, plus a lease (`locked_by`, `locked_until`), a heartbeat and a reaper. `complete` and `fail` succeed only while the lease is held. Delivery is at-least-once, so every handler is idempotent. |
+| Queue | `FOR UPDATE SKIP LOCKED` to claim, plus a lease (`locked_by`, `locked_until`), a heartbeat and a reaper. `complete` and `fail` succeed only while the lease is held. Delivery is at-least-once, so every handler is idempotent. To see it step by step, open [queue-simulator.html](queue-simulator.html) in a browser. |
 | Database access | Async everywhere on one driver. `lazy="raise"`, `expire_on_commit=False`, one session per request or job, no transaction held across network I/O. Pure logic stays synchronous. |
 | Reading state vs processing state | `items.status` is changed only by the user. `items.enrich_state` is changed only by workers. |
 | Embeddings | Vectors are stored with an `embedding_set_id` and a dimension check, in an untyped `vector` column. Changing the model is a backfill, not a schema change. Search is exact until a benchmark shows that an approximate index is needed. |
