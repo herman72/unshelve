@@ -1,4 +1,5 @@
 import asyncio
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,6 +17,18 @@ from unshelve.db.models import Capture
 
 runner = CliRunner()
 
+_COLOUR_CODE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """The text without colour codes.
+
+    Typer writes its own messages (the help, a missing option) in colour when it runs on
+    GitHub Actions, and not on a developer's computer. A colour code can be in the middle
+    of a word, so a test that reads such a message removes the codes first.
+    """
+    return _COLOUR_CODE.sub("", text)
+
 
 def test_version_prints_the_installed_version() -> None:
     result = runner.invoke(app, ["version"])
@@ -28,7 +41,7 @@ def test_every_service_command_is_registered() -> None:
     result = runner.invoke(app, ["--help"])
 
     for command in ("api", "worker", "bot", "migrate", "auth", "import"):
-        assert command in result.stdout
+        assert command in _plain(result.stdout)
 
 
 def _run(monkeypatch: pytest.MonkeyPatch, empty_dir: Path, *args: str, **env: str) -> Result:
@@ -345,7 +358,7 @@ def test_import_needs_the_time_zone(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     result = _import(monkeypatch, tmp_path, NOWHERE, DESKTOP)
 
     assert result.exit_code == 2
-    assert "--timezone" in result.stderr
+    assert "Missing option '--timezone'" in _plain(result.stderr)
 
 
 def test_import_refuses_to_run_without_an_owner(
