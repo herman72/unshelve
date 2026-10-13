@@ -229,7 +229,8 @@ class Capture(Base):
     source: Mapped[CaptureSource] = mapped_column(StrEnumType(CaptureSource))
     chat_id: Mapped[int] = mapped_column(sa.BigInteger)
     message_id: Mapped[int] = mapped_column(sa.BigInteger)
-    edit_seq: Mapped[int] = mapped_column(sa.Integer, server_default="0")
+    # 0 for a message as it was posted. For an edit: the time of the edit, in seconds since 1970.
+    edit_seq: Mapped[int] = mapped_column(sa.BigInteger, server_default="0")
     media_group_id: Mapped[str | None] = mapped_column(sa.Text)
     forward_origin: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     posted_at: Mapped[datetime] = mapped_column(TIMESTAMP)
