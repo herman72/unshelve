@@ -1,13 +1,16 @@
 """Request-scoped dependencies."""
 
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator
 from typing import Annotated, cast
 
 from fastapi import Depends, Request
 from fastapi.security import APIKeyCookie
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from unshelve.api.errors import NotImplementedYetError, UnauthorizedError
+from unshelve.api.errors import UnauthorizedError
+from unshelve.auth import store
+from unshelve.auth.store import SessionUser
+from unshelve.config import Settings
 
 SESSION_COOKIE = "unshelve_session"
 
@@ -17,6 +20,9 @@ _session_cookie = APIKeyCookie(
     description="Set by POST /api/v1/auth/magic/consume.",
 )
 
+# The value of the session cookie, or None when the request has no such cookie.
+SessionSecretDep = Annotated[str | None, Depends(_session_cookie)]
+
 
 def get_engine(request: Request) -> AsyncEngine:
     return cast(AsyncEngine, request.app.state.engine)
@@ -25,22 +31,41 @@ def get_engine(request: Request) -> AsyncEngine:
 EngineDep = Annotated[AsyncEngine, Depends(get_engine)]
 
 
-@dataclass(frozen=True, slots=True)
-class CurrentUser:
-    id: int
-    telegram_user_id: int
+def app_settings(request: Request) -> Settings:
+    return cast(Settings, request.app.state.settings)
 
 
-async def current_user(token: Annotated[str | None, Depends(_session_cookie)]) -> CurrentUser:
+SettingsDep = Annotated[Settings, Depends(app_settings)]
+
+
+async def get_db(request: Request) -> AsyncGenerator[AsyncSession]:
+    """One database session for one request. It opens no connection until it is used.
+
+    Nothing is committed on the handler's behalf. A handler that writes calls ``commit``
+    itself, at the point where its work is complete.
+    """
+    factory = cast(async_sessionmaker[AsyncSession], request.app.state.session_factory)
+    async with factory() as session:
+        yield session
+
+
+DbDep = Annotated[AsyncSession, Depends(get_db)]
+
+
+async def current_user(secret: SessionSecretDep, db: DbDep) -> SessionUser:
     """The signed-in user.
 
-    Deny by default: until sessions exist (work package M0-6), nobody is signed in. A request
-    without the cookie is 401. A request with a cookie cannot be checked yet, so it is 501
-    and never treated as valid.
+    Deny by default: a request is anonymous until its cookie names a live session. Without
+    the cookie, the answer is 401 and the database is not asked.
     """
-    if token is None:
+    if secret is None:
         raise UnauthorizedError("sign in first")
-    raise NotImplementedYetError("sessions arrive with the login work package")
+    user = await store.find_session(db, secret)
+    # Ends the read. It also keeps the "last seen" mark, when find_session wrote one.
+    await db.commit()
+    if user is None:
+        raise UnauthorizedError("sign in first")
+    return user
 
 
-CurrentUserDep = Annotated[CurrentUser, Depends(current_user)]
+CurrentUserDep = Annotated[SessionUser, Depends(current_user)]
