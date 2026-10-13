@@ -1,14 +1,18 @@
 """Capture: recorded updates go through the handlers of the bot. Each test name is one rule."""
 
 import asyncio
+from typing import cast
 
 import pytest
 import sqlalchemy as sa
 from aiogram import Dispatcher
 from aiogram.types import Update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from structlog.testing import capture_logs
 
 from tests.bot.support import CHANNEL, OWNER_TELEGRAM_ID, offline_bot, updates
+from unshelve.bot import capture
 from unshelve.bot.runner import build_dispatcher
 from unshelve.config import Settings
 from unshelve.contracts.enums import CaptureSource, EnrichState, JobKind, JobState
@@ -135,6 +139,50 @@ async def test_the_parts_of_an_album_that_arrive_together_get_one_job(
 
     assert len(await _captures(committed_db)) == 3
     assert await _job_kinds(committed_db) == [JobKind.INGEST_ALBUM]
+
+
+class DownForAWhile:
+    """A database that does not answer the first times, and then works."""
+
+    def __init__(self, sessions: Sessions, failures: int) -> None:
+        self._sessions = sessions
+        self.failures_left = failures
+
+    def __call__(self) -> AsyncSession:
+        if self.failures_left > 0:
+            self.failures_left -= 1
+            raise OperationalError("SELECT 1", {}, ConnectionError("the database is down"))
+        return self._sessions()
+
+
+async def test_a_database_that_is_down_delays_a_post_and_does_not_lose_it(
+    settings: Settings, committed_db: Sessions, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(capture, "RETRY_DELAYS", (0.0,))
+    database = DownForAWhile(committed_db, failures=3)
+    dispatcher = build_dispatcher(settings, cast(Sessions, database))
+    link_post = [u for u in updates("seen") if u.update_id == 104]
+
+    with capture_logs() as logs:
+        await _deliver(dispatcher, link_post)
+
+    assert [entry["event"] for entry in logs] == ["capture.database_down"] * 3 + ["capture.stored"]
+    assert [entry["attempt"] for entry in logs[:3]] == [1, 2, 3]
+    assert [c.message_id for c in await _captures(committed_db)] == [10]
+
+
+async def test_a_mistake_in_the_code_is_not_tried_again_for_ever(
+    settings: Settings, committed_db: Sessions
+) -> None:
+    def broken() -> AsyncSession:
+        raise ValueError("a bug, not a database that is down")
+
+    dispatcher = build_dispatcher(settings, cast(Sessions, broken))
+
+    with pytest.raises(ValueError, match="a bug"):
+        await _deliver(dispatcher, [u for u in updates("seen") if u.update_id == 104])
+
+    assert await _captures(committed_db) == []
 
 
 async def test_every_kind_of_post_is_stored(dispatcher: Dispatcher, committed_db: Sessions) -> None:

@@ -4,17 +4,63 @@ The handler does one small thing: it stores the message and adds a job. Everythi
 happens later, on the worker. So the bot is ready for the next message at once.
 """
 
+import asyncio
+
 import structlog
 from aiogram import Router
 from aiogram.types import ChatMemberUpdated, Message
+from sqlalchemy import exc as sa_exc
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from unshelve.auth import store as auth_store
 from unshelve.bot.envelope import envelope_from_post
 from unshelve.config import Settings
+from unshelve.contracts.dto import CaptureEnvelope
 from unshelve.ingest import resolve
 
 log = structlog.get_logger()
+
+# Seconds to wait before the next try, when the database does not answer. The last value is
+# used again and again.
+RETRY_DELAYS = (1.0, 2.0, 5.0, 10.0, 30.0)
+DATABASE_IS_DOWN = (sa_exc.OperationalError, sa_exc.InterfaceError, sa_exc.TimeoutError, OSError)
+
+
+async def _save_until_stored(
+    sessions: async_sessionmaker[AsyncSession], owner_telegram_id: int, envelope: CaptureEnvelope
+) -> int | None:
+    """Store the message. When the database is down, wait and try again, without an end.
+
+    The bot library marks an update as done when its handler ends, also when the handler ends
+    with an error. An error here would thus lose the post. While this function waits, the bot
+    asks Telegram for nothing, so Telegram keeps the update. If the bot stops in that time,
+    Telegram sends the update again after the restart.
+
+    A second try after a save that did work is harmless: the message is stored already, and
+    the answer is None, as for each repeat.
+    """
+    attempt = 0
+    while True:
+        try:
+            async with sessions() as session:
+                owner_id = await auth_store.ensure_owner(session, owner_telegram_id)
+                capture_id = await resolve.accept_capture(session, owner_id, envelope)
+                # The message and its job are saved together.
+                await session.commit()
+        except DATABASE_IS_DOWN as error:
+            delay = RETRY_DELAYS[min(attempt, len(RETRY_DELAYS) - 1)]
+            attempt += 1
+            log.error(
+                "capture.database_down",
+                chat_id=envelope.chat_id,
+                message_id=envelope.message_id,
+                attempt=attempt,
+                retry_in_s=delay,
+                reason=type(error).__name__,
+            )
+            await asyncio.sleep(delay)
+        else:
+            return capture_id
 
 
 async def _store(
@@ -36,11 +82,7 @@ async def _store(
         return
 
     envelope = envelope_from_post(message)
-    async with sessions() as session:
-        owner_id = await auth_store.ensure_owner(session, settings.owner_telegram_id)
-        capture_id = await resolve.accept_capture(session, owner_id, envelope)
-        # The message and its job are saved together. After this line Telegram can forget it.
-        await session.commit()
+    capture_id = await _save_until_stored(sessions, settings.owner_telegram_id, envelope)
     log.info(
         "capture.stored" if capture_id is not None else "capture.repeat",
         chat_id=chat_id,
