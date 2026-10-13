@@ -9,7 +9,7 @@ from aiogram.methods import GetChatMember
 from aiogram.types import ChatMemberAdministrator, ChatMemberLeft, User
 from structlog.testing import capture_logs
 
-from unshelve.bot.runner import ALLOWED_UPDATES, HideToken, check_capture_chats
+from unshelve.bot.runner import ALLOWED_UPDATES, HideToken, check_capture_chats, polling_options
 from unshelve.config import Settings
 
 ME = User(id=2222222222, is_bot=True, first_name="Unshelve", username="example_unshelve_bot")
@@ -56,6 +56,13 @@ def test_the_bot_asks_for_the_kinds_of_updates_of_the_decision_record() -> None:
         "my_chat_member",
         "callback_query",
     ]
+
+
+def test_the_bot_handles_one_update_after_the_other() -> None:
+    # The library confirms an update when it asks for the next ones. It must not ask before
+    # the message of this update is stored.
+    assert polling_options()["handle_as_tasks"] is False
+    assert polling_options()["allowed_updates"] == ALLOWED_UPDATES
 
 
 def test_a_token_in_a_log_line_of_a_library_is_replaced() -> None:

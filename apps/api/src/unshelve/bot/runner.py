@@ -7,6 +7,7 @@ open to the internet. Updates that arrived while the bot was down wait at Telegr
 """
 
 import logging
+from typing import Any
 
 import structlog
 from aiogram import Bot, Dispatcher
@@ -27,6 +28,18 @@ ALLOWED_UPDATES = [
     "callback_query",
 ]
 ADMIN_STATUSES = frozenset({"administrator", "creator"})
+
+
+def polling_options() -> dict[str, Any]:
+    """How the bot asks Telegram for updates."""
+    return {
+        "allowed_updates": ALLOWED_UPDATES,
+        # One update after the other. The question for the next updates is what tells
+        # Telegram that the bot has the earlier ones. With the default of the library, several
+        # handlers run at the same time, and that question can leave before a message is
+        # stored. Then a bot that stops at the wrong moment loses a post.
+        "handle_as_tasks": False,
+    }
 
 
 class HideToken(logging.Filter):
@@ -109,6 +122,6 @@ async def run_bot(settings: Settings, sessions: async_sessionmaker[AsyncSession]
     # start_polling handles SIGINT and SIGTERM, finishes the handlers that run, and closes
     # the connection to Telegram.
     await dispatcher.start_polling(  # pyright: ignore[reportUnknownMemberType]
-        bot, allowed_updates=ALLOWED_UPDATES
+        bot, **polling_options()
     )
     log.info("bot.stopped")
