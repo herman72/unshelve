@@ -12,8 +12,12 @@ from unshelve import __version__
 from unshelve.api.app import create_app
 from unshelve.config import get_settings
 from unshelve.db import migrations
+from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.log import configure_logging
-from unshelve.runtime import wait_for_shutdown
+from unshelve.queue.registry import discover, registry
+from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
+from unshelve.runtime import shutdown_event, wait_for_shutdown
+from unshelve.services import build_services
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Unshelve service commands.")
 
@@ -57,10 +61,30 @@ async def _idle(name: str) -> None:
     log.info(f"{name}.stopped")
 
 
+async def _work() -> None:
+    settings = get_settings()
+    log = _setup_logging()
+    engine = create_engine(settings.database_url)
+    try:
+        services = build_services(settings, create_session_factory(engine))
+        modules = discover()
+        config = WorkerConfig(worker_id=new_worker_id())
+        log.info(
+            "worker.started",
+            worker_id=config.worker_id,
+            handler_modules=modules,
+            kinds=[kind.value for kind in registry.kinds()],
+        )
+        await Worker(services, registry, config).run_forever(shutdown_event())
+        log.info("worker.stopped")
+    finally:
+        await engine.dispose()
+
+
 @app.command()
 def worker() -> None:
-    """Run queued jobs. The job loop arrives with the queue (M0-4)."""
-    asyncio.run(_idle("worker"))
+    """Run queued jobs until the process is told to stop."""
+    asyncio.run(_work())
 
 
 @app.command()
