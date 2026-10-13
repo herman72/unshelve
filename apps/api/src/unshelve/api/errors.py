@@ -63,6 +63,12 @@ class ConflictError(ApiError):
     status = HTTPStatus.CONFLICT
 
 
+class InvalidInputError(ApiError):
+    """A value that passed the schema, and that the handler cannot use: for example a cursor."""
+
+    status = HTTPStatus.UNPROCESSABLE_ENTITY
+
+
 class ServiceUnavailableError(ApiError):
     status = HTTPStatus.SERVICE_UNAVAILABLE
 
