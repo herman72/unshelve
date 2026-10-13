@@ -11,6 +11,7 @@ import uvicorn
 from unshelve import __version__
 from unshelve.api.app import create_app
 from unshelve.auth import store as auth_store
+from unshelve.bot.runner import run_bot
 from unshelve.config import get_settings
 from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
@@ -57,13 +58,6 @@ def migrate(revision: str = "head") -> None:
     migrations.upgrade(revision)
 
 
-async def _idle(name: str) -> None:
-    log = _setup_logging()
-    log.info(f"{name}.started", note="not implemented yet; waiting for shutdown")
-    await wait_for_shutdown()
-    log.info(f"{name}.stopped")
-
-
 async def _work() -> None:
     settings = get_settings()
     log = _setup_logging()
@@ -90,10 +84,27 @@ def worker() -> None:
     asyncio.run(_work())
 
 
+async def _bot() -> None:
+    settings = get_settings()
+    log = _setup_logging()
+    if settings.telegram_bot_token is None:
+        # A new copy of the project has no bot. The process stays up and idle, so that the
+        # stack starts without one.
+        log.info("bot.idle", note="UNSHELVE_TELEGRAM_BOT_TOKEN is not set; waiting for shutdown")
+        await wait_for_shutdown()
+        log.info("bot.stopped")
+        return
+    engine = create_engine(settings.database_url)
+    try:
+        await run_bot(settings, create_session_factory(engine))
+    finally:
+        await engine.dispose()
+
+
 @app.command()
 def bot() -> None:
-    """Run the Telegram bot. Capture arrives in M1."""
-    asyncio.run(_idle("bot"))
+    """Run the Telegram bot: it stores the posts of the capture channels."""
+    asyncio.run(_bot())
 
 
 async def _issue_login_token(database_url: str, telegram_user_id: int) -> str:
