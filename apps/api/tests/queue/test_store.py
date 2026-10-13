@@ -75,6 +75,14 @@ async def test_the_same_work_is_enqueued_once_while_it_waits(db: AsyncSession) -
     assert other_kind not in (None, first)
 
 
+async def test_a_job_with_a_delay_starts_later(db: AsyncSession) -> None:
+    job_id = await add(db, delay=timedelta(seconds=5))
+
+    assert (await row(db, job_id)).run_after == at(5)
+    assert await store.claim(db, worker_id="w1", lease=LEASE, now=at(4)) is None
+    assert (await take(db, now=at(5))).id == job_id
+
+
 # --- claim -------------------------------------------------------------------------------
 
 
