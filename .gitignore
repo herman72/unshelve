@@ -4,7 +4,8 @@
 !.env.example
 /data/
 /var/
-/exports/
+/exports/*
+!/exports/README.md
 *.private.md
 *.private.yaml
 
