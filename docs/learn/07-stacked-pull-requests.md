@@ -269,4 +269,4 @@ git switch -c playground
 - [Pro Git, "Reset Demystified"](https://git-scm.com/book/en/v2/Git-Tools-Reset-Demystified). What `reset` really changes.
 - [git push documentation](https://git-scm.com/docs/git-push). Search the page for `--force-with-lease`.
 
-Previous: [6. The API contract and the web shell](06-api-contract-and-web-shell.md) · Back to the [list of notes](README.md)
+Previous: [6. The API contract and the web shell](06-api-contract-and-web-shell.md) · Next: [8. Signing in with a one-time link](08-login.md)
