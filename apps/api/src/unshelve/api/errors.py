@@ -12,6 +12,7 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 from starlette.exceptions import HTTPException
 
 from unshelve.api.schemas import FieldProblem, Problem
@@ -120,6 +121,18 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(IllegalTransitionError)
     async def _illegal_move(request: Request, exc: IllegalTransitionError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
         return problem_response(HTTPStatus.CONFLICT, detail=str(exc))
+
+    @app.exception_handler(OperationalError)
+    async def _database_unavailable(request: Request, exc: OperationalError) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]
+        # The database did not answer: no connection, a lost connection, a timeout. That is
+        # not a bug in a handler, and a later try can work, so it is 503 and not 500. Only
+        # the first line of the driver's message is logged. The full text of the exception
+        # holds the SQL and its parameters.
+        reason = str(exc.orig).strip().splitlines()[0] if str(exc.orig).strip() else None
+        log.warning("api.database_unavailable", path=request.url.path, reason=reason)
+        return problem_response(
+            HTTPStatus.SERVICE_UNAVAILABLE, detail="the database is not available; try again"
+        )
 
     @app.exception_handler(Exception)
     async def _unexpected(request: Request, exc: Exception) -> JSONResponse:  # pyright: ignore[reportUnusedFunction]

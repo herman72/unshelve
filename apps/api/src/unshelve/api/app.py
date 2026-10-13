@@ -43,6 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         redoc_url=None,
         generate_unique_id_function=_operation_id,
     )
+    app.state.settings = settings
     install_error_handlers(app)
     app.include_router(ops.router, prefix=API_PREFIX)
     app.include_router(api_router, prefix=API_PREFIX)
