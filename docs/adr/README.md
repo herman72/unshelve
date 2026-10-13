@@ -12,6 +12,7 @@ Each record states one decision, why it was made, and what it costs. A record is
 | [0006](0006-one-async-database-access-style.md) | One async database access style | Accepted |
 | [0007](0007-embedding-sets-and-exact-search-first.md) | Embedding sets, and exact search first | Accepted |
 | [0008](0008-long-polling-and-bot-issued-login-links.md) | Telegram long polling and bot-issued login links | Accepted |
+| [0009](0009-capture-rules-from-a-real-bot-and-real-exports.md) | Capture rules from a test with a real bot and real exports | Accepted |
 
 ## Template
 
