@@ -122,6 +122,12 @@ The branch was pushed first, and the base of the pull request was changed second
 
 **Do this:** change the base first (`gh pr edit 45 --base main`), then push.
 
+This repository now deletes a merged branch automatically. GitHub then changes the base of the next pull requests to `main` by itself. That happened when #46 was merged. So read the bases first, and change a base by hand only if GitHub did not do it:
+
+```bash
+gh pr list --json number,baseRefName
+```
+
 ## 6. Your safety net: `git reflog`
 
 Git writes down every move of your position:
@@ -141,7 +147,32 @@ git reset --hard 001fb96
 
 With the default settings, a removed commit stays in the reflog for at least 30 days.
 
-## 7. Two questions before every risky command
+## 7. After a rebase: prove that no file changed
+
+A rebase gives each commit a new name. The files must stay the same. Do not believe it. Measure it.
+
+Real example: #46 was merged, and the branch of #47 was moved onto the new `main`. Its last commit was `aa13a93` before the move, and it is `720638b` after the move.
+
+```bash
+git diff --stat aa13a93 720638b
+```
+
+The command prints nothing. That means: the two commits contain the same files, byte for byte. So the test results from before the move are still true.
+
+A second command compares the commits one by one:
+
+```text
+$ git range-diff 48714af..aa13a93 origin/main..720638b
+1:  8b34130 = 1:  00d7173 feat(queue): add the job store with enqueue and heartbeat
+2:  5c290e1 = 2:  538aa08 test(queue): specify the job store
+3:  aa13a93 = 3:  720638b feat(queue): implement claim, complete, fail and reap_expired
+```
+
+The sign `=` means "the same change". A `!` means "the change is different": then read that commit again.
+
+**A comparison from daily life:** you move to a new flat. The address is new. You count the boxes before and after the move, to know that nothing was lost.
+
+## 8. Two questions before every risky command
 
 ```bash
 git status -sb          # Where am I? Is there work that is not committed?
