@@ -172,7 +172,51 @@ The sign `=` means "the same change". A `!` means "the change is different": the
 
 **A comparison from daily life:** you move to a new flat. The address is new. You count the boxes before and after the move, to know that nothing was lost.
 
-## 8. Two questions before every risky command
+## 8. After a merge: remove the old branch
+
+A merged branch has no more use. GitHub deletes its own copy after the merge. Your local copy stays, and you remove it yourself.
+
+Git has a safe command for that. It refuses when the branch has work that is not in `main`. Real example: the branch of #47, after #47 was merged.
+
+```text
+$ git branch -d m0-4/queue-store
+error: the branch 'm0-4/queue-store' is not fully merged
+```
+
+But the pull request is merged. Why does git say this?
+
+Git looks for the commit names of the branch in `main`. "Rebase and merge" gave the commits new names (part 2). So git does not find them.
+
+Compare the changes, not the names:
+
+```text
+$ git cherry -v --abbrev=7 main m0-4/queue-store
+- 00d7173 feat(queue): add the job store with enqueue and heartbeat
+- 538aa08 test(queue): specify the job store
+- 720638b feat(queue): implement claim, complete, fail and reap_expired
+```
+
+A line that starts with `-` means "the same change is in `main`". A line that starts with `+` means "this change is missing in `main`". If each line starts with `-`, the branch is safe to delete:
+
+```bash
+git branch -D m0-4/queue-store
+```
+
+**A comparison from daily life:** a new edition of a book has a new number (ISBN). If you look for the old number in the list of the library, you find nothing. If you compare the text, you see that the book is there.
+
+For an old branch on GitHub, first check that no open pull request is built on it. This list must be empty:
+
+```bash
+gh pr list --base m0-1/scaffold
+```
+
+Then delete the branch on GitHub:
+
+```bash
+git push origin --delete m0-1/scaffold
+```
+
+## 9. Two questions before every risky command
 
 ```bash
 git status -sb          # Where am I? Is there work that is not committed?
@@ -217,6 +261,7 @@ git switch -c playground
 | Force push | A push that overwrites the branch on GitHub |
 | Cherry-pick | To copy one commit onto a different branch |
 | Reflog | Git's diary of every move you made |
+| `git cherry` | A command that lists the commits of a branch. It says for each commit if the same change is in a different branch. |
 
 ## To read more
 
