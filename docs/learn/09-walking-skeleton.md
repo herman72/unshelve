@@ -260,4 +260,4 @@ It is not sufficient when two runs are open at the same time. The two runs read 
 - [Designing robust and predictable APIs with idempotency](https://stripe.com/blog/idempotency), Stripe. Why a request that runs two times must have one effect.
 - [We need tool support for keyset pagination](https://use-the-index-luke.com/no-offset), Markus Winand. Why "skip N rows" is the wrong way to get the next page.
 
-Previous: [8. Signing in with a one-time link](08-login.md) · Back to the [list of notes](README.md)
+Previous: [8. Signing in with a one-time link](08-login.md) · Next: [10. The bot](10-bot-capture.md)

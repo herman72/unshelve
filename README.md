@@ -76,6 +76,8 @@ Open the link that it prints. It works once, for 5 minutes. [How the sign-in wor
 
 To save your first item and see the worker finish it, follow "Try it yourself" in [the walking skeleton note](docs/learn/09-walking-skeleton.md#try-it-yourself).
 
+To capture from a Telegram channel, put the token of your bot into `.env`, make the bot an administrator of the channel, and add the id of the channel to `UNSHELVE_CAPTURE_CHAT_IDS`. [The bot note](docs/learn/10-bot-capture.md) explains each step and how to find the id.
+
 `make help` lists every target.
 
 ## Contributing
