@@ -146,19 +146,23 @@ op.execute("""
 """)
 ```
 
+   If the new column is in the middle of the list, PostgreSQL refuses the change. The error looks like this: `cannot change name of view column "title" to "note"`.
+
 2. The list in `tests/db/test_public_boundary.py`:
 
 ```python
 PUBLIC_COLUMNS = [..., "tags", "source_note"]
 ```
 
-**To make a public column private again,** do the opposite in a new migration. PostgreSQL cannot remove a column from a view with `CREATE OR REPLACE`. So the migration removes the view and creates it again without the column:
+**To make a public column private again,** do the opposite in a new migration. PostgreSQL cannot remove a column from a view with `CREATE OR REPLACE`. It answers `ERROR: cannot drop columns from view`. So the migration removes the view and creates it again without the column:
 
 ```python
 op.execute("DROP VIEW pub.items")
 op.execute("CREATE VIEW pub.items AS SELECT ...the list without the column... FROM items i WHERE ...")
 op.execute("GRANT SELECT ON pub.items TO unshelve_publisher")   # a new view has no permissions
 ```
+
+If you forget the `GRANT` line, the publisher gets `ERROR: permission denied for view items`. The test `test_the_publisher_sees_public_items_only_and_no_private_text` finds this mistake.
 
 Then remove the name from `PUBLIC_COLUMNS`.
 
