@@ -87,12 +87,39 @@ Why not `ENUM`? You cannot remove a value from an `ENUM`, and for many years a n
 - **Is the migration independent?** It must not import code from the application. If it did, a later change of that code would break an old migration.
 - **Can two test runs collide?** See part 3.
 
-## Exercise (20 minutes)
+## Exercise (25 minutes)
+
+**Part 1: add a private column.**
 
 1. Add a column to the `Item` model in `db/models.py`: `source_note` (text, can be empty).
 2. Create the migration: `cd apps/api && uv run alembic revision --autogenerate --rev-id 0002 -m "add source note"`.
-3. Run the tests.
-4. Answer: which test tells you that the new column is **not** public? What must you change to make it public?
+3. Run `uv run pytest tests/db`. All tests pass.
+
+Nothing tells you that the new column is private. That is correct: private is the normal case. The column is in the table `items`. It is not in the view `pub.items`, because the view lists its columns one by one.
+
+**Part 2: try to make the column public.**
+
+4. Open `migrations/versions/0001_initial.py` and copy the text of `PUB_ITEMS_VIEW`.
+5. In the `upgrade()` of your new migration, run that text with two changes: write `CREATE OR REPLACE VIEW` at the start, and add `i.source_note` as the last column, after `tags`.
+6. Run `uv run pytest tests/db/test_public_boundary.py`. One test fails. Read its name and its message.
+7. Make the test pass.
+
+**Part 3: throw it away.** Delete your migration file and undo your change in `models.py`. An exercise must not go into a pull request.
+
+<details>
+<summary>The answer</summary>
+
+The test `test_the_public_view_has_exactly_the_agreed_columns` fails with this message:
+
+```text
+Left contains one more item: 'source_note'
+```
+
+To make the test pass, you add `"source_note"` to the list `PUBLIC_COLUMNS` in the test file.
+
+So a column becomes public only when you change **two** places on purpose: the view, and the list in the test. A column that you only add to the table stays private. And a reviewer sees both changes in the pull request.
+
+</details>
 
 ## Words used in this note
 
