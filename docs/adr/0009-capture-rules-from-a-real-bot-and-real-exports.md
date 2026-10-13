@@ -162,9 +162,9 @@ Private values are masked: the owner has the id `111111111`, the test channel `-
     "forward_origin": {
       "type": "channel",
       "chat": {
-        "id": -1002042879009,
-        "title": "Mahi in Tech",
-        "username": "MahdyarDev",
+        "id": -1001111111111,
+        "title": "Tech Notes",
+        "username": "technotes",
         "type": "channel"
       },
       "message_id": 590,

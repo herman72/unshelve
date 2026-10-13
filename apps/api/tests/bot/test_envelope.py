@@ -71,9 +71,9 @@ def test_a_forwarded_post_names_its_source() -> None:
     assert envelope.forward_origin == ForwardOrigin(
         type="channel",
         date=datetime(2026, 9, 20, 15, 15, 2, tzinfo=UTC),
-        chat_id=-1002042879009,
+        chat_id=-1001111111111,
         message_id=590,
-        name="Mahi in Tech",
+        name="Tech Notes",
     )
     assert envelope.urls == ["http://github.com/cloudflare/security-audit-skill"]
 
