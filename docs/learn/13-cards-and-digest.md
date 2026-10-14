@@ -1,6 +1,6 @@
 # 13. Cards, a button, and the digest
 
-> Pull request: [#63](https://github.com/herman72/unshelve/pull/63) · Code: [`bot/cards.py`](../../apps/api/src/unshelve/bot/cards.py), [`bot/private.py`](../../apps/api/src/unshelve/bot/private.py), [`resurface/digest.py`](../../apps/api/src/unshelve/resurface/digest.py), [`track/status.py`](../../apps/api/src/unshelve/track/status.py) · Tests: [`tests/bot/test_cards.py`](../../apps/api/tests/bot/test_cards.py), [`tests/bot/test_private.py`](../../apps/api/tests/bot/test_private.py), [`tests/resurface/`](../../apps/api/tests/resurface/), [`tests/track/`](../../apps/api/tests/track/)
+> Pull requests: [#63](https://github.com/herman72/unshelve/pull/63), and [#64](https://github.com/herman72/unshelve/pull/64) for part 8 · Code: [`resurface/weekly.py`](../../apps/api/src/unshelve/resurface/weekly.py), [`bot/cards.py`](../../apps/api/src/unshelve/bot/cards.py), [`bot/private.py`](../../apps/api/src/unshelve/bot/private.py), [`resurface/digest.py`](../../apps/api/src/unshelve/resurface/digest.py), [`track/status.py`](../../apps/api/src/unshelve/track/status.py) · Tests: [`tests/bot/test_cards.py`](../../apps/api/tests/bot/test_cards.py), [`tests/bot/test_private.py`](../../apps/api/tests/bot/test_private.py), [`tests/resurface/`](../../apps/api/tests/resurface/), [`tests/track/`](../../apps/api/tests/track/)
 
 ## In one minute
 
@@ -10,7 +10,7 @@ You write `/digest` to the bot. The bot answers with one message: the things tha
 
 When you press "Done", the item is read. The button goes away, and the item leaves the inbox of the web app.
 
-The next pull request sends the same digest by itself, each Sunday at 09:00.
+The same digest also comes by itself, each Sunday at 09:00 (part 8).
 
 ## 1. A digest, as Telegram gets it
 
@@ -122,6 +122,49 @@ Why at random? A digest of the last 7 days only repeats your week. A thing that 
 
 The choice is random, and it is also repeatable. The random generator starts from a *seed*: a fixed text. With the same seed it makes the same choice. Today the seed is your user and the date: `/digest` two times on one day shows the same old thing. A digest that is sent again after an error also shows the same thing.
 
+## 8. On Sunday at 09:00, the digest comes by itself
+
+The worker process looks once a minute: is a digest due? You set the moment in `.env`:
+
+```text
+UNSHELVE_TIMEZONE=Europe/Helsinki
+UNSHELVE_DIGEST_DAY=sunday
+UNSHELVE_DIGEST_HOUR=9
+```
+
+The time zone is a name, as for the importer ([note 11](11-export-importer.md), part 4). 09:00 in Helsinki is 06:00 UTC in summer and 07:00 UTC in winter. The name knows which one.
+
+Your Mac can sleep on Sunday morning. So the digest can come late:
+
+| Your Mac | What happens |
+|---|---|
+| Awake on Sunday at 09:00 | The digest comes within one minute. |
+| Asleep, and awake again on Monday at 08:00 | The digest comes on Monday at 08:00. |
+| Asleep until Tuesday at 10:00 | No digest for this week. It is more than 48 hours late, and an old digest is no help. |
+
+**Exactly one digest each week.** Each week has a name, such as `2026-W42`, and one row in the table `digests`. The worker makes the row and the job that sends the digest in one transaction. Then the next minute, and a second worker, find the row and make nothing.
+
+The name of a week follows ISO 8601: a week belongs to the year of its Thursday. So Sunday, 3 January 2027 is in the week `2026-W53`.
+
+**First sent, then marked.** The job sends the message, and then it marks the row as sent. If the worker stops between these two steps, the job runs again, and the digest comes two times. The other order is "mark, then send". Then a stop between the steps loses the week. A lost week is worse than a message that comes two times.
+
+**When Telegram says no:**
+
+| What Telegram says | What the job does |
+|---|---|
+| "Too many requests, wait 7 seconds" | It tries again after 7 seconds. |
+| No answer: no connection | It tries again after 30 seconds. |
+| An error of the server of Telegram | It tries again after 60 seconds. |
+| The bot is blocked, the token is wrong, or the chat is unknown | It stops. A second try gets the same answer. |
+
+You can see a digest before Sunday:
+
+```bash
+docker compose exec worker unshelve digest preview
+```
+
+This prints the digest and sends nothing. `unshelve digest send` sends it to you now.
+
 ## A choice that we made
 
 One message for the whole digest, or one message for each card?
@@ -140,9 +183,10 @@ A digest that arrives as a whole is easier to make exactly one time. The next pu
 - **What does a second press do?** Nothing, and it is no error. Telegram also refuses a change of buttons that changes nothing ("message is not modified"), so the bot changes the buttons only when the pressed one is still there.
 - **What do two presses at the same moment do?** One event. A test makes the first press slow on purpose; the lock of the row makes the second one wait.
 - **Who can do what?** Only the owner can press. A stranger gets an empty answer.
+- **Can a digest come two times, or never?** Two times, if the worker stops in a short moment after the sending. Never in a week when the Mac sleeps for more than 48 hours after the moment. Part 8 explains why.
 - **Can the tests fail?** I broke the new code in 38 places, one at a time. The tests found 37. The one that they missed was "an item in the queue comes from the shelf", because the random choice took a different item by chance. A test without chance finds it now.
 - **What is not done:**
-  - The digest does not come by itself. That is the next pull request: Sunday at 09:00.
+  - The digest does not say which days it covers ("13 to 19 October").
   - "Done" is the only button. "Later", "Archive" and the queue with its limit arrive with milestone M3.
   - The titles and the summaries come from the fake model, so they are the first words of the saved text. Milestone M2 makes them real.
 
