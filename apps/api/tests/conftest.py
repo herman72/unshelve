@@ -4,6 +4,7 @@ from contextlib import AbstractAsyncContextManager, asynccontextmanager
 
 import httpx
 import pytest
+from hypothesis import settings as property_test_settings
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from unshelve.api.app import create_app
@@ -18,6 +19,15 @@ TEST_SERVER_URL = os.environ.get(
 )
 
 ClientFactory = Callable[[Settings], AbstractAsyncContextManager[httpx.AsyncClient]]
+
+# A property test makes its own inputs. By default it makes the same inputs in each run and
+# on each computer, so a failure on CI can be repeated here. To let it look for new problems,
+# with new inputs each time: HYPOTHESIS_PROFILE=explore uv run pytest tests/ingest
+property_test_settings.register_profile(
+    "repeatable", derandomize=True, database=None, max_examples=500, deadline=None
+)
+property_test_settings.register_profile("explore", max_examples=50_000, deadline=None)
+property_test_settings.load_profile(os.environ.get("HYPOTHESIS_PROFILE", "repeatable"))
 
 
 # --- Databases ---------------------------------------------------------------------------
