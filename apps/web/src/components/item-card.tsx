@@ -60,6 +60,8 @@ export function ItemCard({ item }: { item: ItemSummary }) {
         <Badge label="Kind">{item.kind}</Badge>
         <Badge label="Status">{item.status}</Badge>
         {item.est_minutes !== null && <span>{item.est_minutes} min read</span>}
+        {/* A thing that was saved again is one item. The number is a sign of interest. */}
+        {item.capture_count > 1 && <span>Saved {item.capture_count} times</span>}
       </p>
 
       {item.summary && (
