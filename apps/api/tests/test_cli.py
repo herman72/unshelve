@@ -11,9 +11,12 @@ from tests.ingest.support import DESKTOP, MACOS, MADE_UP
 from unshelve import __version__
 from unshelve.auth import store as auth_store
 from unshelve.cli import app
-from unshelve.config import get_settings
+from unshelve.config import Settings, get_settings
 from unshelve.db.engine import create_engine, create_session_factory
-from unshelve.db.models import Capture
+from unshelve.db.models import Capture, ItemKey, Job
+from unshelve.queue.registry import discover, registry
+from unshelve.queue.worker import Worker, WorkerConfig
+from unshelve.services import build_services
 
 runner = CliRunner()
 
@@ -40,7 +43,7 @@ def test_version_prints_the_installed_version() -> None:
 def test_every_service_command_is_registered() -> None:
     result = runner.invoke(app, ["--help"])
 
-    for command in ("api", "worker", "bot", "migrate", "auth", "import"):
+    for command in ("api", "worker", "bot", "migrate", "auth", "import", "rekey"):
         assert command in _plain(result.stdout)
 
 
@@ -406,3 +409,42 @@ def test_import_names_the_post_that_it_cannot_read(
 
     assert result.exit_code == 1
     assert "messages.html: message 3 has a date in a form" in result.stderr
+
+
+# --- unshelve rekey ------------------------------------------------------------------------
+
+
+def test_rekey_gives_keys_to_the_items_that_exist_and_joins_the_same_things(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    # The made-up export has 16 posts in 13 saves. Each save is an item with its keys.
+    _import(monkeypatch, tmp_path, private_database_url, MADE_UP, "--timezone", "Europe/Helsinki")
+
+    async def work_and_forget_the_keys() -> None:
+        engine = create_engine(private_database_url)
+        try:
+            sessions = create_session_factory(engine)
+            async with sessions() as db:
+                await db.execute(sa.update(Job).values(run_after=sa.func.now()))
+                await db.commit()
+            discover()
+            settings = Settings(env="test", database_url=private_database_url)
+            worker = Worker(build_services(settings, sessions), registry, WorkerConfig("w1"))
+            while await worker.run_one():
+                pass
+            async with sessions() as db:
+                await db.execute(sa.delete(ItemKey))
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(work_and_forget_the_keys())
+
+    first = _run(monkeypatch, tmp_path, "rekey", UNSHELVE_DATABASE_URL=private_database_url)
+    again = _run(monkeypatch, tmp_path, "rekey", UNSHELVE_DATABASE_URL=private_database_url)
+
+    assert first.exit_code == 0, first.output
+    # Eight saves have a key: two albums, four posts with a link and two notes. The other
+    # five are one file each, and a file of an export has no key.
+    assert first.stdout.strip() == "Items: 13. New keys: 8. Joined to an older item: 0."
+    assert again.stdout.strip() == "Items: 13. New keys: 0. Joined to an older item: 0."
