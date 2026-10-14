@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     owner_telegram_id: int | None = None
     capture_chat_ids: list[int] = Field(default_factory=list[int])
 
+    # The weekly digest: the bot sends it on this day, at this hour of this time zone.
+    timezone: str = "UTC"
+    digest_day: Literal[
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
+    ] = "sunday"
+    digest_hour: int = Field(default=9, ge=0, le=23)
+
     # "fake" and "fixtures" keep every model and network call local and deterministic.
     providers: Literal["fake", "live"] = "fake"
     fetcher: Literal["fixtures", "live"] = "fixtures"
