@@ -27,6 +27,18 @@ There are two different questions:
 - URL canonicalisation is a pure, versioned function with a table of test cases. A new version can re-key old items.
 - Merging duplicates is a soft link (`duplicate_of_id`), so no data is destroyed by a wrong match.
 
+## Notes from the implementation (2026-10-14, package M1-3)
+
+The package that built this decision made these points exact. [Learning note 12](../learn/12-resolver.md) explains each one.
+
+- **Which keys a save gets.** The first link, each file that has a Telegram id, the album, and the source of a forward when Telegram gives its chat and its message. The text is a key only for a save without a link and without a file.
+- **A save that joins an item** raises `capture_count` by one. The messages of one album are one save.
+- **A save with keys of two items** shows that the two items are one thing. The older item stays and gets the saves of the newer one. The newer item gets `duplicate_of_id`. A search by key follows this link to its end.
+- **Two workers at the same moment.** Before the resolver looks for a key, it takes a Postgres advisory lock with the name of the key, for the time of its transaction. The primary key of `item_keys` stays the last guard.
+- **The canonical form is for identity.** `items.canonical_url` is always `https` and has no tracking parameters. The address as it arrived stays in `captures.urls`, and the fetch step can use it.
+- **The rules have a version** (`canonical.VERSION`), and `unshelve rekey` makes the keys of each item again from its stored messages.
+- **Not built in M1-3:** the key for the final address after a redirect (it needs the fetch step of M2), and the effect of an edit of a post (issue #60).
+
 ## Alternatives considered
 
 - **Unique `canonical_url`.** Fails for items without URLs and changes meaning when a redirect is discovered.

@@ -289,4 +289,4 @@ The other failing tests count the albums or the jobs of the made-up export. One 
 - [export_output_html.cpp](https://github.com/telegramdesktop/tdesktop/blob/dev/Telegram/SourceFiles/export/output/export_output_html.cpp), the code of Telegram Desktop that writes the export. Search for `pushMessage`: this function writes one post.
 - [Falsehoods programmers believe about time](https://infiniteundo.com/post/25326999628/falsehoods-programmers-believe-about-time), Noah Sussman. A short list of the things that are not true about clocks and dates.
 
-Previous: [10. The bot](10-bot-capture.md) · Back to the [list of notes](README.md)
+Previous: [10. The bot](10-bot-capture.md) · Next: [12. The resolver](12-resolver.md)
