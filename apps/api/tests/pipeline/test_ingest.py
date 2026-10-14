@@ -3,7 +3,7 @@
 The messages arrive the way the bot delivers them: stored, with a job that waits.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import sqlalchemy as sa
@@ -100,6 +100,28 @@ async def test_a_stored_message_becomes_a_finished_item(services: Services) -> N
     assert item.enrich_state is EnrichState.READY
     assert item.canonical_url == "https://example.com/a-talk"
     assert item.first_captured_at == NOON
+
+
+async def test_two_posts_with_the_same_link_become_one_item(services: Services) -> None:
+    await _arrive(
+        services.sessions,
+        _post(10, text="https://example.com/a-talk", urls=["https://example.com/a-talk"]),
+        _post(
+            11,
+            text="again: https://www.example.com/a-talk/?utm_source=telegram",
+            urls=["https://www.example.com/a-talk/?utm_source=telegram"],
+            posted_at=NOON + timedelta(hours=1),
+        ),
+    )
+
+    steps = await _run_all(_worker(services))
+
+    # Two ingest jobs, and then one fetch, one enrich and one embed for the one item.
+    assert steps == 5
+    (item,) = await _items(services.sessions)
+    assert item.enrich_state is EnrichState.READY
+    assert item.capture_count == 2
+    assert (item.first_captured_at, item.last_captured_at) == (NOON, NOON + timedelta(hours=1))
 
 
 async def test_an_album_waits_and_then_becomes_one_item(services: Services) -> None:
