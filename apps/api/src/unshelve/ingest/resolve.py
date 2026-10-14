@@ -20,10 +20,11 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from unshelve.contracts.dto import CaptureEnvelope
-from unshelve.contracts.enums import JobKind
+from unshelve.contracts.enums import EnrichState, JobKind
 from unshelve.contracts.jobs import FetchItemPayload, IngestAlbumPayload, IngestCapturePayload
 from unshelve.db.models import Capture, Item, ItemKey
 from unshelve.ingest.keys import keys_of, primary_url
+from unshelve.ingest.versions import latest_versions, source
 from unshelve.queue import store as queue
 
 # Captures that did not come from a Telegram chat have no chat. They share this number.
@@ -141,14 +142,60 @@ async def _join_as_one(session: AsyncSession, same: set[int]) -> None:
     )
 
 
+async def _versions(
+    session: AsyncSession, owner_id: int, captures: Sequence[Capture]
+) -> list[Capture]:
+    """All stored versions of the messages of ``captures``: an edit can arrive before the job
+    of the first version runs."""
+    messages = {(capture.chat_id, capture.message_id) for capture in captures}
+    found = await session.scalars(
+        sa.select(Capture)
+        .where(
+            Capture.owner_id == owner_id,
+            sa.tuple_(Capture.chat_id, Capture.message_id).in_(sorted(messages)),
+        )
+        .order_by(Capture.chat_id, Capture.message_id, Capture.edit_seq)
+        .with_for_update()
+    )
+    return list(found.all())
+
+
+async def _source(session: AsyncSession, item_id: int) -> str:
+    """The code of what the pipeline reads for this item now (``versions.source``)."""
+    await session.flush()
+    linked = await session.scalars(sa.select(Capture).where(Capture.item_id == item_id))
+    return source(linked.all()).code()
+
+
+async def _restart(session: AsyncSession, owner_id: int, item_id: int) -> None:
+    """Start the pipeline of an item again, because what it reads has changed.
+
+    A step that runs at this moment then finds that the item has left its state, and it
+    writes nothing (the check of ``pipeline/items.py``, note 9). The first step starts from
+    the beginning and reads the latest versions.
+    """
+    await session.execute(
+        sa.update(Item).where(Item.id == item_id).values(enrich_state=EnrichState.PENDING)
+    )
+    await queue.enqueue(
+        session,
+        JobKind.FETCH_ITEM,
+        FetchItemPayload(item_id=item_id),
+        owner_id=owner_id,
+        dedupe_key=f"item:{item_id}",
+    )
+
+
 async def _give_item(session: AsyncSession, owner_id: int, captures: Sequence[Capture]) -> int:
     """Give the captures of one save their item. Returns the id of the item."""
-    keys = keys_of(captures)
+    versions = await _versions(session, owner_id, captures)
+    latest = latest_versions(versions)
+    keys = keys_of(latest)
     await _wait_for_keys(session, owner_id, keys)
     found = await _items_with(session, owner_id, keys)
-    homes = {capture.item_id for capture in captures if capture.item_id is not None}
-    first = min(capture.posted_at for capture in captures)
-    last = max(capture.posted_at for capture in captures)
+    homes = {version.item_id for version in versions if version.item_id is not None}
+    first = min(capture.posted_at for capture in latest)
+    last = max(capture.posted_at for capture in latest)
 
     if homes:
         # The save has its item: a part of an album arrived late, or a job ran a second time.
@@ -166,7 +213,7 @@ async def _give_item(session: AsyncSession, owner_id: int, captures: Sequence[Ca
                 sa.insert(Item)
                 .values(
                     owner_id=owner_id,
-                    canonical_url=primary_url(captures),
+                    canonical_url=primary_url(latest),
                     first_captured_at=first,
                     last_captured_at=last,
                 )
@@ -180,7 +227,9 @@ async def _give_item(session: AsyncSession, owner_id: int, captures: Sequence[Ca
             owner_id=owner_id,
             dedupe_key=f"item:{home}",
         )
+        before = None
     else:
+        before = await _source(session, home)
         await session.execute(
             sa.update(Item)
             .where(Item.id == home)
@@ -192,9 +241,9 @@ async def _give_item(session: AsyncSession, owner_id: int, captures: Sequence[Ca
             )
         )
 
-    for capture in captures:
-        if capture.item_id is None:
-            capture.item_id = home
+    for version in versions:
+        if version.item_id is None:
+            version.item_id = home
     if keys:
         await session.execute(
             postgresql.insert(ItemKey)
@@ -202,13 +251,66 @@ async def _give_item(session: AsyncSession, owner_id: int, captures: Sequence[Ca
             # A key that an item has already stays with that item.
             .on_conflict_do_nothing()
         )
+    # A new text, a new file or a late part of an album changes what the item reads. A save
+    # with the same text changes nothing: then no step runs again, and no model is asked.
+    if before is not None and await _source(session, home) != before:
+        await _restart(session, owner_id, home)
     # This save can share one key with one item and another key with a second item.
     await _join_as_one(session, found | {await _root(session, home)})
     return home
 
 
-async def resolve_capture(session: AsyncSession, capture_id: int) -> int:
+async def _apply_edit(session: AsyncSession, edit: Capture) -> int | None:
+    """Link a new version of a message to the item of the message. Returns the item, or None
+    when the first version has no item yet: its job links all versions later."""
+    home = await session.scalar(
+        sa.select(Capture.item_id)
+        .where(
+            Capture.owner_id == edit.owner_id,
+            Capture.chat_id == edit.chat_id,
+            Capture.message_id == edit.message_id,
+            Capture.item_id.is_not(None),
+        )
+        .limit(1)
+    )
+    if home is None:
+        earlier = await session.scalar(
+            sa.select(sa.func.count())
+            .select_from(Capture)
+            .where(
+                Capture.owner_id == edit.owner_id,
+                Capture.chat_id == edit.chat_id,
+                Capture.message_id == edit.message_id,
+                Capture.edit_seq < edit.edit_seq,
+            )
+        )
+        if earlier:
+            return None
+        # The bot saw only this version, for example because the post is older than the bot.
+        # Then this version is the save.
+        return await _give_item(session, edit.owner_id, [edit])
+
+    before = await _source(session, home)
+    edit.item_id = home
+    linked = (await session.scalars(sa.select(Capture).where(Capture.item_id == home))).all()
+    # The address of the item follows its first link. An edit can correct a wrong link.
+    await session.execute(
+        sa.update(Item)
+        .where(Item.id == home)
+        .values(canonical_url=primary_url(latest_versions(linked)))
+    )
+    # The new first link becomes one more key. The old keys stay with the item.
+    await rekey_item(session, home)
+    if await _source(session, home) != before:
+        await _restart(session, edit.owner_id, home)
+    return home
+
+
+async def resolve_capture(session: AsyncSession, capture_id: int) -> int | None:
     """Give a capture its item and start the pipeline for it. Returns the id of the item.
+
+    A capture that is an edit joins the item of its message, and the item reads the new
+    version. It returns None when the first version of the message has no item yet.
 
     Safe to call again for the same capture: the second call finds the item and adds nothing.
     """
@@ -218,6 +320,8 @@ async def resolve_capture(session: AsyncSession, capture_id: int) -> int:
             sa.select(Capture).where(Capture.id == capture_id).with_for_update()
         )
     ).scalar_one()
+    if capture.edit_seq > 0:
+        return await _apply_edit(session, capture)
     return await _give_item(session, capture.owner_id, [capture])
 
 
@@ -229,13 +333,13 @@ async def accept_capture(
     This is the way in for the bot and for the importer. It returns the id of the capture, or
     None when the message is stored already. A repeat adds no job.
 
-    An edit of a message is stored, and it gets no job yet: the item of the message exists,
-    and updating an item from an edit is work of the resolver.
+    An edit of a message gets a job of its own, also an edit of a part of an album: the job
+    links the new version to the item of the message.
     """
     capture_id = await store_capture(session, owner_id, envelope)
-    if capture_id is None or envelope.edit_seq > 0:
+    if capture_id is None:
         return capture_id
-    if envelope.media_group_id is None:
+    if envelope.media_group_id is None or envelope.edit_seq > 0:
         await queue.enqueue(
             session,
             JobKind.INGEST_CAPTURE,
@@ -299,17 +403,10 @@ async def rekey_item(session: AsyncSession, item_id: int) -> int:
     When a key belongs to a different item already, the two items are one thing, and they
     are joined. Safe to call again.
     """
-    captures = (
-        (
-            await session.execute(
-                sa.select(Capture)
-                .where(Capture.item_id == item_id, Capture.edit_seq == 0)
-                .order_by(Capture.chat_id, Capture.message_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    linked = (await session.scalars(sa.select(Capture).where(Capture.item_id == item_id))).all()
+    # The keys come from the latest version of each message. A key of an older version that
+    # the item has already stays.
+    captures = latest_versions(linked)
     if not captures:
         return 0
     owner_id = captures[0].owner_id

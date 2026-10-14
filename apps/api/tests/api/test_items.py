@@ -67,6 +67,7 @@ async def _saved(sessions: Sessions, owner_id: int, minutes: int = 0, **item_val
         if item_values:
             await db.execute(sa.update(Item).where(Item.id == item_id).values(**item_values))
         await db.commit()
+    assert item_id is not None
     return item_id
 
 

@@ -11,15 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from unshelve.auth import store as auth
 from unshelve.config import Settings
-from unshelve.contracts.dto import CaptureEnvelope, MediaRef
+from unshelve.contracts.dto import CaptureEnvelope, Extracted, MediaRef, SourceRef
 from unshelve.contracts.enums import CaptureSource, EnrichState, JobKind, JobState
 from unshelve.contracts.jobs import IngestCapturePayload, Services
+from unshelve.contracts.protocols import ExtractContext
 from unshelve.db.models import Capture, Item, ItemContent, Job
 from unshelve.ingest import resolve
 from unshelve.queue import store as queue
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
 from unshelve.services import build_services
+from unshelve.testing.fakes import EchoExtractor
 
 NOON = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
 CHAT = -1001234567890
@@ -192,21 +194,78 @@ async def test_a_job_for_a_message_that_does_not_exist_is_dead_at_once(services:
     assert (job.state, job.last_error) == (JobState.DEAD, "capture 999 does not exist")
 
 
-async def test_the_pipeline_reads_the_latest_version_of_a_message(services: Services) -> None:
+async def test_an_edit_replaces_the_text_of_the_item(services: Services) -> None:
     await _arrive(services.sessions, _post(10, text="The first text"))
-    async with services.sessions() as db:
-        owner_id = await auth.ensure_owner(db, 1)
-        await resolve.accept_capture(db, owner_id, _post(10, text="The corrected text", edit_seq=5))
-        item_id = await resolve.resolve_capture(
-            db, (await db.execute(sa.select(Capture.id).where(Capture.edit_seq == 0))).scalar_one()
-        )
-        # The edit belongs to the same item. The resolver sets this link in the next change.
-        await db.execute(sa.update(Capture).where(Capture.edit_seq == 5).values(item_id=item_id))
-        await db.commit()
+    await _run_all(_worker(services))
+    (item,) = await _items(services.sessions)
+    assert item.enrich_state is EnrichState.READY
+    assert item.title == "the first text"  # the fake model takes the first words
 
+    await _arrive(services.sessions, _post(10, text="The corrected text", edit_seq=5))
+    steps = await _run_all(_worker(services))
+
+    # The job of the edit, and then fetch, enrich and embed again.
+    assert steps == 4
+    (item,) = await _items(services.sessions)
+    assert item.enrich_state is EnrichState.READY
+    assert item.capture_count == 1  # an edit is no new save
+    async with services.sessions() as db:
+        content = await db.get_one(ItemContent, item.id)
+    # The latest version, one time: not "The first text" and the correction together.
+    assert content.text == "The corrected text"
+    # The title of the first version does not stay.
+    assert item.title == "the corrected text"
+
+
+async def test_an_edit_that_removes_the_caption_leaves_nothing_of_the_old_card(
+    services: Services,
+) -> None:
+    photo = _photo("a")
+    await _arrive(services.sessions, _post(10, text="A caption about vectors", media=[photo]))
+    await _run_all(_worker(services))
+    (item,) = await _items(services.sessions)
+    assert item.summary is not None
+
+    await _arrive(services.sessions, _post(10, text="", media=[photo], edit_seq=5))
     await _run_all(_worker(services))
 
+    (item,) = await _items(services.sessions)
+    assert item.enrich_state is EnrichState.READY
+    # The photo has no text now. A title or a summary of the old caption would be wrong.
+    assert (item.title, item.summary, item.key_points, item.est_minutes) == (None, None, [], None)
+
+
+async def test_a_fetch_that_read_an_old_version_writes_nothing(
+    services: Services, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await _arrive(services.sessions, _post(10, text="The first text"))
+    worker = _worker(services)
+    assert await worker.run_one()  # the ingest job: the item exists, and its fetch job waits
+    extract = EchoExtractor.extract
+
+    async def an_edit_arrives_during_the_fetch(
+        self: EchoExtractor, source: SourceRef, context: ExtractContext
+    ) -> Extracted:
+        result = await extract(self, source, context)
+        if source.text == "The first text":
+            # The owner corrects the post while the fetch step works with the first text.
+            await _arrive(services.sessions, _post(10, text="The corrected text", edit_seq=5))
+            async with services.sessions() as db:
+                edit_id = (
+                    await db.execute(sa.select(Capture.id).where(Capture.edit_seq == 5))
+                ).scalar_one()
+                await resolve.resolve_capture(db, edit_id)
+                await db.commit()
+        return result
+
+    monkeypatch.setattr(EchoExtractor, "extract", an_edit_arrives_during_the_fetch)
+
+    await _run_all(worker)
+
+    (item,) = await _items(services.sessions)
+    assert item.enrich_state is EnrichState.READY
     async with services.sessions() as db:
-        content = await db.get_one(ItemContent, item_id)
-    # The latest version, one time: not "The first text" and the correction together.
+        content = await db.get_one(ItemContent, item.id)
+    # The fetch of the first text saw that the item got a new version, and it wrote nothing.
+    # The next fetch read the correction.
     assert content.text == "The corrected text"

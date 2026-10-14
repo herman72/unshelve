@@ -115,7 +115,7 @@ async def test_the_first_post_creates_the_owner(
     assert owners == [OWNER_TELEGRAM_ID]
 
 
-async def test_an_edit_is_stored_next_to_the_first_version_and_starts_no_job(
+async def test_an_edit_is_stored_next_to_the_first_version_and_gets_a_job(
     dispatcher: Dispatcher, committed_db: Sessions
 ) -> None:
     link_post = [u for u in updates("seen") if u.update_id == 104]
@@ -125,7 +125,8 @@ async def test_an_edit_is_stored_next_to_the_first_version_and_starts_no_job(
 
     versions = [(c.message_id, c.edit_seq) for c in await _captures(committed_db)]
     assert versions == [(10, 0), (10, 1791930240)]
-    assert await _job_kinds(committed_db) == [JobKind.INGEST_CAPTURE]
+    # One job for the post, one for its edit. The edit that arrived again adds nothing.
+    assert await _job_kinds(committed_db) == [JobKind.INGEST_CAPTURE, JobKind.INGEST_CAPTURE]
 
 
 async def test_the_parts_of_an_album_that_arrive_together_get_one_job(

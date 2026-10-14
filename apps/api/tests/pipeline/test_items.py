@@ -78,6 +78,7 @@ async def _save(sessions: Sessions, *, text: str = TEXT, url: str | None = URL) 
         assert capture_id is not None
         item_id = await resolve.resolve_capture(db, capture_id)
         await db.commit()
+    assert item_id is not None
     return item_id
 
 

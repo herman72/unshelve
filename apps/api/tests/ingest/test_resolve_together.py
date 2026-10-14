@@ -46,6 +46,7 @@ async def _resolved(sessions: Sessions, capture_id: int) -> int:
     async with sessions() as db:
         item_id = await resolve.resolve_capture(db, capture_id)
         await db.commit()
+    assert item_id is not None
     return item_id
 
 
