@@ -36,6 +36,7 @@ from unshelve.contracts.jobs import (
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.contracts.states import check_enrich_change
 from unshelve.db.models import Capture, Chunk, EmbeddingSet, Item, ItemContent
+from unshelve.ingest import versions
 from unshelve.queue import store as queue
 from unshelve.queue.registry import registry
 from unshelve.testing.fakes import EchoExtractor
@@ -78,24 +79,36 @@ async def _advance(
     *,
     start: EnrichState,
     end: EnrichState,
+    unchanged: sa.ColumnElement[bool] | None = None,
     **values: Any,
 ) -> bool:
     """Move the item from ``start`` to ``end`` and set ``values``, in one statement.
 
     Returns False when the item is not in ``start`` any more. Then another run of the same
-    step was faster, its result is in place, and the caller must write nothing.
+    step was faster, or the item was started again, and the caller must write nothing.
+    ``unchanged`` is one more condition of the same statement.
     """
     check_enrich_change(start, end)
+    where = [Item.id == item_id, Item.enrich_state == start]
+    if unchanged is not None:
+        where.append(unchanged)
     moved = await session.scalar(
-        sa.update(Item)
-        .where(Item.id == item_id, Item.enrich_state == start)
-        .values(enrich_state=end, **values)
-        .returning(Item.id)
+        sa.update(Item).where(*where).values(enrich_state=end, **values).returning(Item.id)
     )
     return moved is not None
 
 
 # --- Step 1: fetch -----------------------------------------------------------------------
+
+
+def _linked_now(item_id: int) -> tuple[sa.ScalarSelect[int], sa.ScalarSelect[int]]:
+    """The number of the captures of the item, and the highest id among them. A new version
+    or a late part of an album changes the pair: captures are linked, never unlinked."""
+    of_item = sa.select(Capture).where(Capture.item_id == item_id).subquery()
+    return (
+        sa.select(sa.func.count()).select_from(of_item).scalar_subquery(),
+        sa.select(sa.func.coalesce(sa.func.max(of_item.c.id), 0)).scalar_subquery(),
+    )
 
 
 @registry.handler(JobKind.FETCH_ITEM)
@@ -106,26 +119,20 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
         item = await _item_waiting_for(session, payload.item_id, EnrichState.PENDING)
         if item is None:
             return
-        # An item of an album has one capture for each photo. The first versions only: an edit
-        # of a message is a capture too, and it does not belong in the text a second time.
-        captures = (
-            (
-                await session.execute(
-                    sa.select(Capture)
-                    .where(Capture.item_id == item.id, Capture.edit_seq == 0)
-                    .order_by(Capture.message_id, Capture.id)
-                )
-            )
-            .scalars()
-            .all()
-        )
+        # An item of an album has one capture for each photo, and an edit of a message is a
+        # capture too. The item reads the latest version of each message, one time.
+        linked = (await session.scalars(sa.select(Capture).where(Capture.item_id == item.id))).all()
+        read = versions.source(linked)
+        # What was read. If a new version arrives during this step, the result is old.
+        seen = (len(linked), max(capture.id for capture in linked) if linked else 0)
 
-    forwarded = next((c.forward_origin for c in captures if c.forward_origin), None)
     source = SourceRef(
         url=item.canonical_url,
-        text="\n\n".join(c.text for c in captures if c.text),
-        media=[MediaRef.model_validate(media) for c in captures for media in c.media],
-        forward_origin=ForwardOrigin.model_validate(forwarded) if forwarded else None,
+        text=read.text,
+        media=[MediaRef.model_validate(media) for media in read.media],
+        forward_origin=ForwardOrigin.model_validate(read.forward_origin)
+        if read.forward_origin
+        else None,
     )
     # For now, one extractor that returns the saved text itself. It does not open the link, so
     # an item with a link is marked as partial. M2 chooses among real extractors here.
@@ -146,10 +153,13 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
             item.id,
             start=EnrichState.PENDING,
             end=EnrichState.FETCHED,
+            unchanged=sa.tuple_(*_linked_now(item.id)) == sa.tuple_(*seen),
             kind=extracted.kind,
             partial=item.canonical_url is not None,
             extra_links=extracted.extra_links,
-            **{name: value for name, value in found.items() if value is not None},
+            # Each field is written on each run, also an empty one. After an edit, a field
+            # of the old version must not stay.
+            **found,
         )
         if moved:
             content = {
@@ -213,8 +223,9 @@ async def enrich_item(ctx: JobContext, payload: EnrichItemPayload) -> None:
         }
     else:
         # Photos without a caption have no text. A model that gets no text invents some, so
-        # it is not asked. The item keeps an empty card until a later step reads the photos.
-        written = {}
+        # it is not asked. The item gets an empty card until a later step reads the photos:
+        # also when an edit removed the caption, nothing of the old card stays.
+        written = {"summary": None, "key_points": [], "est_minutes": None}
 
     async with services.sessions() as session:
         moved = await _advance(

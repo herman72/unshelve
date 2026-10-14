@@ -192,7 +192,7 @@ async def test_a_job_for_a_message_that_does_not_exist_is_dead_at_once(services:
     assert (job.state, job.last_error) == (JobState.DEAD, "capture 999 does not exist")
 
 
-async def test_the_text_of_an_edit_is_not_read_as_a_second_message(services: Services) -> None:
+async def test_the_pipeline_reads_the_latest_version_of_a_message(services: Services) -> None:
     await _arrive(services.sessions, _post(10, text="The first text"))
     async with services.sessions() as db:
         owner_id = await auth.ensure_owner(db, 1)
@@ -200,7 +200,7 @@ async def test_the_text_of_an_edit_is_not_read_as_a_second_message(services: Ser
         item_id = await resolve.resolve_capture(
             db, (await db.execute(sa.select(Capture.id).where(Capture.edit_seq == 0))).scalar_one()
         )
-        # The edit belongs to the same item. The resolver of a later package sets this link.
+        # The edit belongs to the same item. The resolver sets this link in the next change.
         await db.execute(sa.update(Capture).where(Capture.edit_seq == 5).values(item_id=item_id))
         await db.commit()
 
@@ -208,4 +208,5 @@ async def test_the_text_of_an_edit_is_not_read_as_a_second_message(services: Ser
 
     async with services.sessions() as db:
         content = await db.get_one(ItemContent, item_id)
-    assert content.text == "The first text"
+    # The latest version, one time: not "The first text" and the correction together.
+    assert content.text == "The corrected text"
