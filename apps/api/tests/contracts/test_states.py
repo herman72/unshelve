@@ -83,7 +83,9 @@ def test_any_processing_state_can_fail_and_a_failure_can_only_restart() -> None:
     assert ENRICH_TRANSITIONS[E.FAILED] == frozenset({E.PENDING})
 
 
-def test_reprocessing_restarts_a_finished_item() -> None:
-    check_enrich_change(E.READY, E.PENDING)
+def test_a_restart_sends_an_item_back_to_the_start_from_each_state() -> None:
+    # A reprocess, or a new version of a message, also in the middle of the pipeline.
+    for state in (E.FETCHED, E.ENRICHED, E.READY, E.FAILED):
+        check_enrich_change(state, E.PENDING)
     with pytest.raises(IllegalTransitionError):
-        check_enrich_change(E.ENRICHED, E.PENDING)
+        check_enrich_change(E.PENDING, E.PENDING)  # not a move
