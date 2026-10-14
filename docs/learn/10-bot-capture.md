@@ -215,7 +215,7 @@ An edit of a post is stored as a message of its own, with the time of the edit a
 - **In which unit is a position?** Part 5.
 - **Can a secret reach a log?** Part 10.
 - **Can the tests fail?** The code was broken in 27 places, one at a time. A test failed 26 times. The last change has no effect on a channel post, so no test can see it.
-- **What is not done:** an edit does not change its item. A late photo of an album joins the item, but the text of the item is not read again. The bot does not answer in the private chat. The bot was tested with all rights, and not yet with fewer.
+- **What is not done:** an edit does not change its item. A late photo of an album joins the item, but the text of the item is not read again. In the private chat the bot knows `/login`, `/start` and `/help` ([note 8](08-login.md), part 9), and it has no cards and no digest yet. The bot was tested with all rights, and not yet with fewer.
 
 ## Try it yourself
 

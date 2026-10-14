@@ -1,6 +1,6 @@
 # 8. Signing in with a one-time link
 
-> Pull request: [#53](https://github.com/herman72/unshelve/pull/53) · Code: [`auth/store.py`](../../apps/api/src/unshelve/auth/store.py), [`api/routes/auth.py`](../../apps/api/src/unshelve/api/routes/auth.py), [`api/deps.py`](../../apps/api/src/unshelve/api/deps.py) · Tests: [`tests/auth/test_store.py`](../../apps/api/tests/auth/test_store.py), [`tests/api/test_auth.py`](../../apps/api/tests/api/test_auth.py)
+> Pull requests: [#53](https://github.com/herman72/unshelve/pull/53), and [#62](https://github.com/herman72/unshelve/pull/62) for part 9 · Code: [`bot/private.py`](../../apps/api/src/unshelve/bot/private.py), [`auth/store.py`](../../apps/api/src/unshelve/auth/store.py), [`api/routes/auth.py`](../../apps/api/src/unshelve/api/routes/auth.py), [`api/deps.py`](../../apps/api/src/unshelve/api/deps.py) · Tests: [`tests/auth/test_store.py`](../../apps/api/tests/auth/test_store.py), [`tests/api/test_auth.py`](../../apps/api/tests/api/test_auth.py), [`tests/bot/test_private.py`](../../apps/api/tests/bot/test_private.py)
 
 ## In one minute
 
@@ -67,7 +67,7 @@ sequenceDiagram
     API-->>Browser: 200 and your user
 ```
 
-The bot will make the same kind of link when you send it `/login`. The bot arrives in a later milestone. Until then, the command is the way in.
+The bot makes the same kind of link when you send it `/login`: see part 9. The command stays the way in for the first start, and for a day when the bot is down.
 
 ## 3. Why the token is after the `#`
 
@@ -192,6 +192,39 @@ Look at the last row. When the door cannot check a session, it stays closed. It 
 
 A new route is protected from its first moment. A test reads all the routes from the application and tries each one in three ways. Nobody must remember to add a test for a new route.
 
+## 9. The bot gives you the link
+
+You write `/login` to your bot, in the private chat with it. The bot answers:
+
+```text
+Open this link to sign in. It works one time, for 5 minutes.
+
+http://localhost:3000/login#token=HdxbXa…
+```
+
+This is the link of part 1. The bot makes it with the same function as the command `unshelve auth link`.
+
+The bot answers one person:
+
+| Who writes, and where | What the bot does |
+|---|---|
+| You, in the private chat | It answers. |
+| A different person, in the private chat | Nothing. The log gets one line, without a name and without an id. |
+| You, in a group | Nothing. Each member of the group would see the link. |
+| Anybody, when `UNSHELVE_OWNER_TELEGRAM_ID` is not set | Nothing. |
+
+Why does a stranger get no answer at all, not even "this bot is private"? A bot has a public name, so anybody can find it and write to it. An answer tells the stranger that something is here. It also lets the stranger make your bot send messages. Silence gives nothing.
+
+**A comparison from daily life:** a stranger rings at your flat and asks if this is a shop. You do not open the door to say no. You do not open.
+
+Three details of the message:
+
+- **It is plain text, and the address stands alone in a line.** A link on your own computer starts with `http://localhost`. If Telegram does not show it as a link, you can copy it.
+- **It asks Telegram for no preview.** Part 3 explains why a preview is a danger for a link with a secret.
+- **The link is not in the log.** The log line is `login.link_sent`, and nothing more.
+
+This part was tested with a pretend Telegram only. The bot sends its first real message when you write `/login` to it after the merge.
+
 ## A choice that we made
 
 Where does a session live?
@@ -212,6 +245,7 @@ Why is there no password? Somebody must store a password, reset it and protect i
 - **What happens when one part fails?** If the database is down, the answer is 503. It is not "signed in" and not "signed out". If a request stops after it used the token and before it saved its work, the token is not used up. The test `test_a_request_that_fails_does_not_use_up_the_token` shows this.
 - **Is a secret in a log?** The log of the API shows `POST /api/v1/auth/magic/consume 204`. The token is in the body of the request, and the log does not print bodies.
 - **Can the tests fail?** The code was broken in 14 places, one at a time. Two examples: a used token works again, and the cookie loses `HttpOnly`. A test failed each time.
+- **Can a test reach the real world?** It could. The handler of part 9 answers a private message. Four older tests deliver a recorded private message, and their test bot had a real connection. So these tests sent a request to the real Telegram, with a made-up token, and Telegram refused it. Now each test bot has a pretend connection that only keeps the messages. A guard also refuses each connection from a test to a different computer ([`tests/test_no_network.py`](../../apps/api/tests/test_no_network.py)).
 - **What is not done:** nothing deletes old rows yet. Old tokens and closed sessions stay in the tables, and they do no harm. There is also no limit on the number of tries. A secret of 256 random bits makes guessing useless.
 
 ## Exercise (15 minutes)
