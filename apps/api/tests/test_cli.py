@@ -10,6 +10,7 @@ from typer.testing import CliRunner, Result
 from tests.ingest.support import DESKTOP, MACOS, MADE_UP
 from unshelve import __version__
 from unshelve.auth import store as auth_store
+from unshelve.bot import cards
 from unshelve.cli import app
 from unshelve.config import Settings, get_settings
 from unshelve.db.engine import create_engine, create_session_factory
@@ -43,7 +44,7 @@ def test_version_prints_the_installed_version() -> None:
 def test_every_service_command_is_registered() -> None:
     result = runner.invoke(app, ["--help"])
 
-    for command in ("api", "worker", "bot", "migrate", "auth", "import", "rekey"):
+    for command in ("api", "worker", "bot", "migrate", "auth", "import", "rekey", "digest"):
         assert command in _plain(result.stdout)
 
 
@@ -448,3 +449,47 @@ def test_rekey_gives_keys_to_the_items_that_exist_and_joins_the_same_things(
     # five are one file each, and a file of an export has no key.
     assert first.stdout.strip() == "Items: 13. New keys: 8. Joined to an older item: 0."
     assert again.stdout.strip() == "Items: 13. New keys: 0. Joined to an older item: 0."
+
+
+# --- unshelve digest -----------------------------------------------------------------------
+
+
+def test_digest_preview_prints_the_digest_and_sends_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _import(monkeypatch, tmp_path, private_database_url, DESKTOP, "--timezone", "Europe/Helsinki")
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "digest",
+        "preview",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        UNSHELVE_OWNER_TELEGRAM_ID="4242",
+    )
+
+    # The five posts of the export are from 2026-10-13. Without the worker they have no item,
+    # so the digest has nothing to show.
+    assert result.exit_code == 0, result.output
+    assert result.stdout.strip() == cards.NOTHING_YET
+
+
+def test_digest_send_needs_a_bot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "digest",
+        "send",
+        UNSHELVE_DATABASE_URL=NOWHERE,
+        UNSHELVE_OWNER_TELEGRAM_ID="4242",
+    )
+
+    assert result.exit_code == 1
+    assert "UNSHELVE_TELEGRAM_BOT_TOKEN is not set" in result.stderr
+
+
+def test_digest_needs_an_owner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    result = _run(monkeypatch, tmp_path, "digest", "preview", UNSHELVE_DATABASE_URL=NOWHERE)
+
+    assert result.exit_code == 1
+    assert "UNSHELVE_OWNER_TELEGRAM_ID is not set" in result.stderr
