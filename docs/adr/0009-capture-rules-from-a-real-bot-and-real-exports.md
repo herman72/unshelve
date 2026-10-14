@@ -67,6 +67,10 @@ Not tested, and thus still open:
 - **The JSON export.** Decision 7 says that the importer also reads JSON. The importer of M1-2 reads HTML only, because no real JSON export was seen. A JSON reader is built when a user has such an export.
 - **An album in an export.** The code of Telegram Desktop (`export_output_html.cpp`) writes each part of an album as a normal message, with no mark. So the importer finds an album by signs: ids that follow each other and the same second. A real export of an album was not seen yet.
 
+## Notes from the implementation
+
+- **2026-10-14, decision 4 (package M1-4b).** The button "Done" of the digest answers first, as decided. Its work is one short transaction (the status of one item and one event), so it runs in the handler, after the answer. Work that can take longer than a moment still goes into a job.
+
 ## Alternatives considered
 
 - **Buttons under each post in the channel.** The owner could mark a post as read where he saved it. But a button is refused on an album, each button is an edit of a post of the owner, and the channel must stay the place where saving costs nothing.

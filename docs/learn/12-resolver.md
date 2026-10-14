@@ -332,4 +332,4 @@ The two other things:
 - [Advisory Locks](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS), the PostgreSQL documentation. Read the difference between a lock for a session and a lock for a transaction. The resolver uses the second one.
 - [What is property-based testing?](https://hypothesis.works/articles/what-is-property-based-testing/), David MacIver, the author of Hypothesis. A short text about the idea.
 
-Previous: [11. The importer](11-export-importer.md) · Back to the [list of notes](README.md)
+Previous: [11. The importer](11-export-importer.md) · Next: [13. Cards, a button, and the digest](13-cards-and-digest.md)

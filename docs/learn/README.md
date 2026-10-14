@@ -24,6 +24,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 10 | [The bot](10-bot-capture.md) | How a post in your channel becomes a stored message, and why no post is lost | |
 | 11 | [The importer](11-export-importer.md) | How the old posts of a channel come in from an export, and why a post that the reader does not know is left out and counted | |
 | 12 | [The resolver](12-resolver.md) | How a thing that you save two times stays one item, also when two workers see it at the same moment | |
+| 13 | [Cards, a button, and the digest](13-cards-and-digest.md) | How the bot brings saved things back, why text from the internet is escaped, and what a press of a button does | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 
