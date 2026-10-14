@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+import sqlalchemy as sa
 import structlog
 import typer
 import uvicorn
@@ -18,7 +19,8 @@ from unshelve.bot.runner import run_bot
 from unshelve.config import get_settings
 from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
-from unshelve.ingest import importer
+from unshelve.db.models import Item
+from unshelve.ingest import importer, resolve
 from unshelve.ingest.export_html import ExportFormatError, read_export
 from unshelve.log import configure_logging
 from unshelve.queue.registry import discover, registry
@@ -265,3 +267,37 @@ def import_export(
             f"Stored {count.stored} new {'post' if one_new else 'posts'}. "
             f"{count.repeats} {'was' if one_repeat else 'were'} stored already."
         )
+
+
+async def _rekey(database_url: str) -> tuple[int, int, int]:
+    """Returns the number of items, of new keys, and of items that became a duplicate."""
+    engine = create_engine(database_url)
+    try:
+        sessions = create_session_factory(engine)
+        duplicates = sa.select(sa.func.count()).where(Item.duplicate_of_id.is_not(None))
+        async with sessions() as session:
+            # In the order of the ids, so that each run does the same work in the same order.
+            item_ids = (await session.scalars(sa.select(Item.id).order_by(Item.id))).all()
+            before = await session.scalar(duplicates) or 0
+        keys = 0
+        for item_id in item_ids:
+            async with sessions() as session:
+                keys += await resolve.rekey_item(session, item_id)
+                await session.commit()
+        async with sessions() as session:
+            after = await session.scalar(duplicates) or 0
+        return len(item_ids), keys, after - before
+    finally:
+        await engine.dispose()
+
+
+@app.command()
+def rekey() -> None:
+    """Give each item the keys of its saves again.
+
+    Run it one time after an update that changes how Unshelve sees that two saves are the
+    same thing. Items that are the same thing are joined: the oldest stays in the list. It is
+    safe to run again.
+    """
+    items, keys, joined = asyncio.run(_rekey(get_settings().database_url))
+    typer.echo(f"Items: {items}. New keys: {keys}. Joined to an older item: {joined}.")
