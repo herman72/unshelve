@@ -205,7 +205,7 @@ How much does the bot do when a message arrives?
 
 The cost of our choice: you see the item some seconds after the post, not at once.
 
-An edit of a post is stored as a message of its own, with the time of the edit as its number. The item does not change yet. That is work of a later package.
+An edit of a post is stored as a message of its own, with the time of the edit as its number. The item of the post then reads the new version ([note 12](12-resolver.md), part 9).
 
 ## What a senior engineer checks here
 
@@ -215,7 +215,8 @@ An edit of a post is stored as a message of its own, with the time of the edit a
 - **In which unit is a position?** Part 5.
 - **Can a secret reach a log?** Part 10.
 - **Can the tests fail?** The code was broken in 27 places, one at a time. A test failed 26 times. The last change has no effect on a channel post, so no test can see it.
-- **What is not done:** an edit does not change its item. A late photo of an album joins the item, but the text of the item is not read again. In the private chat the bot knows `/login`, `/start` and `/help` ([note 8](08-login.md), part 9), and it has no cards and no digest yet. The bot was tested with all rights, and not yet with fewer.
+- **What is not done:** the bot was tested with all rights, and not yet with fewer.
+- **Done after this note:** an edit and a late photo of an album change the item ([note 12](12-resolver.md), part 9). In the private chat the bot knows `/login` ([note 8](08-login.md), part 9) and `/digest` ([note 13](13-cards-and-digest.md)).
 
 ## Try it yourself
 

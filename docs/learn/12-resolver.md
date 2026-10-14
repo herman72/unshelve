@@ -1,6 +1,6 @@
 # 12. The resolver: one item for one thing, also when you save it two times
 
-> Pull request: [#61](https://github.com/herman72/unshelve/pull/61) · Decision record: [ADR 0003](../adr/0003-item-identity-through-alias-keys.md) · Code: [`ingest/canonical.py`](../../apps/api/src/unshelve/ingest/canonical.py), [`ingest/keys.py`](../../apps/api/src/unshelve/ingest/keys.py), [`ingest/resolve.py`](../../apps/api/src/unshelve/ingest/resolve.py) · Tests: [`test_canonical.py`](../../apps/api/tests/ingest/test_canonical.py), [`test_canonical_properties.py`](../../apps/api/tests/ingest/test_canonical_properties.py), [`test_keys.py`](../../apps/api/tests/ingest/test_keys.py), [`test_resolve.py`](../../apps/api/tests/ingest/test_resolve.py), [`test_resolve_together.py`](../../apps/api/tests/ingest/test_resolve_together.py)
+> Pull requests: [#61](https://github.com/herman72/unshelve/pull/61), and [#65](https://github.com/herman72/unshelve/pull/65) for part 9 · Decision record: [ADR 0003](../adr/0003-item-identity-through-alias-keys.md) · Code: [`ingest/canonical.py`](../../apps/api/src/unshelve/ingest/canonical.py), [`ingest/keys.py`](../../apps/api/src/unshelve/ingest/keys.py), [`ingest/resolve.py`](../../apps/api/src/unshelve/ingest/resolve.py) · Tests: [`test_canonical.py`](../../apps/api/tests/ingest/test_canonical.py), [`test_canonical_properties.py`](../../apps/api/tests/ingest/test_canonical_properties.py), [`test_keys.py`](../../apps/api/tests/ingest/test_keys.py), [`test_resolve.py`](../../apps/api/tests/ingest/test_resolve.py), [`test_resolve_together.py`](../../apps/api/tests/ingest/test_resolve_together.py)
 
 ## In one minute
 
@@ -121,7 +121,8 @@ For the second case, these are the values of one test:
 the first save     13 October, 12:00    capture_count 1
 the second save    12 November, 12:00   capture_count 2
                                         first saved 13 October, last saved 12 November
-                                        still one "fetch" job: the pipeline does not start again
+                                        still one "fetch" job: the same text, so the pipeline
+                                        does not start again (part 9)
 ```
 
 Three details:
@@ -227,6 +228,56 @@ This is possible because Unshelve keeps each message as it arrived. The messages
 
 The same command is the plan for a later change of the rules. The rules for an address have a version number. After a new version, `unshelve rekey` gives each item the keys of the new rules.
 
+## 9. An edit, and a save with a new text
+
+You post a link with a short note. Five minutes later you correct the note:
+
+```text
+22:40  you post         "A short guide to vector search"                 item 1, then ready
+22:45  you correct it   "A short guide to vector search in Postgres"
+       the bot gets the edit as a new version of the same message
+       the item reads the new version, and its pipeline starts again     item 1, ready again
+```
+
+Each version is a capture of its own, and no stored version is ever changed. The item reads the latest version of each of its messages.
+
+| What arrives | What happens |
+|---|---|
+| An edit with a new text, link or file | The item reads the new version, and its pipeline starts again. |
+| An edit that changes nothing that the item reads | Nothing. Example: when the bot puts a button under a post, Telegram marks the post as edited ([ADR 0009](../adr/0009-capture-rules-from-a-real-bot-and-real-exports.md), question 7). |
+| An edit that corrects the link | The item moves to the new address. The old key stays, so a save of the old link still finds the item. |
+| A second save with a new text | The item counts one more save, shows the two texts, and its pipeline starts again. |
+| A second save with the same text | The item counts one more save. No step runs again, so no model is asked again. |
+| An edit that arrives before the job of the first version | It waits. The job of the first version links the two versions. |
+| An edit of a post that the bot never saw | It is the save. |
+
+**How "the same text" is decided.** The item reads each different text, link and file one time. From these it makes a short code. A new message or a new version that does not change the code starts nothing. That rule keeps the cost down in milestone M2, where each run of the pipeline asks a model.
+
+**A step that read an old version writes nothing.** Here is the story where it matters:
+
+```text
+22:40:00.0  worker A starts "fetch" for item 1. It reads "A short guide to vector search".
+22:40:00.1  the bot gets your edit. The item is sent back to the start, with a new fetch job.
+22:40:00.2  worker A saves the old text and moves the item on       without a check: the old text wins
+```
+
+The check of [note 9](09-walking-skeleton.md), part 6 is one condition in the `UPDATE`: "only if the item still waits for this step". Here the save has one more condition: "only if the item still has the messages that I read". The number of its messages and the highest id among them are the same as at the start, or the step writes nothing. Then the new fetch job reads the correction.
+
+**A comparison from daily life:** a cook makes a plate. The guest changes the order. Before the plate goes to the table, the waiter looks at the order again. It is different, so the plate goes back.
+
+**Each run writes all of its fields.** Before this change, the pipeline ran one time for each item. The fetch step wrote a field only when it had a value. The enrich step kept a title that was there already, because a title from the page is better than a title from the model.
+
+On a second run, these two rules kept the title of the old version. A test found it:
+
+```text
+after the edit    text  "The corrected text"     correct
+                  title "the first text"         wrong: from the first run
+```
+
+Now each step writes each of its fields on each run, also an empty one. So the result depends only on the latest versions, and not on an earlier run. A second test removes the caption of a photo: nothing of the old card stays.
+
+**A comparison from daily life:** before you write a new plan on a whiteboard, you clean the whole board. If you write only over the parts that changed, old words stay in the corners.
+
 ## A choice that we made
 
 How do you make "find it, or make it" safe when two workers do it at the same moment?
@@ -247,12 +298,13 @@ With the lock, one guard is still in the database: a key cannot belong to two it
 - **What do two transactions do at the same moment?** I ran it with real processes, with the lock and without it. A test repeats the bad order of events on purpose.
 - **Can the data be made again?** Yes. The keys come from the stored messages (`unshelve rekey`).
 - **Can the tests fail?** I broke the code in 80 places, one at a time. The first runs missed 7. I added a test for 5 of them, removed a shortcut that changed nothing, and corrected a comment that said too much. Now the tests find each of the 80.
+- **Does a second run give the same result as a first run?** Yes. Each step writes all of its fields, also the empty ones (part 9). For part 9, I broke the new code in 29 places, one at a time. The tests found each of the 29.
 - **An old mistake that the experiment found.** On a new database, two workers that run their first "embed" step at the same moment could fail one time: 8 of 60 tries. The job ran again and passed, so no data was wrong. The cause was one index name in an `INSERT`. It is corrected, and it has a test.
 - **What is not done:**
-  - An edit of a post does not change the item. A second save does not add its text to the item ([issue #60](https://github.com/herman72/unshelve/issues/60)).
   - A short link is not followed. That needs the fetch step of milestone M2.
   - A file from an export has no key, because an export gives no id for a file ([issue #57](https://github.com/herman72/unshelve/issues/57)).
-  - A second save of an item that you archived only raises the number. Issue #60 has this question for you.
+  - A second save of an item that you archived only raises the number. You decided: this stays until you use Unshelve for real ([issue #60](https://github.com/herman72/unshelve/issues/60)).
+  - The web app cannot change a title yet ([issue #24](https://github.com/herman72/unshelve/issues/24)). When it can, a restart must keep your title, because the pipeline now writes the title on each run.
 
 ## Try it yourself
 
@@ -268,6 +320,10 @@ docker compose exec api unshelve rekey
 3. Post this address in the channel "Unshelve test": `https://arxiv.org/abs/1706.03762`
 4. Wait some seconds. Then post this one: `https://arxiv.org/pdf/1706.03762v7`
 5. Open the inbox of the web app. You see one card for the paper, and the card says "Saved 2 times".
+6. Post this text in the channel: `Notes on vector search`
+7. Reload the inbox. A new card has the title "notes on vector search". The fake model makes the title from the first words, in small letters.
+8. In Telegram, edit the post. Change the text to `Notes on vector search in Postgres`
+9. Wait some seconds, and reload the inbox. The same card has the title "notes on vector search in postgres". There is no second card.
 
 ## Exercise (10 minutes)
 

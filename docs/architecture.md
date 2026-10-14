@@ -72,7 +72,7 @@ docs/                this folder
 
 1. The bot receives a `channel_post` and builds a `CaptureEnvelope`. The export importer builds the same envelope from the export file.
 2. The envelope is inserted into `captures`. The unique key `(owner_id, chat_id, message_id, edit_seq)` makes a second delivery a no-op. A job is enqueued only when the row is new.
-3. `ingest_capture` resolves the capture to an item through alias keys (`item_keys`). A known key raises `capture_count` on the existing item. An unknown key creates the item.
+3. `ingest_capture` resolves the capture to an item through alias keys (`item_keys`). A known key raises `capture_count` on the existing item. An unknown key creates the item. An edit (`edit_seq > 0`) joins the item of its message. When the text, the links or the files that the item reads change, the pipeline starts again.
 4. `fetch_item` picks an extractor, fetches through the `Fetcher` and stores the text in `item_contents`. A failure marks the item `partial` and the pipeline continues with the capture text.
 5. `enrich_item` calls the LLM for a structured summary. `embed_item` stores one card vector and, for long text, body chunks. `score_item` scores the item against each goal.
 6. Each step enqueues the next step in the same transaction that writes its own result.
