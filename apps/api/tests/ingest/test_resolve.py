@@ -132,7 +132,9 @@ async def _saved(db: AsyncSession, owner_id: int, message_id: int, **fields: obj
     """Store one message and give it its item. Returns the id of the item."""
     capture_id = await resolve.store_capture(db, owner_id, _envelope(message_id, **fields))
     assert capture_id is not None
-    return await resolve.resolve_capture(db, capture_id)
+    item_id = await resolve.resolve_capture(db, capture_id)
+    assert item_id is not None
+    return item_id
 
 
 async def _keys(db: AsyncSession) -> dict[str, int]:
@@ -386,7 +388,7 @@ async def test_the_parts_of_an_album_share_one_job_that_starts_later(db: AsyncSe
     assert job.run_after - job.created_at == resolve.ALBUM_WAIT
 
 
-async def test_an_edit_is_stored_and_gets_no_job(db: AsyncSession) -> None:
+async def test_an_edit_is_stored_and_gets_a_job_of_its_own(db: AsyncSession) -> None:
     owner_id = await auth.ensure_owner(db, 1)
     await resolve.accept_capture(db, owner_id, _envelope())
 
@@ -394,7 +396,7 @@ async def test_an_edit_is_stored_and_gets_no_job(db: AsyncSession) -> None:
 
     assert edit is not None
     assert await _count(db, Capture) == 2
-    assert [job.kind for job in await _jobs(db)] == [JobKind.INGEST_CAPTURE]
+    assert [job.kind for job in await _jobs(db)] == [JobKind.INGEST_CAPTURE] * 2
 
 
 # --- An album ----------------------------------------------------------------------------------
@@ -625,7 +627,7 @@ async def test_an_item_with_two_saves_gets_the_keys_of_each_save(db: AsyncSessio
     assert set(before) == {f"url:{URL}", "tg_fwd:-1001111111111:590", text_key("A post")}
 
 
-async def test_an_edit_of_a_message_gives_no_key(db: AsyncSession) -> None:
+async def test_the_keys_come_from_the_latest_version_of_a_message(db: AsyncSession) -> None:
     owner_id = await auth.ensure_owner(db, 1)
     item_id = await _saved_before_the_keys_existed(db, owner_id, 7)
     edit = await resolve.store_capture(
@@ -636,7 +638,7 @@ async def test_an_edit_of_a_message_gives_no_key(db: AsyncSession) -> None:
 
     await resolve.rekey_item(db, item_id)
 
-    assert set(await _keys(db)) == {f"url:{URL}"}
+    assert set(await _keys(db)) == {"url:https://example.com/after-the-edit"}
 
 
 async def test_an_item_without_a_stored_message_has_no_keys(db: AsyncSession) -> None:
@@ -650,3 +652,162 @@ async def test_an_item_without_a_stored_message_has_no_keys(db: AsyncSession) ->
     ).scalar_one()
 
     assert await resolve.rekey_item(db, item_id) == 0
+
+
+# --- Edits, and a save with a new text -------------------------------------------------------
+
+
+async def _ready(db: AsyncSession, item_id: int) -> None:
+    """The item went through its pipeline."""
+    await db.execute(
+        sa.update(Item).where(Item.id == item_id).values(enrich_state=EnrichState.READY)
+    )
+    await db.execute(sa.delete(Job))
+
+
+async def _edit(db: AsyncSession, owner_id: int, message_id: int, **fields: object) -> int | None:
+    """Store a new version of a message and run its job. Returns the item, or None."""
+    edit_id = await resolve.store_capture(db, owner_id, _envelope(message_id, **fields))
+    assert edit_id is not None
+    return await resolve.resolve_capture(db, edit_id)
+
+
+async def _restarted(db: AsyncSession, item_id: int) -> bool:
+    item = await _item(db, item_id)
+    fetches = [job for job in await _jobs(db) if job.kind == JobKind.FETCH_ITEM]
+    return item.enrich_state is EnrichState.PENDING and len(fetches) == 1
+
+
+async def test_an_edit_with_a_new_text_joins_the_item_and_starts_the_pipeline_again(
+    db: AsyncSession,
+) -> None:
+    owner_id = await auth.ensure_owner(db, 1)
+    item_id = await _saved(db, owner_id, 7)
+    await _ready(db, item_id)
+
+    edited = await _edit(db, owner_id, 7, edit_seq=1791930240, text=f"Worth a read, really {URL}")
+
+    assert edited == item_id
+    linked = (
+        await db.execute(sa.select(Capture.edit_seq, Capture.item_id).order_by(Capture.edit_seq))
+    ).all()
+    assert [tuple(row) for row in linked] == [(0, item_id), (1791930240, item_id)]
+    assert await _restarted(db, item_id)
+    item = await _item(db, item_id)
+    assert item.capture_count == 1  # an edit is no new save
+
+
+async def test_an_edit_that_changes_nothing_that_the_item_reads_starts_nothing(
+    db: AsyncSession,
+) -> None:
+    # The test with the real bot: a button under a post made an edit with the same text.
+    owner_id = await auth.ensure_owner(db, 1)
+    item_id = await _saved(db, owner_id, 7)
+    await _ready(db, item_id)
+
+    assert await _edit(db, owner_id, 7, edit_seq=1791930240) == item_id
+
+    assert (await _item(db, item_id)).enrich_state is EnrichState.READY
+    assert await _jobs(db) == []
+
+
+async def test_an_edit_that_corrects_the_link_moves_the_item_to_the_new_address(
+    db: AsyncSession,
+) -> None:
+    owner_id = await auth.ensure_owner(db, 1)
+    item_id = await _saved(db, owner_id, 7)
+    await _ready(db, item_id)
+    corrected = "https://example.com/how-pgvector-works-part-2"
+
+    await _edit(db, owner_id, 7, edit_seq=1791930240, text=corrected, urls=[corrected])
+
+    assert (await _item(db, item_id)).canonical_url == corrected
+    # The old key stays: a save of the old link still finds this item.
+    assert await _keys(db) == {f"url:{URL}": item_id, f"url:{corrected}": item_id}
+    assert await _restarted(db, item_id)
+
+
+async def test_an_edit_that_arrives_before_the_job_of_the_first_version_waits_for_it(
+    db: AsyncSession,
+) -> None:
+    owner_id = await auth.ensure_owner(db, 1)
+    first = await resolve.store_capture(db, owner_id, _envelope(7))
+    assert first is not None
+
+    # The job of the edit runs first. The first version has no item yet.
+    assert await _edit(db, owner_id, 7, edit_seq=1791930240, text="Corrected", urls=[]) is None
+    assert await _count(db, Item) == 0
+
+    item_id = await resolve.resolve_capture(db, first)
+
+    # The job of the first version links the two versions, and the item has the latest one.
+    assert item_id is not None
+    linked = (await db.execute(sa.select(Capture.item_id))).scalars().all()
+    assert linked == [item_id, item_id]
+    item = await _item(db, item_id)
+    assert item.canonical_url is None  # the edit removed the link
+    assert set(await _keys(db)) == {text_key("Corrected")}
+
+
+async def test_an_edit_of_a_message_that_was_never_stored_is_the_save(db: AsyncSession) -> None:
+    # The post is older than the bot. The bot got only its edit.
+    owner_id = await auth.ensure_owner(db, 1)
+
+    item_id = await _edit(db, owner_id, 7, edit_seq=1791930240)
+
+    assert item_id is not None
+    assert (await _item(db, item_id)).canonical_url == URL
+    assert [job.kind for job in await _jobs(db)] == [JobKind.FETCH_ITEM]
+
+
+async def test_a_new_save_with_a_new_text_starts_the_pipeline_again(db: AsyncSession) -> None:
+    owner_id = await auth.ensure_owner(db, 1)
+    item_id = await _saved(db, owner_id, 7)
+    await _ready(db, item_id)
+
+    assert await _saved(db, owner_id, 8, text=f"Read it before Friday {URL}") == item_id
+
+    assert await _restarted(db, item_id)
+    assert (await _item(db, item_id)).capture_count == 2
+
+
+async def test_a_new_save_with_the_same_text_starts_nothing(db: AsyncSession) -> None:
+    owner_id = await auth.ensure_owner(db, 1)
+    item_id = await _saved(db, owner_id, 7)
+    await _ready(db, item_id)
+
+    # The same text in a second message: no new step, so no model is asked again.
+    assert await _saved(db, owner_id, 8) == item_id
+
+    assert (await _item(db, item_id)).enrich_state is EnrichState.READY
+    assert await _jobs(db) == []
+    assert (await _item(db, item_id)).capture_count == 2
+
+
+async def test_a_late_part_of_an_album_with_a_caption_starts_the_pipeline_again(
+    db: AsyncSession,
+) -> None:
+    owner_id = await auth.ensure_owner(db, 1)
+    await _album_part(db, owner_id, 7, media=[_photo("a")])
+    album = await resolve.resolve_album(db, owner_id, CHAT, ALBUM)
+    assert album is not None
+    await _ready(db, album)
+
+    await _album_part(db, owner_id, 8, media=[_photo("b")], text="The second slide")
+    assert await resolve.resolve_album(db, owner_id, CHAT, ALBUM) == album
+
+    assert await _restarted(db, album)
+
+
+async def test_a_job_that_runs_again_does_not_start_the_pipeline_again(db: AsyncSession) -> None:
+    owner_id = await auth.ensure_owner(db, 1)
+    item_id = await _saved(db, owner_id, 7)
+    edit_id = await resolve.store_capture(db, owner_id, _envelope(7, edit_seq=5, text="New"))
+    assert edit_id is not None
+    await resolve.resolve_capture(db, edit_id)
+    await _ready(db, item_id)
+
+    assert await resolve.resolve_capture(db, edit_id) == item_id
+
+    assert (await _item(db, item_id)).enrich_state is EnrichState.READY
+    assert await _jobs(db) == []

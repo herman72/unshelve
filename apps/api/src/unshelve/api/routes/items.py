@@ -57,6 +57,9 @@ async def create_item(body: ItemCreate, user: CurrentUserDep, db: DbDep) -> Item
         msg = "a capture with a new message id was refused as a repeat"
         raise RuntimeError(msg)
     item_id = await resolve.resolve_capture(db, capture_id)
+    if item_id is None:  # cannot happen: a capture of the API is a first version
+        msg = "a first version of a message got no item"
+        raise RuntimeError(msg)
     # The capture, the item and its first job are saved together, or not at all.
     await db.commit()
     return await item_views.get_item(db, user.id, item_id)
