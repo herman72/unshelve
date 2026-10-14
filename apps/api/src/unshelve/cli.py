@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -15,22 +15,26 @@ import uvicorn
 from unshelve import __version__
 from unshelve.api.app import create_app
 from unshelve.auth import store as auth_store
+from unshelve.bot import cards
 from unshelve.bot.runner import run_bot
-from unshelve.config import get_settings
+from unshelve.config import Settings, get_settings
 from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
-from unshelve.db.models import Item
+from unshelve.db.models import Digest, Item
 from unshelve.ingest import importer, resolve
 from unshelve.ingest.export_html import ExportFormatError, read_export
 from unshelve.log import configure_logging
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
+from unshelve.resurface import digest, weekly
 from unshelve.runtime import shutdown_event, wait_for_shutdown
 from unshelve.services import build_services
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Unshelve service commands.")
 auth_app = typer.Typer(no_args_is_help=True, help="Sign-in helpers.")
+digest_app = typer.Typer(no_args_is_help=True, help="The digest that the bot sends each week.")
 app.add_typer(auth_app, name="auth")
+app.add_typer(digest_app, name="digest")
 
 
 def _setup_logging() -> structlog.stdlib.BoundLogger:
@@ -69,8 +73,8 @@ async def _work() -> None:
     settings = get_settings()
     log = _setup_logging()
     engine = create_engine(settings.database_url)
+    services = build_services(settings, create_session_factory(engine))
     try:
-        services = build_services(settings, create_session_factory(engine))
         modules = discover()
         config = WorkerConfig(worker_id=new_worker_id())
         log.info(
@@ -78,10 +82,13 @@ async def _work() -> None:
             worker_id=config.worker_id,
             handler_modules=modules,
             kinds=[kind.value for kind in registry.kinds()],
+            digest=f"{settings.digest_day} {settings.digest_hour:02d}:00 {settings.timezone}",
         )
-        await Worker(services, registry, config).run_forever(shutdown_event())
+        await weekly.run_worker(Worker(services, registry, config), services, shutdown_event())
         log.info("worker.stopped")
     finally:
+        if services.bot is not None:
+            await services.bot.session.close()
         await engine.dispose()
 
 
@@ -301,3 +308,49 @@ def rekey() -> None:
     """
     items, keys, joined = asyncio.run(_rekey(get_settings().database_url))
     typer.echo(f"Items: {items}. New keys: {keys}. Joined to an older item: {joined}.")
+
+
+async def _digest(settings: Settings, *, send: bool) -> tuple[str, int]:
+    """The text of the digest of now, and the number of its items. With ``send``, the bot
+    sends it too."""
+    if settings.owner_telegram_id is None:
+        raise _stop("UNSHELVE_OWNER_TELEGRAM_ID is not set. The digest needs its owner.")
+    engine = create_engine(settings.database_url)
+    services = build_services(settings, create_session_factory(engine))
+    now = datetime.now(UTC)
+    try:
+        async with services.sessions() as session:
+            owner_id = await auth_store.ensure_owner(session, settings.owner_telegram_id)
+            found = await digest.pick(session, owner_id, now=now, seed=f"{owner_id}:{now:%Y-%m-%d}")
+            text, _ = cards.digest_message(
+                found.recent, found.from_the_shelf, now=now, days=digest.RECENT_DAYS
+            )
+            if send:
+                # A try has a row of its own, so the digest of the week stays as it is.
+                session.add(Digest(owner_id=owner_id, period_key=f"try-{now:%Y-%m-%dT%H:%M:%S}"))
+            await session.commit()
+        items = len(found.recent) + (found.from_the_shelf is not None)
+        if send and items:
+            await weekly.send(services, owner_id, f"try-{now:%Y-%m-%dT%H:%M:%S}", now)
+        return text, items
+    finally:
+        if services.bot is not None:
+            await services.bot.session.close()
+        await engine.dispose()
+
+
+@digest_app.command("preview")
+def digest_preview() -> None:
+    """Print the digest of now, as the bot would send it. Nothing is sent."""
+    text, items = asyncio.run(_digest(get_settings(), send=False))
+    typer.echo(text if items else cards.NOTHING_YET)
+
+
+@digest_app.command("send")
+def digest_send() -> None:
+    """Send the digest of now to the owner, to try it. The digest of the week is not changed."""
+    settings = get_settings()
+    if settings.telegram_bot_token is None:
+        raise _stop("UNSHELVE_TELEGRAM_BOT_TOKEN is not set. Without a bot, nothing can be sent.")
+    _, items = asyncio.run(_digest(settings, send=True))
+    typer.echo(f"Sent a digest with {items} items." if items else "Nothing to send: no items.")
