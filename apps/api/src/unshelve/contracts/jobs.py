@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from types import MappingProxyType
 from typing import Any
 
+from aiogram import Bot
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -131,6 +132,8 @@ class Services:
     llm: LLMProvider
     embedder: Embedder
     blobs: BlobStore
+    # The connection to Telegram, for the jobs that send a message. None without a bot token.
+    bot: Bot | None = None
 
 
 @dataclass(frozen=True, slots=True)

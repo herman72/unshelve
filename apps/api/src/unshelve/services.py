@@ -1,5 +1,6 @@
 """Build the things that job handlers use: fetcher, model provider, embedder, blob store."""
 
+from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from unshelve.config import Settings
@@ -19,4 +20,11 @@ def build_services(settings: Settings, sessions: async_sessionmaker[AsyncSession
         llm=FakeLLM(),
         embedder=FakeEmbedder(),
         blobs=InMemoryBlobStore(),
+        # The bot sends messages from a job: the weekly digest. It reads no updates here, so
+        # it does not compete with the bot process for them.
+        bot=(
+            Bot(settings.telegram_bot_token.get_secret_value())
+            if settings.telegram_bot_token is not None
+            else None
+        ),
     )
