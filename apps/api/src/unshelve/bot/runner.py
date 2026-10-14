@@ -14,7 +14,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from unshelve.bot import capture
+from unshelve.bot import capture, private
 from unshelve.config import Settings
 
 log = structlog.get_logger()
@@ -66,6 +66,7 @@ def build_dispatcher(settings: Settings, sessions: async_sessionmaker[AsyncSessi
     """A dispatcher with the handlers of the bot. Handlers get ``settings`` and ``sessions``."""
     dispatcher = Dispatcher(settings=settings, sessions=sessions)
     dispatcher.include_router(capture.build_router())
+    dispatcher.include_router(private.build_router())
     return dispatcher
 
 
