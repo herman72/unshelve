@@ -8,7 +8,12 @@ from typing import Any, cast
 
 from aiogram import Bot
 from aiogram.client.session.base import BaseSession
-from aiogram.methods import SendMessage, TelegramMethod
+from aiogram.methods import (
+    AnswerCallbackQuery,
+    EditMessageReplyMarkup,
+    SendMessage,
+    TelegramMethod,
+)
 from aiogram.types import Chat, Message, Update
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -23,6 +28,7 @@ class PretendTelegram(BaseSession):
     def __init__(self) -> None:
         super().__init__()
         self.sent: list[SendMessage] = []
+        self.calls: list[TelegramMethod[Any]] = []  # each call, in its order
 
     async def close(self) -> None:
         return None
@@ -45,6 +51,7 @@ class PretendTelegram(BaseSession):
         timeout: int | None = None,  # noqa: ASYNC109 - the signature of the library
     ) -> T:
         if isinstance(method, SendMessage):
+            self.calls.append(method)
             self.sent.append(method)
             answer = Message(
                 message_id=1000 + len(self.sent),
@@ -52,6 +59,9 @@ class PretendTelegram(BaseSession):
                 chat=Chat(id=int(method.chat_id), type="private"),
             )
             return cast(T, answer)
+        if isinstance(method, AnswerCallbackQuery | EditMessageReplyMarkup):
+            self.calls.append(method)
+            return cast(T, True)
         msg = f"the pretend Telegram does not know {type(method).__name__}"
         raise AssertionError(msg)
 
