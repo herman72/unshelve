@@ -23,6 +23,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 9 | [The walking skeleton](09-walking-skeleton.md) | How a saved link becomes a finished item, and why each step is safe to run two times | [Job queue simulator](../queue-simulator.html) |
 | 10 | [The bot](10-bot-capture.md) | How a post in your channel becomes a stored message, and why no post is lost | |
 | 11 | [The importer](11-export-importer.md) | How the old posts of a channel come in from an export, and why a post that the reader does not know is left out and counted | |
+| 12 | [The resolver](12-resolver.md) | How a thing that you save two times stays one item, also when two workers see it at the same moment | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 

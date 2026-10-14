@@ -86,6 +86,8 @@ docker compose exec api unshelve import /imports/ChatExport_2026-10-13 --timezon
 
 The dry run shows what the import would store. Run the command again without `--dry-run` to store the posts. It is safe to run two times. [The importer note](docs/learn/11-export-importer.md) explains each step.
 
+A thing that you save again does not make a second item. The item counts one more save, also when the second address looks different (`http`, `www.`, a tracking parameter, a `youtu.be` link). [The resolver note](docs/learn/12-resolver.md) explains the rules. After an update that changes these rules, run `docker compose exec api unshelve rekey` one time.
+
 `make help` lists every target.
 
 ## Contributing
