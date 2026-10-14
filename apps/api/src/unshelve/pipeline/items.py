@@ -256,9 +256,10 @@ async def _embedding_set_id(session: AsyncSession, spec: EmbeddingSpec) -> int:
             query_prefix=spec.query_prefix,
             is_active=no_active_set,
         )
-        .on_conflict_do_nothing(
-            index_elements=[EmbeddingSet.provider, EmbeddingSet.model, EmbeddingSet.dim]
-        )
+        # No index is named here, on purpose. Two workers can do this at the same moment on a
+        # new database. Then the second one can meet the row of the first one in two indexes:
+        # "one set for each model" and "one active set". Each of the two must mean: do nothing.
+        .on_conflict_do_nothing()
     )
     found = await session.execute(
         sa.select(EmbeddingSet.id).where(

@@ -271,6 +271,32 @@ async def test_two_items_share_one_embedding_set(services: Services) -> None:
     assert await _count(services.sessions, EmbeddingSet) == 1
 
 
+async def test_workers_that_embed_their_first_items_at_the_same_moment_do_not_fail(
+    services: Services,
+) -> None:
+    # On a new database, the first embed step makes the row of the embedding set. Four
+    # workers can do that at the same moment, and each one must get the id of the one row.
+    # The moment is hard to hit, so the test tries many times. It found the mistake that it
+    # guards against in 8 of 60 tries.
+    spec = services.embedder.spec
+
+    async def one_worker() -> int:
+        async with services.sessions() as db:
+            found = await steps._embedding_set_id(db, spec)  # pyright: ignore[reportPrivateUsage]
+            await db.commit()
+        return found
+
+    for _ in range(60):
+        async with services.sessions() as db:
+            await db.execute(sa.delete(EmbeddingSet))
+            await db.commit()
+
+        ids = await asyncio.gather(*(one_worker() for _ in range(4)))
+
+        assert len(set(ids)) == 1
+        assert await _count(services.sessions, EmbeddingSet) == 1
+
+
 def test_the_reading_time_is_at_least_one_minute() -> None:
     assert steps.reading_minutes("") == 1
     assert steps.reading_minutes("word " * 220) == 1
