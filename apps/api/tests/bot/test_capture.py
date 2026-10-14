@@ -227,5 +227,6 @@ async def test_the_recorded_posts_become_three_finished_items(
     album, link, forward = items
     assert parts == [album.id, album.id, album.id, link.id, forward.id]
     assert album.canonical_url is None
-    assert link.canonical_url == "https://www.youtube.com/watch?v=UPtmKh1vMN8"
-    assert forward.canonical_url == "http://github.com/cloudflare/security-audit-skill"
+    # The items have the canonical form of each address: no "www.", and https.
+    assert link.canonical_url == "https://youtube.com/watch?v=UPtmKh1vMN8"
+    assert forward.canonical_url == "https://github.com/cloudflare/security-audit-skill"

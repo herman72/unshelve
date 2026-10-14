@@ -52,12 +52,14 @@ async def client(
 async def _saved(sessions: Sessions, owner_id: int, minutes: int = 0, **item_values: Any) -> int:
     """An item of ``owner_id`` that was saved ``minutes`` after noon. Returns its id."""
     async with sessions() as db:
+        message_id = await resolve.next_api_message_id(db)
         envelope = CaptureEnvelope(
             source=CaptureSource.API,
             chat_id=resolve.API_CHAT_ID,
-            message_id=await resolve.next_api_message_id(db),
+            message_id=message_id,
             posted_at=NOON + timedelta(minutes=minutes),
-            text=TEXT,
+            # Each note has a text of its own. Two saves of the same note are one item.
+            text=f"{TEXT} Note {message_id}.",
         )
         capture_id = await resolve.store_capture(db, owner_id, envelope)
         assert capture_id is not None
@@ -103,6 +105,32 @@ async def test_saving_a_link_answers_with_the_new_item(
         JobState.PENDING,
         {"item_id": 1},
     )
+
+
+async def test_saving_the_same_link_again_answers_with_the_item_that_exists(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    first = (await client.post(ITEMS, json={"url": URL})).json()
+
+    # The same page: with "www.", with http, and with a parameter of a share button.
+    again = URL.replace("https://", "http://www.") + "?utm_source=telegram"
+    response = await client.post(ITEMS, json={"url": again, "text": "read this before Friday"})
+
+    assert response.status_code == 201
+    second = response.json()
+    assert second["id"] == first["id"]
+    assert second["url"] == URL
+    assert second["capture_count"] == 2
+    assert _ids(await client.get(ITEMS)) == [first["id"]]
+    async with committed_db() as db:
+        captures = (await db.execute(sa.select(Capture.urls, Capture.item_id))).all()
+        jobs = (await db.execute(sa.select(Job.kind))).scalars().all()
+    # The second message is kept as it arrived, with its own address.
+    assert [(urls, item_id) for urls, item_id in captures] == [
+        ([URL], first["id"]),
+        ([again], first["id"]),
+    ]
+    assert jobs == [JobKind.FETCH_ITEM]
 
 
 async def test_a_note_can_be_saved_without_a_link(client: httpx.AsyncClient) -> None:
