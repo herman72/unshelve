@@ -72,7 +72,7 @@ To sign in to the web app, set `UNSHELVE_OWNER_TELEGRAM_ID` in `.env` (for a loc
 docker compose exec api unshelve auth link
 ```
 
-Open the link that it prints. It works once, for 5 minutes. When a bot is connected, you can also write `/login` to the bot in its private chat. It answers you, and nobody else, with the same kind of link. [How the sign-in works](docs/learn/08-login.md) explains each step.
+Open the link that it prints. It works once, for 5 minutes. When a bot is connected, you can also write `/login` to the bot in its private chat. It answers you, and nobody else, with the same kind of link. `/digest` shows the things that you saved in the last 7 days, and one older thing, with a button "Done" for each. [How the sign-in works](docs/learn/08-login.md) explains each step.
 
 To save your first item and see the worker finish it, follow "Try it yourself" in [the walking skeleton note](docs/learn/09-walking-skeleton.md#try-it-yourself).
 
