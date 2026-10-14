@@ -29,8 +29,10 @@ QUEUE_SLOT_STATUSES: frozenset[ItemStatus] = frozenset({S.QUEUED, S.READING})
 ENRICH_TRANSITIONS: Mapping[EnrichState, frozenset[EnrichState]] = MappingProxyType(
     {
         E.PENDING: frozenset({E.FETCHED, E.FAILED}),
-        E.FETCHED: frozenset({E.ENRICHED, E.FAILED}),
-        E.ENRICHED: frozenset({E.READY, E.FAILED}),
+        # A new version of a message sends the item back to the start, also in the middle of
+        # its pipeline. The step that runs then fails its compare-and-set and writes nothing.
+        E.FETCHED: frozenset({E.ENRICHED, E.FAILED, E.PENDING}),
+        E.ENRICHED: frozenset({E.READY, E.FAILED, E.PENDING}),
         # A reprocess request sends a finished or failed item back to the start.
         E.READY: frozenset({E.PENDING, E.FAILED}),
         E.FAILED: frozenset({E.PENDING}),
