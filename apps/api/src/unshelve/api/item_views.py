@@ -13,7 +13,12 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from unshelve.api.errors import InvalidInputError, NotFoundError, NotImplementedYetError
+from unshelve.api.errors import (
+    ConflictError,
+    InvalidInputError,
+    NotFoundError,
+    NotImplementedYetError,
+)
 from unshelve.api.schemas import (
     GoalScore,
     ItemDetail,
@@ -22,9 +27,10 @@ from unshelve.api.schemas import (
     ItemSummary,
     TagRef,
 )
-from unshelve.contracts.enums import ItemStatus
-from unshelve.contracts.states import STATUS_TRANSITIONS
-from unshelve.db.models import Goal, Item, ItemGoal, ItemTag, Tag
+from unshelve.contracts.enums import Actor, EnrichState, ItemStatus
+from unshelve.contracts.states import STATUS_TRANSITIONS, check_enrich_change
+from unshelve.db.models import Event, Goal, Item, ItemGoal, ItemTag, Tag
+from unshelve.ingest import resolve
 
 # --- Paging ------------------------------------------------------------------------------
 #
@@ -184,3 +190,34 @@ async def get_item(db: AsyncSession, owner_id: int, item_id: int) -> ItemDetail:
         goals=goals,
         allowed_transitions=[status for status in ItemStatus if status in allowed],
     )
+
+
+# An item in these states has no step running, so it can start again. In the other states a
+# step is at work, and a second start would only race with it.
+REPROCESSABLE = frozenset({EnrichState.READY, EnrichState.FAILED})
+
+
+async def reprocess_item(db: AsyncSession, owner_id: int, item_id: int) -> None:
+    """Send a finished or failed item back to the start of its pipeline. The caller commits.
+
+    The row is locked: of two requests at the same moment (a double click), the second one
+    sees the item in the pipeline already, and gets a 409.
+    """
+    item = await db.scalar(
+        sa.select(Item).where(Item.id == item_id, Item.owner_id == owner_id).with_for_update()
+    )
+    if item is None:
+        raise NotFoundError("no such item")
+    if item.enrich_state not in REPROCESSABLE:
+        raise ConflictError(f"the item is still in the pipeline ({item.enrich_state})")
+    check_enrich_change(item.enrich_state, EnrichState.PENDING)
+    db.add(
+        Event(
+            owner_id=owner_id,
+            item_id=item_id,
+            actor=Actor.USER,
+            type="reprocess",
+            payload={"enrich_state": item.enrich_state.value},
+        )
+    )
+    await resolve.restart_item(db, owner_id, item_id)

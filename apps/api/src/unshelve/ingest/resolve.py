@@ -167,8 +167,8 @@ async def _source(session: AsyncSession, item_id: int) -> str:
     return source(linked.all()).code()
 
 
-async def _restart(session: AsyncSession, owner_id: int, item_id: int) -> None:
-    """Start the pipeline of an item again, because what it reads has changed.
+async def restart_item(session: AsyncSession, owner_id: int, item_id: int) -> None:
+    """Start the pipeline of an item again: what it reads has changed, or you asked for it.
 
     A step that runs at this moment then finds that the item has left its state, and it
     writes nothing (the check of ``pipeline/items.py``, note 9). The first step starts from
@@ -254,7 +254,7 @@ async def _give_item(session: AsyncSession, owner_id: int, captures: Sequence[Ca
     # A new text, a new file or a late part of an album changes what the item reads. A save
     # with the same text changes nothing: then no step runs again, and no model is asked.
     if before is not None and await _source(session, home) != before:
-        await _restart(session, owner_id, home)
+        await restart_item(session, owner_id, home)
     # This save can share one key with one item and another key with a second item.
     await _join_as_one(session, found | {await _root(session, home)})
     return home
@@ -302,7 +302,7 @@ async def _apply_edit(session: AsyncSession, edit: Capture) -> int | None:
     # The new first link becomes one more key. The old keys stay with the item.
     await rekey_item(session, home)
     if await _source(session, home) != before:
-        await _restart(session, edit.owner_id, home)
+        await restart_item(session, edit.owner_id, home)
     return home
 
 
