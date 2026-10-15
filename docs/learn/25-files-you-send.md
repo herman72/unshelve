@@ -82,7 +82,8 @@ In the stack, the store is the Docker volume `blobs`. The files stay when a cont
 |---|---|
 | A PDF (by its type, or by a name that ends with `.pdf`) | read; a link to a page in the caption does not win over it |
 | A PDF with a link to YouTube or arXiv in the caption | the extractor for that site wins (score 50 over 30) |
-| A photo, a video, another document | not read yet; the images come with #18 |
+| A photo, or a document of an image type | read by the model ([note 28](28-image.md)) |
+| A video, another document | not read yet |
 | More than 20 MB | the Bot API gives no file over 20 MB: the item keeps its caption, and no request is made |
 | A file of an export | read from the copy that the import made ([note 27](27-export-files.md)) |
 | A worker without a bot token | only copies that exist are read; a new file keeps its caption |

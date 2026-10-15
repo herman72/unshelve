@@ -184,7 +184,7 @@ Where does the cache go?
   - No real call was made yet. It needs a yes from the owner, because it costs money.
   - Batch mode for a large import ([issue #70](https://github.com/herman72/unshelve/issues/70)).
   - The embedder stays fake until package M2-5.
-  - Images are not sent to the model yet. The image extractor (M2-2f) brings them.
+  - Images were not sent to the model yet. The image extractor does it now ([note 28](28-image.md)).
   - The prompt is not measured on real items yet: that is the comparison of part 6.
 
 ## Try it yourself
