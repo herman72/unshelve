@@ -10,19 +10,19 @@ const LINKS = [
   { href: "/goals", label: "Goals" },
 ] as const;
 
-function isActive(pathname: string, href: string): boolean {
+function isActive(pathname: string | null, href: string): boolean {
+  if (pathname === null) return false;
   // "/" is the parent of every path, so it matches only itself.
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
 /**
- * The main navigation. It is a client component because only the browser side of the router
- * knows the current path. `aria-current` is the one source of truth: screen readers announce
- * it, and the styles below read the same attribute.
+ * The links of the main navigation. `aria-current` is the one source of truth: screen readers
+ * announce it, and the styles below read the same attribute. Without a path, no link is marked:
+ * that is the fallback while the path is not known yet (see MainNav).
  */
-export function MainNav() {
-  const pathname = usePathname();
+export function NavLinks({ pathname }: { pathname: string | null }) {
   return (
     <nav aria-label="Main">
       <ul role="list" className="flex flex-wrap gap-1">
@@ -40,4 +40,16 @@ export function MainNav() {
       </ul>
     </nav>
   );
+}
+
+/**
+ * The main navigation, with the link of the current page marked. It is a client component
+ * because only the browser side of the router knows the current path.
+ *
+ * On a page with an id in its path (/items/1), the path is not known when the build prerenders
+ * the layout. Then usePathname() suspends, so the layout puts this in <Suspense>, with
+ * <NavLinks pathname={null} /> as its fallback.
+ */
+export function MainNav() {
+  return <NavLinks pathname={usePathname()} />;
 }
