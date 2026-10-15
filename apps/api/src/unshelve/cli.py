@@ -2,7 +2,9 @@
 
 import asyncio
 import json
+import math
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -21,12 +23,20 @@ from unshelve.auth import store as auth_store
 from unshelve.bot import cards
 from unshelve.bot.runner import run_bot
 from unshelve.config import Settings, get_settings
-from unshelve.contracts.dto import Extracted, FetchResult, LLMResult, SourceRef, TextPart
+from unshelve.contracts.dto import (
+    EmbeddingSpec,
+    Extracted,
+    FetchResult,
+    LLMResult,
+    SourceRef,
+    TextPart,
+)
 from unshelve.contracts.errors import ExtractError, FetchError, ProviderError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
-from unshelve.db.models import Digest, Item, LLMCall
+from unshelve.db.models import Digest, EmbeddingSet, Item, LLMCall
+from unshelve.embed import sets
 from unshelve.extract.article import ArticleExtractor
 from unshelve.ingest import importer, resolve
 from unshelve.ingest.export_html import ExportFormatError, read_export
@@ -35,20 +45,25 @@ from unshelve.net.fetcher import LiveFetcher
 from unshelve.net.guard import BlockedAddressError
 from unshelve.providers.claude import ClaudeLLM
 from unshelve.providers.ledger import CachedLLM, cost_usd
+from unshelve.providers.voyage import VoyageEmbedder
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
 from unshelve.resurface import digest, weekly
 from unshelve.runtime import shutdown_event, wait_for_shutdown
-from unshelve.services import build_services, close_services
+from unshelve.services import build_embedder, build_services, close_services, embedder_spec
 from unshelve.testing.fakes import FakeLLM, InMemoryBlobStore
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Unshelve service commands.")
 auth_app = typer.Typer(no_args_is_help=True, help="Sign-in helpers.")
 digest_app = typer.Typer(no_args_is_help=True, help="The digest that the bot sends each week.")
 llm_app = typer.Typer(no_args_is_help=True, help="The model: a test call, and what the calls cost.")
+embeddings_app = typer.Typer(
+    no_args_is_help=True, help="The vectors for search: their sets, a backfill, and a test call."
+)
 app.add_typer(auth_app, name="auth")
 app.add_typer(digest_app, name="digest")
 app.add_typer(llm_app, name="llm")
+app.add_typer(embeddings_app, name="embeddings")
 
 
 def _setup_logging() -> structlog.stdlib.BoundLogger:
@@ -559,3 +574,162 @@ async def _llm_costs(settings: Settings) -> tuple[list[_CostRow], list[_CostRow]
             return found[0], found[1]
     finally:
         await engine.dispose()
+
+
+# --- Embeddings --------------------------------------------------------------------------
+
+
+def _set_name(spec: EmbeddingSpec) -> str:
+    return f"{spec.provider} {spec.model} {spec.dim}"
+
+
+@embeddings_app.command("status")
+def embeddings_status() -> None:
+    """Print each embedding set with its vectors, and the set that search reads."""
+    settings = get_settings()
+    spec = embedder_spec(settings)
+    found, ready, own, missing = asyncio.run(_embeddings_status(settings, spec))
+    typer.echo(f"Embedder: {_set_name(spec)}, " + (f"set {own}" if own else "no vector yet"))
+    typer.echo(f"Ready items: {ready}")
+    for row in found:
+        active = ", active" if row.is_active else ""
+        typer.echo(
+            f"Set {row.id}: {row.provider} {row.model} {row.dim}{active}, "
+            f"{row.items} of {ready} items, {row.pieces} pieces"
+        )
+    if own is None or missing:
+        typer.echo("Next: unshelve embeddings backfill")
+    elif not next(row.is_active for row in found if row.id == own):
+        typer.echo(f"Next: unshelve embeddings activate {own}")
+
+
+async def _embeddings_status(
+    settings: Settings, spec: EmbeddingSpec
+) -> tuple[list[sets.SetSummary], int, int | None, int]:
+    engine = create_engine(settings.database_url)
+    try:
+        async with create_session_factory(engine)() as session:
+            found = await sets.summaries(session)
+            ready = await sets.ready_items(session)
+            own = await sets.find_set(session, spec)
+            missing = await sets.missing(session, own) if own is not None else ready
+            return found, ready, own, missing
+    finally:
+        await engine.dispose()
+
+
+@embeddings_app.command("backfill")
+def embeddings_backfill(
+    every_item: Annotated[
+        bool,
+        typer.Option(
+            "--all",
+            help="Each ready item, also one with its vectors. A text that did not change "
+            "costs nothing.",
+        ),
+    ] = False,
+) -> None:
+    """Add an embed job for each ready item without a vector of the embedder.
+
+    The worker runs the jobs. A new set starts inactive: search reads it after `activate`.
+    """
+    settings = get_settings()
+    spec = embedder_spec(settings)
+    set_id, added = asyncio.run(_embeddings_backfill(settings, spec, every_item=every_item))
+    jobs = "1 embed job" if added == 1 else f"{added} embed jobs"
+    typer.echo(f"Added {jobs} for set {set_id} ({_set_name(spec)}).")
+    if added:
+        typer.echo("The worker runs them. `unshelve embeddings status` shows the progress.")
+
+
+async def _embeddings_backfill(
+    settings: Settings, spec: EmbeddingSpec, *, every_item: bool
+) -> tuple[int, int]:
+    engine = create_engine(settings.database_url)
+    try:
+        async with create_session_factory(engine)() as session:
+            set_id = await sets.ensure_set(session, spec)
+            added = await sets.backfill(session, set_id, every_item=every_item)
+            await session.commit()
+            return set_id, added
+    finally:
+        await engine.dispose()
+
+
+@embeddings_app.command("activate")
+def embeddings_activate(
+    set_id: int,
+    force: Annotated[
+        bool, typer.Option("--force", help="Also when ready items have no vector in the set.")
+    ] = False,
+) -> None:
+    """Make an embedding set the one that search reads."""
+    settings = get_settings()
+    try:
+        missing, ready = asyncio.run(_embeddings_activate(settings, set_id, force=force))
+    except LookupError:
+        raise _stop(f"There is no embedding set {set_id}.") from None
+    if missing and not force:
+        raise _stop(
+            f"Set {set_id} has no vector for {missing} of {ready} ready items. "
+            "Run `unshelve embeddings backfill` first, or add --force."
+        )
+    typer.echo(f"Search now reads set {set_id}.")
+
+
+async def _embeddings_activate(settings: Settings, set_id: int, *, force: bool) -> tuple[int, int]:
+    engine = create_engine(settings.database_url)
+    try:
+        async with create_session_factory(engine)() as session:
+            if await session.get(EmbeddingSet, set_id) is None:
+                raise LookupError(set_id)
+            missing = await sets.missing(session, set_id)
+            ready = await sets.ready_items(session)
+            if missing and not force:
+                return missing, ready
+            await sets.activate(session, set_id)
+            await session.commit()
+            return missing, ready
+    finally:
+        await engine.dispose()
+
+
+# A Persian question ("a job queue in Postgres"), a text on its topic, and a text on another.
+_CHECK_QUERY = "صف کارها در پستگرس"
+_CHECK_TEXTS = (
+    "Postgres can be a job queue: SKIP LOCKED lets many workers share one table.",
+    "A recipe for banana bread with walnuts and brown sugar.",
+)
+
+
+@embeddings_app.command("check")
+def embeddings_check() -> None:
+    """Embed three short texts with the embedder, and print how close they are.
+
+    With Voyage, it needs VOYAGE_API_KEY, and it uses fewer than 100 of the free tokens.
+    """
+    settings = get_settings()
+    spec = embedder_spec(settings)
+    try:
+        related, unrelated, dim = asyncio.run(_embeddings_check(settings))
+    except ProviderError as error:
+        raise _stop(f"No vectors: {str(error).rstrip('.')}.") from None
+    typer.echo(f"{_set_name(spec)}: vectors of {dim} numbers")
+    typer.echo(f"A Persian question and an English text on its topic: {related:.2f}")
+    typer.echo(f"The same question and a text on another topic: {unrelated:.2f}")
+
+
+async def _embeddings_check(settings: Settings) -> tuple[float, float, int]:
+    embedder = build_embedder(settings)
+    try:
+        query = await embedder.embed_query(_CHECK_QUERY)
+        related, unrelated = await embedder.embed_documents(list(_CHECK_TEXTS))
+    finally:
+        if isinstance(embedder, VoyageEmbedder):
+            await embedder.aclose()
+    return _cosine(query, related), _cosine(query, unrelated), len(query)
+
+
+def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
+    return dot / (math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b)))
