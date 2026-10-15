@@ -245,4 +245,4 @@ The Persian title has no `<`, `>` or `&`. For such a text, escaping changes noth
 - [Formatting options](https://core.telegram.org/bots/api#formatting-options), Telegram Bot API. Read "HTML style". It lists the marks that Telegram knows, and the three characters that must be escaped.
 - [answerCallbackQuery](https://core.telegram.org/bots/api#answercallbackquery), Telegram Bot API. The first sentences say that a press must get an answer.
 
-Previous: [12. The resolver](12-resolver.md) · Back to the [list of notes](README.md)
+Previous: [12. The resolver](12-resolver.md) · Next: [14. The fetcher and its guard](14-fetcher-and-guard.md)

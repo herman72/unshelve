@@ -86,7 +86,7 @@ docs/                this folder
 | Reading state vs processing state | `items.status` is changed only by the user. `items.enrich_state` is changed only by workers. |
 | Embeddings | Vectors are stored with an `embedding_set_id` and a dimension check, in an untyped `vector` column. Changing the model is a backfill, not a schema change. Search is exact until a benchmark shows that an approximate index is needed. |
 | Mixed English and Persian | One immutable SQL function, `u_norm()`, normalises stored text and queries. Summaries and tags are written in English. Trigram matching on titles and a multilingual embedder cover what stemming cannot. |
-| Untrusted content | `Fetcher` connects only to validated public addresses and checks every redirect. Fetched text is data for the model: the enrichment call has no tools and a fixed output schema, and its output is escaped when rendered. |
+| Untrusted content | `Fetcher` connects only to validated public addresses and checks every redirect ([ADR 0010](adr/0010-one-guarded-way-to-the-internet.md)). Fetched text is data for the model: the enrichment call has no tools and a fixed output schema, and its output is escaped when rendered. |
 | LLM calls | Every call is recorded in `llm_calls`, keyed by a hash of model, prompt version and input. The table is the retry cache, the cost ledger and the replay source for evaluations in CI. |
 
 ## Public boundary
