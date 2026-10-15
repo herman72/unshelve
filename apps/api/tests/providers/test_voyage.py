@@ -117,6 +117,21 @@ async def test_documents_go_to_the_embeddings_endpoint_with_the_model_and_the_ke
     }
 
 
+@pytest.mark.parametrize(
+    ("key", "address"),
+    [
+        ("pa-made-up", "https://api.voyageai.com/v1/embeddings"),  # the Voyage platform
+        ("al-made-up", "https://ai.mongodb.com/v1/embeddings"),  # a model key of MongoDB Atlas
+        ("", "https://api.voyageai.com/v1/embeddings"),  # no key: Voyage answers with a 401
+    ],
+)
+async def test_the_key_chooses_the_address(voyage: PretendVoyage, key: str, address: str) -> None:
+    with pytest.raises(ProviderError):  # the pretend API knows only the test key
+        await _embedder(voyage, key=key).embed_documents(["a text"])
+
+    assert [str(request.url) for request in voyage.requests] == [address]
+
+
 async def test_a_query_is_sent_as_a_query(voyage: PretendVoyage) -> None:
     await _embedder(voyage).embed_query("how do workers share a queue?")
 

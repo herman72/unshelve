@@ -1,5 +1,10 @@
 """Voyage AI as the embedder, through its REST API (ADR 0012).
 
+Voyage AI is part of MongoDB. A key of the Voyage platform (``pa-...``) works at
+api.voyageai.com, and a model key of MongoDB Atlas (``al-...``) at ai.mongodb.com. The two
+addresses take the same request. The official client chooses the address by the start of the
+key, and so does this adapter.
+
 One request embeds many texts. ``input_type`` tells Voyage whether a text is a document or
 a query. Voyage puts its own short instruction in front of the text for each type, so the
 embedding set has no prefixes of its own.
@@ -31,7 +36,8 @@ from unshelve.net.service import (
 
 log = structlog.get_logger()
 
-API = "https://api.voyageai.com"
+VOYAGE_API = "https://api.voyageai.com"
+ATLAS_API = "https://ai.mongodb.com"
 EMBEDDINGS = "/v1/embeddings"
 # One request holds at most this many texts and characters. Voyage allows 1,000 texts, and
 # 120,000 tokens for voyage-4-large. 100,000 characters are fewer tokens, also in Persian.
@@ -62,6 +68,11 @@ class _Problem(BaseModel):
     detail: str
 
 
+def api_for(api_key: str) -> str:
+    """The address for the key: MongoDB Atlas for a model key of Atlas, else Voyage."""
+    return ATLAS_API if api_key.startswith("al-") else VOYAGE_API
+
+
 def voyage_spec(model: str, dim: int) -> EmbeddingSpec:
     """The embedding set of the vectors of ``model`` with ``dim`` numbers."""
     return EmbeddingSpec(provider="voyage", model=model, dim=dim, distance=Distance.COSINE)
@@ -82,7 +93,7 @@ class VoyageEmbedder:
         """``transport`` is for the tests: a pretend Voyage in the same process."""
         self.spec = voyage_spec(model, dim)
         self._client = ServiceClient(
-            API,
+            api_for(api_key),
             headers={"authorization": f"Bearer {api_key}"},
             timeout=timeout,
             max_bytes=MAX_ANSWER_BYTES,
