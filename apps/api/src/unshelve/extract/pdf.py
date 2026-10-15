@@ -271,7 +271,7 @@ def made_on(raw: str | None) -> datetime | None:
 
 
 def _links(annotations: list[str], text: str) -> list[str]:
-    """The web links of the file: those of its annotations, then those in its text. Each one
+    """The web links of the file: those of its annotations, then those in its text, each link
     one time. Only http and https: a "javascript:" link would run in the web app."""
     found: dict[str, None] = {}
     for candidate in [*annotations, *_LINK.findall(text)]:

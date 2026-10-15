@@ -4,6 +4,7 @@ the reader runs in a child process, as in the worker. Each test name is one rule
 # This file reads Persian text on purpose.
 # ruff: noqa: RUF001
 
+import json
 import math
 import os
 import sys
@@ -12,6 +13,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import structlog
+from structlog.testing import capture_logs
 
 from unshelve.contracts.dto import Extracted, FetchResult, SourceRef
 from unshelve.contracts.enums import ItemKind
@@ -143,6 +146,27 @@ async def test_the_links_of_the_annotations_and_of_the_text_become_extra_links()
     ]
 
 
+async def test_only_web_links_become_extra_links_each_one_time_and_20_at_most(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A made-up answer of the reader: links of other schemes, a link two times, and 30 links
+    # in the text, each with a full stop after it.
+    annotations = [
+        "javascript:alert(1)",
+        "ftp://example.org/file",
+        "https://example.org/a",
+        "https://example.org/a",
+    ]
+    text = "Made-up links: " + " ".join(f"https://example.org/{n}." for n in range(30))
+    answer = json.dumps({"pages": 1, "read": 1, "texts": [text], "links": annotations})
+    monkeypatch.setattr(pdf, "CHILD", (sys.executable, "-c", f"print({answer!r})"))
+
+    found = await _extract(Fetcher())
+
+    expected = ["https://example.org/a", *(f"https://example.org/{n}" for n in range(19))]
+    assert found.extra_links == expected
+
+
 async def test_the_file_is_asked_for_once_with_the_types_of_a_pdf() -> None:
     fetcher = Fetcher()
 
@@ -166,6 +190,7 @@ async def test_a_persian_pdf_gives_letters_and_not_the_forms_of_its_glyphs() -> 
     found = await _extract(Fetcher("persian.pdf"))
 
     assert found.title == "صف کارها در پستگرس"
+    assert found.text.splitlines()[1] == "A PDF document, 1 page, made on 15 October 2026."
     body = _body(found)
     assert body.splitlines()[0] == "صف کارها در پستگرس"
     assert "در این نوشته یک صف کار را روی یک جدول" in body
@@ -192,6 +217,17 @@ async def test_a_file_in_a_repository_on_github_is_asked_for_as_a_raw_file() -> 
 
     assert found.title == "Leases for Job Queues in Postgres"
     assert [url for url, *_ in fetcher.asked] == [raw]
+
+
+async def test_a_file_with_bytes_before_its_mark_is_read() -> None:
+    # The mark "%PDF-" can stand anywhere in the first 1,024 bytes, and pypdf reads the file.
+    fetcher = Fetcher(None)
+    paper = (FIXTURES / "paper.pdf").read_bytes()
+    fetcher.add(LINK, b"made-up bytes before the mark\n" + paper, "application/pdf")
+
+    found = await _extract(fetcher)
+
+    assert found.title == "Leases for Job Queues in Postgres"
 
 
 async def test_a_file_that_limits_only_printing_is_read() -> None:
@@ -263,14 +299,19 @@ async def test_a_reader_that_does_not_finish_in_time_is_stopped_and_waited_for(
         os.kill(int(pid_file.read_text()), 0)
 
 
-async def test_a_reader_that_the_system_stops_is_an_extract_error(
+async def test_a_reader_that_the_system_stops_is_an_extract_error_and_a_warning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     killed = "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"
     monkeypatch.setattr(pdf, "CHILD", (sys.executable, "-c", killed))
+    # A new logger: one that an earlier test configured and cached would not be captured.
+    monkeypatch.setattr(pdf, "log", structlog.get_logger())
 
-    with pytest.raises(ExtractError, match="stopped with code -9"):
+    with capture_logs() as logs, pytest.raises(ExtractError, match="stopped with code -9"):
         await _extract(Fetcher())
+
+    [event] = [entry for entry in logs if entry["event"] == "pdf.reader_stopped"]
+    assert event["code"] == -9
 
 
 async def test_an_answer_that_does_not_fit_is_an_extract_error(
@@ -405,3 +446,4 @@ def test_line_breaks_spaces_and_empty_lines_become_one_kind_each() -> None:
     raw += chr(0) + chr(0xFEFF)
 
     assert clean_text(raw) == "Title\nline two with space\n\nnext"
+    assert clean_text("one\rtwo") == "one\ntwo"

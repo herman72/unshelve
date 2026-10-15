@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 from pypdf import PageObject
 
-from unshelve.extract.pdf_reader import read
+from unshelve.extract.pdf_reader import CPU_SECONDS, MEMORY_BYTES, read
 
 FIXTURES = Path(__file__).parent / "fixtures" / "pdf"
 
@@ -181,6 +181,27 @@ def test_a_half_character_becomes_a_question_mark(monkeypatch: pytest.MonkeyPatc
 
 
 # --- As a child process ------------------------------------------------------------------
+
+
+def test_the_child_process_lowers_its_own_limits() -> None:
+    # The limits are those of the process that runs main(), so a second process checks them.
+    code = (
+        "import io, resource, sys\n"
+        "from unshelve.extract import pdf_reader\n"
+        "sys.argv = ['pdf_reader', '1', '100']\n"
+        "sys.stdin = io.TextIOWrapper(io.BytesIO(b''))\n"
+        "pdf_reader.main()\n"
+        "cpu, memory = resource.RLIMIT_CPU, resource.RLIMIT_AS\n"
+        "print(resource.getrlimit(cpu)[0], resource.getrlimit(memory)[0], file=sys.stderr)\n"
+    )
+    done = subprocess.run(  # noqa: S603 - the code is a constant of this test
+        [sys.executable, "-I", "-c", code], capture_output=True, check=True, timeout=60
+    )
+
+    cpu, memory = (int(value) for value in done.stderr.split())
+    assert cpu == CPU_SECONDS
+    if sys.platform == "linux":  # macOS does not keep a limit of memory
+        assert memory == MEMORY_BYTES
 
 
 def test_the_module_answers_in_json_as_a_child_process() -> None:
