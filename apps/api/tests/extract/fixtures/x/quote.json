@@ -1,0 +1,70 @@
+{
+ "__typename": "Tweet",
+ "favorite_count": 12345,
+ "lang": "en",
+ "possibly_sensitive": false,
+ "created_at": "2026-10-01T12:00:00.000Z",
+ "display_text_range": [
+  0,
+  51
+ ],
+ "entities": {},
+ "id_str": "1234567890123456789",
+ "text": "This is the best short guide to queues that I know.",
+ "user": {
+  "id_str": "42",
+  "name": "Made-up Person",
+  "screen_name": "madeup_person",
+  "is_blue_verified": false,
+  "profile_image_shape": "Circle",
+  "verified": false,
+  "profile_image_url_https": "https://pbs.twimg.com/profile_images/42/made_up_normal.jpg"
+ },
+ "edit_control": {
+  "edit_tweet_ids": [
+   "1234567890123456789"
+  ],
+  "editable_until_msecs": "1790000000000",
+  "edits_remaining": "5",
+  "is_edit_eligible": false
+ },
+ "conversation_count": 7,
+ "news_action_type": "conversation",
+ "isEdited": false,
+ "isStaleEdit": false,
+ "quoted_tweet": {
+  "__typename": "Tweet",
+  "favorite_count": 12345,
+  "lang": "en",
+  "possibly_sensitive": false,
+  "created_at": "2026-09-29T10:00:00.000Z",
+  "display_text_range": [
+   0,
+   56
+  ],
+  "entities": {},
+  "id_str": "1234567890123456000",
+  "text": "A job queue in Postgres needs one table and SKIP LOCKED.",
+  "user": {
+   "id_str": "43",
+   "name": "Other Person",
+   "screen_name": "other_person",
+   "is_blue_verified": false,
+   "profile_image_shape": "Circle",
+   "verified": false,
+   "profile_image_url_https": "https://pbs.twimg.com/profile_images/43/made_up_normal.jpg"
+  },
+  "edit_control": {
+   "edit_tweet_ids": [
+    "1234567890123456789"
+   ],
+   "editable_until_msecs": "1790000000000",
+   "edits_remaining": "5",
+   "is_edit_eligible": false
+  },
+  "conversation_count": 7,
+  "news_action_type": "conversation",
+  "isEdited": false,
+  "isStaleEdit": false
+ }
+}

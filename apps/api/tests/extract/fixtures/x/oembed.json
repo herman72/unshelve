@@ -1,0 +1,13 @@
+{
+ "url": "https://x.com/madeup_person/status/1234567890123456789",
+ "author_name": "Made-up Person",
+ "author_url": "https://x.com/madeup_person",
+ "html": "<blockquote class=\"twitter-tweet\" data-dnt=\"true\"><p lang=\"en\" dir=\"ltr\">Postgres can be a job queue &amp; a log: SKIP LOCKED lets workers share one table.<br><br><a href=\"https://t.co/AbCdEf1234\">https://t.co/AbCdEf1234</a> <a href=\"https://t.co/MeDiA98765\">pic.x.com/MeDiA98765</a></p>&mdash; Made-up Person (@madeup_person) <a href=\"https://x.com/madeup_person/status/1234567890123456789?ref_src=twsrc%5Etfw\">September 30, 2026</a></blockquote>\n",
+ "width": 550,
+ "height": null,
+ "type": "rich",
+ "cache_age": "3153600000",
+ "provider_name": "X",
+ "provider_url": "https://x.com",
+ "version": "1.0"
+}

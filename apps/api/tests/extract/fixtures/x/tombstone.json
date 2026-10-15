@@ -1,0 +1,10 @@
+{
+ "__typename": "TweetTombstone",
+ "tombstone": {
+  "text": {
+   "text": "This Post is from an account that no longer exists.",
+   "entities": [],
+   "rtl": false
+  }
+ }
+}
