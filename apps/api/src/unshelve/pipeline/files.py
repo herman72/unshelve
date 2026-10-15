@@ -5,6 +5,9 @@ source (the Bot API, ``net.telegram_files``), go into the blob store, and get a 
 ``assets`` with the id of the file of Telegram. Each later time, for example after an edit of
 the message, they come from the copy, and Telegram is not asked.
 
+A file of an export was copied by the importer, and its media names the copy (``sha256``):
+it is read from the blob store at once.
+
 Two files of Telegram with the same bytes share one copy. Only the first of them finds it by
 its id; the second is downloaded again each time, which is rare and harmless.
 """
@@ -27,6 +30,8 @@ UNKNOWN_TYPE = "application/octet-stream"
 
 def label_of(media: MediaRef) -> str:
     """The name of a file in an error or a log: never its address, which holds the token."""
+    if media.file_unique_id is None and media.sha256 is not None:
+        return f"exported file {media.sha256[:12]}"
     return f"telegram file {media.file_unique_id or 'without an id'}"
 
 
@@ -45,7 +50,9 @@ class StoredFiles:
         self._owner_id = owner_id
 
     async def read(self, media: MediaRef, *, max_bytes: int) -> bytes:
-        kept = await self._kept(media)
+        kept = await self._named(media)
+        if kept is None:
+            kept = await self._kept(media)
         if kept is not None:
             if len(kept) > max_bytes:
                 raise FetchError("too_large", label_of(media))
@@ -70,6 +77,16 @@ class StoredFiles:
             )
             await session.commit()
         return data
+
+    async def _named(self, media: MediaRef) -> bytes | None:
+        """The bytes of the copy that the media names (a file of an export), if it is there."""
+        if media.sha256 is None:
+            return None
+        try:
+            return await self._blobs.get(media.sha256)
+        except KeyError:
+            log.warning("files.copy_missing", sha256=media.sha256)
+            return None
 
     async def _kept(self, media: MediaRef) -> bytes | None:
         """The bytes of the copy of this file, or None when there is no copy."""
