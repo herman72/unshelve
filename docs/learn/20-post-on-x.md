@@ -108,4 +108,4 @@ Two tests fail: the text of a post, and `test_a_short_link_becomes_the_address_t
 - [oEmbed API](https://docs.x.com/x-for-websites/oembed-api), X documentation. Read the table of parameters, with `omit_script` and `dnt`: the extractor sends both.
 - [react-tweet](https://github.com/vercel/react-tweet), the library of the embed widget. Read `packages/react-tweet/src/api/fetch-tweet.ts`: the request and the token.
 
-Previous: [19. Reading a YouTube video](19-youtube-video.md) · Back to the [list of notes](README.md)
+Previous: [19. Reading a YouTube video](19-youtube-video.md) · Next: [21. Reading a GitHub repository](21-github-repository.md) · Back to the [list of notes](README.md)

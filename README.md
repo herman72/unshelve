@@ -92,7 +92,7 @@ The worker reads the page of each saved link when `.env` has `UNSHELVE_FETCHER=l
 docker compose exec worker unshelve fetch https://example.com/
 ```
 
-[The fetcher note](docs/learn/14-fetcher-and-guard.md) explains the guard. To see the text that Unshelve reads from a link, use `unshelve extract` in the same way: it chooses the reader as the worker does. [The article note](docs/learn/15-article-extractor.md) explains how a page becomes clean text, [the YouTube note](docs/learn/19-youtube-video.md) how a video becomes a title, a length and a description, and [the X note](docs/learn/20-post-on-x.md) how a post on X is read.
+[The fetcher note](docs/learn/14-fetcher-and-guard.md) explains the guard. To see the text that Unshelve reads from a link, use `unshelve extract` in the same way: it chooses the reader as the worker does. [The article note](docs/learn/15-article-extractor.md) explains how a page becomes clean text, [the YouTube note](docs/learn/19-youtube-video.md) how a video becomes a title, a length and a description, [the X note](docs/learn/20-post-on-x.md) how a post on X is read, and [the GitHub note](docs/learn/21-github-repository.md) how a repository is read.
 
 With `UNSHELVE_EMBEDDER=voyage` and `VOYAGE_API_KEY`, Voyage AI makes the vectors for search: one for the card of each item, and one for each piece of a long text. The first 200 million tokens of a Voyage account are free. `unshelve embeddings check` makes one test call. When you change the model, `unshelve embeddings status`, `backfill` and `activate` give the old items their new vectors before search uses them. [The vectors note](docs/learn/18-vectors-for-search.md) explains it.
 
