@@ -1,4 +1,7 @@
 import type { components } from "@unshelve/api-client";
+import Link from "next/link";
+import { enrichLabel } from "@/lib/enrich-state";
+import { webAddress } from "@/lib/links";
 
 export type ItemSummary = components["schemas"]["ItemSummary"];
 
@@ -7,25 +10,11 @@ export type ItemSummary = components["schemas"]["ItemSummary"];
 // one is left-to-right, on the same page. Put it on every element that shows saved content.
 
 /** The title, or the next best thing to show in its place. */
-function displayTitle(item: ItemSummary): string {
+export function displayTitle(item: ItemSummary): string {
   return item.title || item.url || "Untitled";
 }
 
-/**
- * The address to link to, only if it is a web address. A saved URL came from the internet, so
- * a link with any other scheme (javascript:, data:) is never rendered.
- */
-function webAddress(url: string | null): string | undefined {
-  if (!url) return undefined;
-  try {
-    const { protocol } = new URL(url);
-    return protocol === "http:" || protocol === "https:" ? url : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function Badge({ label, children }: { label: string; children: React.ReactNode }) {
+export function Badge({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <span className="rounded-full border border-border px-2 py-0.5 text-xs capitalize">
       <span className="sr-only">{label}: </span>
@@ -35,30 +24,35 @@ function Badge({ label, children }: { label: string; children: React.ReactNode }
 }
 
 export function ItemCard({ item }: { item: ItemSummary }) {
-  const href = webAddress(item.url);
-  const title = displayTitle(item);
+  const source = webAddress(item.url);
   const goal = item.top_goal;
 
   return (
     <article className="rounded-lg border border-border bg-surface p-4">
+      {/* Each item has a page of its own; not each item has a web address. */}
       <h2 dir="auto" className="text-base leading-snug font-semibold wrap-anywhere">
-        {href ? (
-          <a href={href} rel="noreferrer" className="hover:underline">
-            {title}
-          </a>
-        ) : (
-          title
-        )}
+        <Link href={`/items/${item.id}`} className="hover:underline">
+          {displayTitle(item)}
+        </Link>
       </h2>
 
       <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted">
-        {item.site && (
-          <span dir="auto" className="wrap-anywhere">
-            {item.site}
-          </span>
-        )}
+        {item.site &&
+          (source ? (
+            <a dir="auto" href={source} rel="noreferrer" className="wrap-anywhere hover:underline">
+              {item.site}
+            </a>
+          ) : (
+            <span dir="auto" className="wrap-anywhere">
+              {item.site}
+            </span>
+          ))}
         <Badge label="Kind">{item.kind}</Badge>
         <Badge label="Status">{item.status}</Badge>
+        {/* "Ready" is the normal case, so only the other states take room. */}
+        {item.enrich_state !== "ready" && (
+          <Badge label="Pipeline">{enrichLabel(item.enrich_state)}</Badge>
+        )}
         {item.est_minutes !== null && <span>{item.est_minutes} min read</span>}
         {/* A thing that was saved again is one item. The number is a sign of interest. */}
         {item.capture_count > 1 && <span>Saved {item.capture_count} times</span>}
