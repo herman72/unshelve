@@ -23,12 +23,16 @@ from datetime import datetime
 from typing import ClassVar
 from urllib.parse import quote, urlsplit
 
+import structlog
+
 from unshelve.contracts.dto import Extracted, SourceRef
 from unshelve.contracts.enums import ItemKind
 from unshelve.contracts.errors import ExtractError, FetchError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.extract.article import ArticleExtractor
 from unshelve.ingest.canonical import canonicalize
+
+log = structlog.get_logger()
 
 # An extractor for one site wins over the article extractor (10).
 SITE_SCORE = 50
@@ -41,7 +45,19 @@ NAMES_AS_AUTHOR = 3
 MAX_LINKS = 20
 # The first version of expat that the Python documentation calls safe from entity expansion.
 MIN_EXPAT = (2, 7, 2)
-_SAFE_PARSER = pyexpat.version_info >= MIN_EXPAT
+
+
+def safe_expat(version: tuple[int, int, int]) -> bool:
+    """Whether XML from the internet may be parsed with this version of expat."""
+    return version >= MIN_EXPAT
+
+
+def _parser_is_safe() -> bool:
+    """The Python of a computer can bring an older expat: in October 2026 the Python that uv
+    downloads for CI had 2.6.3. Then the extractor reads the page instead."""
+    return safe_expat(pyexpat.version_info)
+
+
 # Each address of a paper has this canonical form (``ingest.canonical``): the new number
 # (2607.16100) or the old form (hep-th/9901001), without a version.
 _PAPER = re.compile(r"/abs/(\d{4}\.\d{4,5}|[a-z-]+(?:\.[A-Z]{2})?/\d{7})")
@@ -89,7 +105,9 @@ class ArxivExtractor:
         page = f"https://arxiv.org/abs/{paper}"
         api = f"https://export.arxiv.org/api/query?id_list={quote(paper, safe='/')}"
         found: _Paper | None = None
-        if _SAFE_PARSER:
+        if not _parser_is_safe():
+            log.warning("arxiv.old_expat", expat=pyexpat.EXPAT_VERSION, needed=MIN_EXPAT)
+        else:
             try:
                 answer = await ctx.fetcher.get(
                     api, max_bytes=MAX_ANSWER_BYTES, accept=["application/atom+xml"]
