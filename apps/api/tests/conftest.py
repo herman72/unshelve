@@ -25,6 +25,17 @@ ClientFactory = Callable[[Settings], AbstractAsyncContextManager[httpx.AsyncClie
 Settings.model_config["env_file"] = None
 
 
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """A test marked ``live`` talks to a real service with a real key. It runs only when it
+    is asked for: ``uv run pytest -m live -o addopts=""``. CI never asks."""
+    if "live" in str(config.getoption("markexpr") or ""):
+        return
+    skip = pytest.mark.skip(reason="a live test: run it with -m live")
+    for item in items:
+        if "live" in item.keywords:
+            item.add_marker(skip)
+
+
 # A property test makes its own inputs. By default it makes the same inputs in each run and
 # on each computer, so a failure on CI can be repeated here. To let it look for new problems,
 # with new inputs each time: HYPOTHESIS_PROFILE=explore uv run pytest tests/ingest
