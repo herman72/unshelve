@@ -152,7 +152,7 @@ def _wait(error: FetchError, attempts: int) -> timedelta:
 
 
 def _why_not_read(
-    extractor: Extractor, error: FetchError | ExtractError, attempt: int
+    extractor: Extractor, error: FetchError | ExtractError | ProviderError, attempt: int
 ) -> dict[str, Any]:
     """What the event log keeps about a source that could not be read."""
     if isinstance(error, FetchError):
@@ -160,6 +160,14 @@ def _why_not_read(
             "extractor": extractor.name,
             "reason": error.reason,
             "status": error.status,
+            "attempt": attempt,
+        }
+    if isinstance(error, ProviderError):
+        # The image extractor asks the model. Its error names a status or a reason, no text.
+        return {
+            "extractor": extractor.name,
+            "reason": "model",
+            "detail": str(error)[:300],
             "attempt": attempt,
         }
     return {"extractor": extractor.name, "reason": "no_text", "detail": str(error)[:300]}
@@ -202,13 +210,19 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
     )
     extractor = tried = choose(source)
     extracted: Extracted | None = None
-    failure: FetchError | ExtractError | None = None
+    failure: FetchError | ExtractError | ProviderError | None = None
     try:
         extracted = await extractor.extract(source, context)
     except FetchError as error:
         if error.retryable and ctx.job.attempts < ctx.job.max_attempts:
             detail = f"{error.reason} {error.status}" if error.status else error.reason
             raise Retry(f"fetch: {detail}", after=_wait(error, ctx.job.attempts)) from error
+        failure = error
+    except ProviderError as error:
+        # The model reads the images: busy, the daily budget, or a key to fix waits like the
+        # card does. An image that it cannot read keeps the saved text.
+        if error.retryable and ctx.job.attempts < ctx.job.max_attempts:
+            raise Retry(f"model: {error}", after=_model_wait(error, ctx.job.attempts)) from error
         failure = error
     except ExtractError as error:
         failure = error
@@ -343,8 +357,9 @@ async def enrich_item(ctx: JobContext, payload: EnrichItemPayload) -> None:
 
     card: Card | None = None
     failure: ProviderError | None = None
-    # Photos without a caption have no text. A model that gets no text invents some, so it
-    # is not asked: the item gets an empty card until a later step reads the photos.
+    # Photos without a caption have no text when the image extractor could not read them (no
+    # bot token, for example). A model that gets no text invents some, so it is not asked:
+    # the item gets an empty card.
     if text.strip():
         try:
             result = await services.llm.generate(
