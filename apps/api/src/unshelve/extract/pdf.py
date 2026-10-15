@@ -1,6 +1,8 @@
-"""The PDF extractor: the text, the title and the length of a PDF file at a link.
+"""The PDF extractor: the text, the title and the length of a PDF file, at a link or sent as
+a file in the message.
 
-The fetcher brings the bytes. A child process reads them (``extract.pdf_reader``): a file that
+The fetcher brings the bytes of a link; the files of the message (``ctx.files``) bring the
+bytes of a file. A child process reads them (``extract.pdf_reader``): a file that
 keeps the reader busy, or that fills the memory, stops only that process, and the worker goes
 on. The time limit is ``READ_SECONDS``.
 
@@ -24,7 +26,7 @@ from urllib.parse import urlsplit
 import structlog
 from pydantic import BaseModel, Field, ValidationError
 
-from unshelve.contracts.dto import Extracted, SourceRef
+from unshelve.contracts.dto import Extracted, MediaRef, SourceRef
 from unshelve.contracts.enums import ItemKind
 from unshelve.contracts.errors import ExtractError
 from unshelve.contracts.protocols import ExtractContext
@@ -119,16 +121,33 @@ def is_pdf_link(url: str | None) -> bool:
     return parts.path.rsplit("/", 1)[-1].lower().endswith(".pdf")
 
 
+def pdf_file(ref: SourceRef) -> MediaRef | None:
+    """The first PDF file of the message: a document with the type or the name of a PDF."""
+    for media in ref.media:
+        named = (media.file_name or "").lower().endswith(".pdf")
+        if media.kind == "document" and ((media.mime or "").lower() in PDF_TYPES or named):
+            return media
+    return None
+
+
 class PdfExtractor:
     name: ClassVar[str] = "pdf"
     version: ClassVar[int] = 1
 
     def match(self, ref: SourceRef) -> int:
-        return FILE_SCORE if is_pdf_link(ref.url) else 0
+        return FILE_SCORE if is_pdf_link(ref.url) or pdf_file(ref) is not None else 0
 
     async def extract(self, ref: SourceRef, ctx: ExtractContext) -> Extracted:
+        # A file that you sent comes first: it is the thing itself, and a link in its caption
+        # is often only the page about it.
+        file = pdf_file(ref)
+        if file is not None:
+            if ctx.files is None:
+                raise ExtractError("no file of a message can be read here")
+            # A FetchError goes up unchanged, as for a link.
+            return await _from_bytes(await ctx.files.read(file, max_bytes=MAX_PDF_BYTES), None)
         if ref.url is None:
-            raise ExtractError("a PDF needs a link")
+            raise ExtractError("a PDF needs a link or a file")
         return await read_pdf(ref.url, ctx)
 
 
@@ -141,11 +160,15 @@ async def read_pdf(url: str, ctx: ExtractContext) -> Extracted:
     # the saved text".
     address = _GITHUB_FILE.sub(r"\1/raw/", url, count=1)
     file = await ctx.fetcher.get(address, max_bytes=MAX_PDF_BYTES, accept=list(ACCEPT))
+    return await _from_bytes(file.body, file.final_url)
+
+
+async def _from_bytes(data: bytes, final_url: str | None) -> Extracted:
+    """The text and the facts of the PDF in ``data``. ``final_url``: None for a sent file."""
     # Each PDF file has the mark "%PDF-" in its first 1,024 bytes.
-    if b"%PDF-" not in file.body[:1024]:
+    if b"%PDF-" not in data[:1024]:
         raise ExtractError("the file is not a PDF")
-    reading = await _read_in_child(file.body)
-    return _extracted(reading, file.final_url)
+    return _extracted(await _read_in_child(data), final_url)
 
 
 async def _read_in_child(data: bytes) -> _Reading:
@@ -187,7 +210,7 @@ async def _read_in_child(data: bytes) -> _Reading:
     return reading
 
 
-def _extracted(reading: _Reading, final_url: str) -> Extracted:
+def _extracted(reading: _Reading, final_url: str | None) -> Extracted:
     text = clean_text("\n\n".join(reading.texts))
     if len(text) < MIN_TEXT_CHARS:
         raise ExtractError(f"the PDF has {len(text)} characters of text: it can be a scan")
@@ -211,7 +234,7 @@ def _extracted(reading: _Reading, final_url: str) -> Extracted:
         text=f"{head}\n\n{text}",
         title=title,
         author=author,
-        site=_site(final_url),
+        site=_site(final_url) if final_url else None,
         final_url=final_url,
         published_at=made,
         extra_links=_links(reading.links, text),

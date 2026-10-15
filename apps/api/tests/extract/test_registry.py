@@ -4,7 +4,7 @@ from typing import ClassVar
 
 import pytest
 
-from unshelve.contracts.dto import Extracted, SourceRef
+from unshelve.contracts.dto import Extracted, MediaRef, SourceRef
 from unshelve.contracts.enums import ItemKind
 from unshelve.contracts.protocols import ExtractContext, Extractor
 from unshelve.extract.article import ArticleExtractor
@@ -12,6 +12,8 @@ from unshelve.extract.registry import EXTRACTORS, FALLBACK, choose
 from unshelve.extract.saved_text import SavedTextExtractor
 from unshelve.testing.conformance import ExtractorCase, ExtractorConformance
 from unshelve.testing.fakes import FakeFetcher, FakeLLM, InMemoryBlobStore
+
+PDF_SENT = MediaRef(kind="document", file_id="BQACAgMadeUp", mime="application/pdf")
 
 
 def _context() -> ExtractContext:
@@ -59,6 +61,11 @@ class TestSavedTextExtractor(ExtractorConformance):
         (SourceRef(url="https://t.me/s/made_up_channel/42"), "telegram"),
         (SourceRef(url="https://t.me/made_up_channel"), "article"),
         (SourceRef(), "saved_text"),  # a photo without a caption: nobody claims it
+        (SourceRef(text="A paper", media=[PDF_SENT]), "pdf"),
+        # A file wins over the page of its caption; an extractor for one site wins over it.
+        (SourceRef(url="https://blog.example.com/queues", media=[PDF_SENT]), "pdf"),
+        (SourceRef(url="https://youtu.be/dEmOvIdEo01", media=[PDF_SENT]), "youtube"),
+        (SourceRef(media=[MediaRef(kind="photo", file_id="AgACAgMadeUp")]), "saved_text"),
     ],
 )
 def test_the_extractor_with_the_highest_score_reads_the_source(

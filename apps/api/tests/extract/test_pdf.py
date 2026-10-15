@@ -16,7 +16,7 @@ import pytest
 import structlog
 from structlog.testing import capture_logs
 
-from unshelve.contracts.dto import Extracted, FetchResult, SourceRef
+from unshelve.contracts.dto import Extracted, FetchResult, MediaRef, SourceRef
 from unshelve.contracts.enums import ItemKind
 from unshelve.contracts.errors import ExtractError, FetchError
 from unshelve.contracts.protocols import ExtractContext
@@ -33,10 +33,18 @@ from unshelve.extract.pdf import (
 )
 from unshelve.reading import reading_minutes
 from unshelve.testing.conformance import ExtractorCase, ExtractorConformance
-from unshelve.testing.fakes import FakeFetcher, FakeLLM, InMemoryBlobStore
+from unshelve.testing.fakes import FakeFetcher, FakeFiles, FakeLLM, InMemoryBlobStore
 
 FIXTURES = Path(__file__).parent / "fixtures" / "pdf"
 LINK = "https://example.com/papers/leases.pdf"
+SENT = MediaRef(
+    kind="document",
+    file_id="BQACAgMadeUpFileId",
+    file_unique_id="AgADmadeup",
+    mime="application/pdf",
+    size_bytes=96_235,
+    file_name="leases.pdf",
+)
 
 
 class Fetcher(FakeFetcher):
@@ -250,6 +258,92 @@ async def test_a_long_file_is_read_in_part_and_gets_the_minutes_of_all_its_pages
     assert found.text.splitlines()[1] == f"A PDF document, 3 pages, made on 15 October 2026. {line}"
     # 3 pages, of which `pages` were read: the minutes of the text, times 3 / pages.
     assert found.minutes == math.ceil(reading_minutes(_body(found)) * 3 / pages)
+
+
+# --- A PDF that you send as a file -------------------------------------------------------
+
+
+class RecordingFiles(FakeFiles):
+    """A pretend source of files that also writes down the limit that it was asked with."""
+
+    def __init__(self, data: bytes | FetchError) -> None:
+        super().__init__({str(SENT.file_id): data})
+        self.limits: list[int] = []
+
+    async def read(self, media: MediaRef, *, max_bytes: int) -> bytes:
+        self.limits.append(max_bytes)
+        return await super().read(media, max_bytes=max_bytes)
+
+
+async def _extract_sent(files: FakeFiles | None, ref: SourceRef | None = None) -> Extracted:
+    context = ExtractContext(
+        fetcher=Fetcher(None), blobs=InMemoryBlobStore(), llm=FakeLLM(), files=files
+    )
+    return await PdfExtractor().extract(ref or SourceRef(text="A paper", media=[SENT]), context)
+
+
+async def test_a_pdf_sent_as_a_file_gives_its_title_its_pages_and_its_text() -> None:
+    files = RecordingFiles((FIXTURES / "paper.pdf").read_bytes())
+
+    found = await _extract_sent(files)
+
+    assert (found.kind, found.title) == (ItemKind.PDF, "Leases for Job Queues in Postgres")
+    assert (found.site, found.final_url) == (None, None)  # it has no address
+    assert found.text.splitlines()[1] == "A PDF document, 3 pages, made on 15 October 2026."
+    assert files.limits == [MAX_PDF_BYTES]
+
+
+@pytest.mark.parametrize(
+    ("media", "claimed"),
+    [
+        (SENT, True),
+        (SENT.model_copy(update={"mime": "application/octet-stream", "file_name": "A.PDF"}), True),
+        (SENT.model_copy(update={"mime": "application/zip", "file_name": "data.zip"}), False),
+        (SENT.model_copy(update={"mime": None, "file_name": None}), False),
+        (MediaRef(kind="photo", file_id="AgACAgMadeUp", file_unique_id="AQADmadeup"), False),
+        (SENT.model_copy(update={"kind": "video", "mime": "video/mp4", "file_name": "a.mp4"}),
+         False),
+    ],
+    ids=["a PDF", "a PDF by its name", "a zip file", "no type, no name", "a photo", "a video"],
+)  # fmt: skip
+def test_a_document_is_a_pdf_by_its_type_or_by_its_name(media: MediaRef, claimed: bool) -> None:
+    score = PdfExtractor().match(SourceRef(text="a caption", media=[media]))
+
+    assert (score > GENERIC_SCORE) is claimed
+    assert (score == 0) is not claimed
+
+
+async def test_a_file_comes_before_a_link_to_a_page_in_its_caption() -> None:
+    files = RecordingFiles((FIXTURES / "paper.pdf").read_bytes())
+    ref = SourceRef(url="https://blog.example.com/queues", text="See also", media=[SENT])
+
+    found = await _extract_sent(files, ref)
+
+    assert found.title == "Leases for Job Queues in Postgres"
+
+
+async def test_a_sent_file_without_a_source_of_files_is_an_extract_error() -> None:
+    # The CLI reads links only: its context has no files.
+    with pytest.raises(ExtractError, match="no file of a message"):
+        await _extract_sent(None)
+
+
+async def test_a_failure_of_a_sent_file_goes_up_unchanged() -> None:
+    busy = FetchError("http_error", "telegram file AgADmadeup", status=429, retry_after=7)
+
+    with pytest.raises(FetchError) as caught:
+        await _extract_sent(RecordingFiles(busy))
+
+    assert caught.value is busy
+
+
+async def test_a_sent_file_that_is_no_pdf_is_refused_before_a_reader_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(pdf, "CHILD", ("/no/such/reader",))  # it would fail if it started
+
+    with pytest.raises(ExtractError, match="not a PDF"):
+        await _extract_sent(RecordingFiles(b"<html><body>Not a PDF.</body></html>"))
 
 
 # --- Files that give no text -------------------------------------------------------------

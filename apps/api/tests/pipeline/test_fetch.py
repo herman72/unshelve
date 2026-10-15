@@ -1,6 +1,7 @@
 """The fetch step: the best extractor reads the source. A link that cannot be read keeps the
 saved text, and a passing failure is tried again later. A pretend web: no network."""
 
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -10,11 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from unshelve.auth import store as auth
 from unshelve.config import Settings
-from unshelve.contracts.dto import CaptureEnvelope
+from unshelve.contracts.dto import CaptureEnvelope, MediaRef
 from unshelve.contracts.enums import Actor, CaptureSource, EnrichState, ItemKind, JobKind, JobState
 from unshelve.contracts.errors import FetchError
 from unshelve.contracts.jobs import Services
-from unshelve.db.models import Event, Item, ItemContent, Job
+from unshelve.db.models import Asset, Event, Item, ItemContent, Job
 from unshelve.extract import pdf
 from unshelve.ingest import resolve, versions
 from unshelve.pipeline import items as steps
@@ -22,7 +23,7 @@ from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
 from unshelve.reading import reading_minutes
 from unshelve.services import build_services
-from unshelve.testing.fakes import FakeFetcher
+from unshelve.testing.fakes import FakeFetcher, FakeFiles
 
 PAGES = Path(__file__).parents[1] / "extract" / "fixtures"
 ARTICLE = (PAGES / "article_en.html").read_text(encoding="utf-8")
@@ -56,7 +57,13 @@ async def _run_all(services: Services) -> None:
         pass
 
 
-async def _save(sessions: Sessions, *, text: str = TEXT, url: str | None = URL) -> int:
+async def _save(
+    sessions: Sessions,
+    *,
+    text: str = TEXT,
+    url: str | None = URL,
+    media: list[MediaRef] | None = None,
+) -> int:
     async with sessions() as db:
         owner_id = await auth.ensure_owner(db, 1)
         envelope = CaptureEnvelope(
@@ -66,6 +73,7 @@ async def _save(sessions: Sessions, *, text: str = TEXT, url: str | None = URL) 
             posted_at=NOON,
             text=text,
             urls=[url] if url else [],
+            media=media or [],
         )
         capture_id = await resolve.store_capture(db, owner_id, envelope)
         assert capture_id is not None
@@ -200,6 +208,55 @@ async def test_a_pdf_read_in_part_gets_the_minutes_of_all_its_pages(
     first_page = content.text.split("\n\n", 1)[1]
     # 1 of 3 pages was read: the minutes of that page, three times.
     assert (await _item(services.sessions, item_id)).est_minutes == 3 * reading_minutes(first_page)
+
+
+SENT = MediaRef(
+    kind="document",
+    file_id="BQACAgMadeUpFileId",
+    file_unique_id="AgADmadeup",
+    mime="application/pdf",
+    size_bytes=96_235,
+    file_name="leases.pdf",
+)
+
+
+async def test_a_pdf_sent_as_a_file_is_read_and_its_copy_is_kept(services: Services) -> None:
+    files = FakeFiles({str(SENT.file_id): (PAGES / "pdf" / "paper.pdf").read_bytes()})
+    services = dataclasses.replace(services, files=files)
+    item_id = await _save(services.sessions, text="A paper to read", url=None, media=[SENT])
+
+    await _run_all(services)
+
+    item = await _item(services.sessions, item_id)
+    assert (item.enrich_state, item.kind, item.partial) == (
+        EnrichState.READY,
+        ItemKind.PDF,
+        False,
+    )
+    assert item.title == "Leases for Job Queues in Postgres"
+    content = await _content(services.sessions, item_id)
+    assert content is not None
+    assert (content.extractor, content.final_url) == ("pdf", None)
+    assert files.read_ids == [SENT.file_id]
+    async with services.sessions() as db:
+        [asset] = (await db.scalars(sa.select(Asset))).all()
+    assert (asset.file_unique_id, asset.mime) == ("AgADmadeup", "application/pdf")
+    assert await services.blobs.get(asset.storage_key) == (PAGES / "pdf" / "paper.pdf").read_bytes()
+
+
+async def test_a_pdf_sent_as_a_file_without_a_bot_token_keeps_its_caption(
+    services: Services,
+) -> None:
+    # Without a token the worker has no source of files: the item keeps what you wrote.
+    item_id = await _save(services.sessions, text="A paper to read", url=None, media=[SENT])
+
+    await _run_all(services)
+
+    content = await _content(services.sessions, item_id)
+    assert content is not None
+    assert (content.extractor, content.text) == ("saved_text", "A paper to read")
+    [event] = await _events(services.sessions, item_id)
+    assert (event.payload["extractor"], event.payload["reason"]) == ("pdf", "unsupported")
 
 
 async def test_an_article_after_a_video_counts_its_minutes_again(services: Services) -> None:
