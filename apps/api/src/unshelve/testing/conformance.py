@@ -159,6 +159,8 @@ class FetcherConformance:
         with pytest.raises(FetchError) as caught:
             await case.fetcher.get(case.ok_url, max_bytes=1000, accept=["image/*"])
         assert caught.value.reason == "unsupported"
+        # The type that was refused: a link to a page can answer with a PDF.
+        assert caught.value.content_type == "text/plain"
 
 
 # --- LLM provider ------------------------------------------------------------------------

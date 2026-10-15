@@ -161,7 +161,7 @@ class LiveFetcher:
                         raise FetchError("http_error", url, status=status, retry_after=wait)
                     content_type = _header(response.headers, "content-type")
                     if not accepts(content_type, accept):
-                        raise FetchError("unsupported", url)
+                        raise FetchError("unsupported", url, content_type=content_type)
                     length = _header(response.headers, "content-length")
                     if length is not None and length.isdigit() and int(length) > max_bytes:
                         raise FetchError("too_large", url)

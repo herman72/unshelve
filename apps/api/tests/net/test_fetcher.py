@@ -364,7 +364,7 @@ async def test_an_unaccepted_type_is_refused_before_the_body_comes(
 
     error = await _failure(make_fetcher(), site.url("/file.zip"), accept=["text/html"])
 
-    assert error.reason == "unsupported"
+    assert (error.reason, error.content_type) == ("unsupported", "application/zip")
     assert time.perf_counter() - started < 1.0
 
 
