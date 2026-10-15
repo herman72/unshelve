@@ -43,6 +43,12 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 # --- Embedder ----------------------------------------------------------------------------
 
+# A real model runs on GPUs, so the numbers of one text change a little from call to call,
+# and with the other texts of a batch. Voyage, measured on 2026-10-15: a cosine of 0.998 or
+# more for the same text, and 0.79 for two different short texts. So "the same vector" means
+# "nearer than this", and the order of a batch is checked by the nearest vector.
+SAME_TEXT = 0.99
+
 
 class EmbedderConformance:
     @pytest.fixture
@@ -57,15 +63,18 @@ class EmbedderConformance:
     async def test_same_text_gives_the_same_vector(self, embedder: Embedder) -> None:
         [first] = await embedder.embed_documents(["postgres indexes"])
         [second] = await embedder.embed_documents(["postgres indexes"])
-        assert _cosine(first, second) > 0.999
+        assert _cosine(first, second) > SAME_TEXT
 
     async def test_a_batch_keeps_order_and_length(self, embedder: Embedder) -> None:
         texts = ["alpha release notes", "beta testing guide", "gamma ray physics"]
         batch = await embedder.embed_documents(texts)
         assert len(batch) == len(texts)
-        for text, vector in zip(texts, batch, strict=True):
-            [alone] = await embedder.embed_documents([text])
-            assert _cosine(vector, alone) > 0.999
+        alone = [(await embedder.embed_documents([text]))[0] for text in texts]
+        for place, vector in enumerate(batch):
+            similarity = [_cosine(vector, other) for other in alone]
+            # The vector at each place is the nearest to the text at that place.
+            assert max(range(len(alone)), key=similarity.__getitem__) == place
+            assert similarity[place] > SAME_TEXT
 
     async def test_an_empty_batch_gives_an_empty_list(self, embedder: Embedder) -> None:
         assert await embedder.embed_documents([]) == []
