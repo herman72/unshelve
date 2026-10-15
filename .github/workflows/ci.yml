@@ -64,6 +64,21 @@ jobs:
       - run: pnpm -r typecheck
       - run: pnpm -r build
 
+  web-e2e:
+    name: Web (end-to-end, against a pretend API)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Playwright drives the Google Chrome of the runner (channel "chrome"): no browser to
+      # download. The config builds the app for the pretend API and starts both.
+      - run: pnpm --filter @unshelve/web test:e2e
+
   contract:
     name: API contract is up to date
     runs-on: ubuntu-latest
