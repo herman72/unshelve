@@ -86,7 +86,7 @@ docker compose exec api unshelve import /imports/ChatExport_2026-10-13 --timezon
 
 The dry run shows what the import would store. Run the command again without `--dry-run` to store the posts. It is safe to run two times. [The importer note](docs/learn/11-export-importer.md) explains each step.
 
-From milestone M2, the worker opens saved links. To see what it does with one link, open it with the same fetcher. Nothing is stored, and an address inside your network is refused:
+The worker reads the page of each saved link when `.env` has `UNSHELVE_FETCHER=live`. With the default (`fixtures`) it has no web, and each link keeps its saved text. [The fetch step note](docs/learn/16-fetch-step.md) explains what happens to a link that cannot be read. To see what the worker does with one link, open it with the same fetcher. Nothing is stored, and an address inside your network is refused:
 
 ```bash
 docker compose exec worker unshelve fetch https://example.com/

@@ -239,4 +239,4 @@ The `-` marks point at the two places where a ZWNJ was. You cannot see the chara
 - [Trafilatura](https://trafilatura.readthedocs.io/en/latest/), the documentation. Read the page "Benchmarks and evaluation" for comparisons with readability and jusText.
 - [Determining the character encoding](https://html.spec.whatwg.org/multipage/parsing.html#determining-the-character-encoding), the HTML Standard. It lists the rules of part 2 in their order.
 
-Previous: [14. The fetcher and its guard](14-fetcher-and-guard.md) · Back to the [list of notes](README.md)
+Previous: [14. The fetcher and its guard](14-fetcher-and-guard.md) · Next: [16. The fetch step](16-fetch-step.md)
