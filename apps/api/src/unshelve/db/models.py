@@ -277,7 +277,17 @@ class Asset(Base):
     """A stored media file. The bytes are in the BlobStore under ``storage_key``."""
 
     __tablename__ = "assets"
-    __table_args__ = (sa.UniqueConstraint("owner_id", "sha256", name="uq_assets_content"),)
+    __table_args__ = (
+        sa.UniqueConstraint("owner_id", "sha256", name="uq_assets_content"),
+        # One copy for each file of Telegram.
+        sa.Index(
+            "uq_assets_telegram_file",
+            "owner_id",
+            "file_unique_id",
+            unique=True,
+            postgresql_where="file_unique_id IS NOT NULL",
+        ),
+    )
 
     id: Mapped[int] = _pk()
     owner_id: Mapped[int] = _owner()
@@ -285,6 +295,9 @@ class Asset(Base):
     mime: Mapped[str] = mapped_column(sa.Text)
     size_bytes: Mapped[int] = mapped_column(sa.BigInteger)
     storage_key: Mapped[str] = mapped_column(sa.Text)
+    # The stable id of the file of Telegram that the copy came from (``MediaRef``), so that the
+    # file is downloaded once. None for a file of an export.
+    file_unique_id: Mapped[str | None] = mapped_column(sa.Text)
     created_at: Mapped[datetime] = _created_at()
 
 
