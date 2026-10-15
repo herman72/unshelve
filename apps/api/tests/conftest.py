@@ -20,6 +20,11 @@ TEST_SERVER_URL = os.environ.get(
 
 ClientFactory = Callable[[Settings], AbstractAsyncContextManager[httpx.AsyncClient]]
 
+# A test never reads a .env file: the settings of a test are in the test. Without this line,
+# the .env of a developer (a live fetcher, a real key) changes results, or reaches a service.
+Settings.model_config["env_file"] = None
+
+
 # A property test makes its own inputs. By default it makes the same inputs in each run and
 # on each computer, so a failure on CI can be repeated here. To let it look for new problems,
 # with new inputs each time: HYPOTHESIS_PROFILE=explore uv run pytest tests/ingest
