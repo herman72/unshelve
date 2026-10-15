@@ -7,7 +7,7 @@ at least ``interval`` seconds after the turn before it.
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 
 
 class HostPacer:
@@ -15,11 +15,14 @@ class HostPacer:
         self,
         interval: float,
         *,
+        slower: Mapping[str, float] | None = None,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         keep: int = 10_000,
     ) -> None:
+        """``slower`` gives some hosts a longer interval: the ones whose terms ask for it."""
         self._interval = interval
+        self._slower = {host.lower(): seconds for host, seconds in (slower or {}).items()}
         self._clock = clock
         self._sleep = sleep
         self._keep = keep
@@ -35,12 +38,16 @@ class HostPacer:
         now = self._clock()
         # No await between the read and the write: two requests cannot take the same turn.
         turn = max(now, self._next.get(host, now))
-        self._next[host] = turn + self._interval
+        self._next[host] = turn + self.interval_of(host)
         if len(self._next) > self._keep:
             self._forget(now)
         if turn > now:
             await self._sleep(turn - now)
         return turn - now
+
+    def interval_of(self, host: str) -> float:
+        """The seconds between two turns of ``host``."""
+        return max(self._interval, self._slower.get(host.lower(), 0.0))
 
     def _forget(self, now: float) -> None:
         """Forget the hosts whose next turn is free already: they wait for nothing."""

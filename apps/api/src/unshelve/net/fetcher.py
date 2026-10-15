@@ -9,7 +9,8 @@ the other limits:
 - At most ``max_bytes``, counted before and after decompression (``bodies.read_body``).
 - At most ``timeout`` seconds for the whole fetch, with its redirects. So a server that sends
   one byte each second cannot hold the worker for ever.
-- A pause between two requests to the same host (``pacing.HostPacer``).
+- A pause between two requests to the same host (``pacing.HostPacer``), longer for a host
+  whose terms ask for it (``SLOW_HOSTS``).
 - No cookies, no credentials from the link, and no proxy from the environment.
 """
 
@@ -53,6 +54,9 @@ WEB_PORTS = frozenset({80, 443})
 MAX_REDIRECTS = 5
 _REDIRECTS = frozenset({301, 302, 303, 307, 308})
 _DEFAULT_PORTS = {"http": 80, "https": 443}
+# Hosts whose terms ask for a longer pause between two requests. arXiv: "make no more than
+# one request every three seconds" (https://info.arxiv.org/help/api/tou.html).
+SLOW_HOSTS = {"export.arxiv.org": 3.0}
 # A server can ask us to wait ("Retry-After"). More than one day is read as one day.
 _LONGEST_WAIT = 24 * 60 * 60.0
 
@@ -81,7 +85,7 @@ class LiveFetcher:
         self._timeout = timeout
         self._max_redirects = max_redirects
         self._allowed_ports = allowed_ports
-        self._pacer: Pacer = pacer or HostPacer(host_interval)
+        self._pacer: Pacer = pacer or HostPacer(host_interval, slower=SLOW_HOSTS)
         # httpcore, and not httpx: httpcore lets us give the network backend, so the guard
         # opens each connection. It reads no proxy from the environment and keeps no cookies.
         self._pool = httpcore.AsyncConnectionPool(
