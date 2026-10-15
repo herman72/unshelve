@@ -111,4 +111,4 @@ What stays in the text, and why does the pattern for a picture alone not remove 
 - [Get a repository](https://docs.github.com/en/rest/repos/repos#get-a-repository), GitHub REST API. Read the example answer: it has each field that the extractor reads.
 - [Rate limits for the REST API](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api), GitHub. Read "Primary rate limit for unauthenticated users": the 60 requests an hour.
 
-Previous: [20. Reading a post on X](20-post-on-x.md) · Back to the [list of notes](README.md)
+Previous: [20. Reading a post on X](20-post-on-x.md) · Next: [22. Reading a paper on arXiv](22-arxiv-paper.md) · Back to the [list of notes](README.md)
