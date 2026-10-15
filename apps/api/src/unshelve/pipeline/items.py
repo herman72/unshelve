@@ -11,13 +11,15 @@ Point 3 is what makes a step safe to run twice. The move to the next state happe
 the item is still in the state that the step started from. A second run finds that the item
 has moved, and writes nothing.
 
-The fetch step reads the source with the best extractor (``unshelve.extract.registry``), and
-the enrich step asks the model for the card (``unshelve.enrich.card``). The text chunks arrive
-later in milestone M2. The states are in ``unshelve.contracts.states``.
+The fetch step reads the source with the best extractor (``unshelve.extract.registry``), the
+enrich step asks the model for the card (``unshelve.enrich.card``), and the embed step stores
+the vectors of the card and of the pieces of the text (``unshelve.embed``). The states are in
+``unshelve.contracts.states``.
 """
 
 import hashlib
 import math
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
@@ -27,7 +29,6 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from unshelve.contracts.dto import (
-    EmbeddingSpec,
     Extracted,
     ForwardOrigin,
     MediaRef,
@@ -46,7 +47,9 @@ from unshelve.contracts.jobs import (
 )
 from unshelve.contracts.protocols import ExtractContext, Extractor
 from unshelve.contracts.states import check_enrich_change
-from unshelve.db.models import Capture, Chunk, EmbeddingSet, Event, Item, ItemContent, ItemTag, Tag
+from unshelve.db.models import Capture, Chunk, Event, Item, ItemContent, ItemTag, Tag
+from unshelve.embed.chunks import card_text, pieces_of
+from unshelve.embed.sets import ensure_set
 from unshelve.enrich.card import (
     MAX_OUTPUT_TOKENS,
     PROMPT_VERSION,
@@ -409,64 +412,199 @@ async def enrich_item(ctx: JobContext, payload: EnrichItemPayload) -> None:
 
 # --- Step 3: embed -----------------------------------------------------------------------
 
+# An item gets its vectors after its card. A ready item gets them again when the embedder
+# changes: ``unshelve embeddings backfill`` fills a new embedding set.
+_EMBEDDABLE = frozenset({EnrichState.ENRICHED, EnrichState.READY})
+# When the model wrote no card, the start of the text stands in for it.
+CARD_STAND_IN_CHARS = 1_000
 
-async def _embedding_set_id(session: AsyncSession, spec: EmbeddingSpec) -> int:
-    """The id of the embedding set of ``spec``. The row is created the first time.
 
-    The first set of an instance becomes the active one. A later set starts inactive.
-    """
-    no_active_set = ~sa.exists().where(EmbeddingSet.is_active)
+@dataclass(frozen=True)
+class _Vector:
+    """One vector that the item must have, at its place: (kind, ord)."""
+
+    kind: ChunkKind
+    ord: int
+    text: str
+    start: int | None = None
+    end: int | None = None
+
+
+def _wanted(item: Item, text: str) -> list[_Vector]:
+    """The vectors of the item: one for its card, and one for each piece of a long text."""
+    card = card_text(item.title, item.summary, item.key_points)
+    card = card or text[:CARD_STAND_IN_CHARS].strip()
+    wanted = [_Vector(ChunkKind.CARD, 0, card)] if card else []
+    wanted += [
+        _Vector(ChunkKind.BODY, number, piece.text, piece.start, piece.end)
+        for number, piece in enumerate(pieces_of(text))
+    ]
+    return wanted
+
+
+type _Place = tuple[ChunkKind, int]
+
+
+async def _stored(session: AsyncSession, item_id: int, set_id: int) -> dict[_Place, _Vector]:
+    """The vectors that the item has in the set, without the numbers of the vectors."""
+    rows = await session.execute(
+        sa.select(Chunk.kind, Chunk.ord, Chunk.text, Chunk.char_start, Chunk.char_end).where(
+            Chunk.item_id == item_id, Chunk.embedding_set_id == set_id
+        )
+    )
+    return {
+        (kind, number): _Vector(kind, number, text, start, end)
+        for kind, number, text, start, end in rows
+    }
+
+
+def _unchanged(item: Item, content_hash: str | None) -> sa.ColumnElement[bool]:
+    """The card and the text of the item are still the ones that the step read."""
+    hash_now = (
+        sa.select(ItemContent.content_hash).where(ItemContent.item_id == item.id).scalar_subquery()
+    )
+    return sa.and_(
+        Item.title.is_not_distinct_from(item.title),
+        Item.summary.is_not_distinct_from(item.summary),
+        Item.key_points == item.key_points,
+        hash_now.is_not_distinct_from(content_hash),
+    )
+
+
+async def _still_ready(
+    session: AsyncSession, item_id: int, unchanged: sa.ColumnElement[bool]
+) -> bool:
+    """Lock the item while it is ready and unchanged. False when it moved or changed."""
+    found = await session.scalar(
+        sa.select(Item.id)
+        .where(Item.id == item_id, Item.enrich_state == EnrichState.READY, unchanged)
+        .with_for_update()
+    )
+    return found is not None
+
+
+async def _write_vectors(
+    session: AsyncSession,
+    item: Item,
+    set_id: int,
+    *,
+    changed: list[_Vector],
+    gone: list[_Place],
+    vectors: dict[str, list[float]],
+) -> None:
+    in_set = (Chunk.item_id == item.id, Chunk.embedding_set_id == set_id)
+    if gone:
+        await session.execute(
+            sa.delete(Chunk).where(*in_set, sa.tuple_(Chunk.kind, Chunk.ord).in_(gone))
+        )
+    if not changed:
+        return
+    insert = postgresql.insert(Chunk).values(
+        [
+            {
+                "owner_id": item.owner_id,
+                "item_id": item.id,
+                "embedding_set_id": set_id,
+                "kind": vector.kind,
+                "ord": vector.ord,
+                "text": vector.text,
+                "char_start": vector.start,
+                "char_end": vector.end,
+                "dim": len(vectors[vector.text]),
+                "embedding": vectors[vector.text],
+            }
+            for vector in changed
+        ]
+    )
+    columns = ("text", "char_start", "char_end", "dim", "embedding")
     await session.execute(
-        postgresql.insert(EmbeddingSet)
-        .values(
-            provider=spec.provider,
-            model=spec.model,
-            dim=spec.dim,
-            distance=spec.distance,
-            doc_prefix=spec.doc_prefix,
-            query_prefix=spec.query_prefix,
-            is_active=no_active_set,
-        )
-        # No index is named here, on purpose. Two workers can do this at the same moment on a
-        # new database. Then the second one can meet the row of the first one in two indexes:
-        # "one set for each model" and "one active set". Each of the two must mean: do nothing.
-        .on_conflict_do_nothing()
-    )
-    found = await session.execute(
-        sa.select(EmbeddingSet.id).where(
-            EmbeddingSet.provider == spec.provider,
-            EmbeddingSet.model == spec.model,
-            EmbeddingSet.dim == spec.dim,
+        insert.on_conflict_do_update(
+            constraint="uq_chunks_position",
+            set_={column: insert.excluded[column] for column in columns},
         )
     )
-    return found.scalar_one()
 
 
 @registry.handler(JobKind.EMBED_ITEM)
 async def embed_item(ctx: JobContext, payload: EmbedItemPayload) -> None:
-    """Store one vector for the card of the item. After this step the item is ready."""
+    """Store the vectors of the item in the embedding set of the embedder: one for its card,
+    and one for each piece of a long text (``unshelve.embed.chunks``). After this step, the
+    item is ready.
+
+    A vector whose text did not change stays, so a second run asks the embedder nothing. A
+    failure that can pass is tried again later. The last attempt, and a failure that cannot
+    pass, leave the item ready without vectors in the set, and an event says why.
+    """
     services = ctx.services
     async with services.sessions() as session:
-        item = await _item_waiting_for(session, payload.item_id, EnrichState.ENRICHED)
+        item = await session.get(Item, payload.item_id)
         if item is None:
+            raise Permanent(f"item {payload.item_id} does not exist")
+        if item.enrich_state not in _EMBEDDABLE:
             return
+        content = await session.get(ItemContent, item.id)
+        set_id = await ensure_set(session, services.embedder.spec)
+        stored = await _stored(session, item.id, set_id)
+        await session.commit()
 
-    card = "\n".join(part for part in (item.title, item.summary, *item.key_points) if part)
-    (vector,) = await services.embedder.embed_documents([card])
+    text = content.text if content is not None else ""
+    content_hash = content.content_hash if content is not None else None
+    wanted = _wanted(item, text)
+    changed = [vector for vector in wanted if stored.get((vector.kind, vector.ord)) != vector]
+    gone = sorted(set(stored) - {(vector.kind, vector.ord) for vector in wanted})
+    if item.enrich_state is EnrichState.READY and not changed and not gone:
+        return  # each vector is there already
+
+    new_texts = list(dict.fromkeys(vector.text for vector in changed))
+    vectors: dict[str, list[float]] = {}
+    failure: ProviderError | None = None
+    if new_texts:
+        try:
+            found = await services.embedder.embed_documents(new_texts)
+        except ProviderError as error:
+            if error.retryable and ctx.job.attempts < ctx.job.max_attempts:
+                raise Retry(
+                    f"embed: {error}", after=_model_wait(error, ctx.job.attempts)
+                ) from error
+            failure = error
+        else:
+            vectors.update(zip(new_texts, found, strict=True))
 
     async with services.sessions() as session:
-        moved = await _advance(session, item.id, start=EnrichState.ENRICHED, end=EnrichState.READY)
-        if moved:
-            position = {
-                "item_id": item.id,
-                "embedding_set_id": await _embedding_set_id(session, services.embedder.spec),
-                "kind": ChunkKind.CARD,
-                "ord": 0,
-            }
-            vector_fields = {"text": card, "dim": len(vector), "embedding": vector}
-            await session.execute(
-                postgresql.insert(Chunk)
-                .values(owner_id=item.owner_id, **position, **vector_fields)
-                .on_conflict_do_update(constraint="uq_chunks_position", set_=vector_fields)
+        unchanged = _unchanged(item, content_hash)
+        if item.enrich_state is EnrichState.ENRICHED:
+            moved = await _advance(
+                session,
+                item.id,
+                start=EnrichState.ENRICHED,
+                end=EnrichState.READY,
+                unchanged=unchanged,
+            )
+        else:
+            moved = await _still_ready(session, item.id, unchanged)
+        if moved and failure is None:
+            await _write_vectors(session, item, set_id, changed=changed, gone=gone, vectors=vectors)
+        elif moved and failure is not None:
+            # The vector of an old text is worse than none: a search would find the item for
+            # words that it does not have now. A vector of a text that did not change stays.
+            # A backfill gives the item its missing vectors later.
+            stale = {(vector.kind, vector.ord) for vector in changed} & stored.keys()
+            await _write_vectors(
+                session, item, set_id, changed=[], gone=sorted(stale | set(gone)), vectors={}
+            )
+            session.add(
+                Event(
+                    owner_id=item.owner_id,
+                    item_id=item.id,
+                    actor=Actor.WORKER,
+                    type="embed_failed",
+                    payload={"reason": str(failure)[:300], "attempt": ctx.job.attempts},
+                )
             )
         await session.commit()
+    if moved and failure is not None:
+        log.info("embed.no_vectors", item_id=item.id, reason=str(failure)[:300])
+    elif moved:
+        log.info(
+            "embed.done", item_id=item.id, set_id=set_id, vectors=len(wanted), new=len(new_texts)
+        )

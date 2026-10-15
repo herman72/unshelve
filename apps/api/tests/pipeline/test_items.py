@@ -35,6 +35,7 @@ from unshelve.contracts.jobs import (
     Services,
 )
 from unshelve.db.models import Chunk, EmbeddingSet, Item, ItemContent, ItemTag, Job, Tag
+from unshelve.embed import sets
 from unshelve.enrich.card import MAX_INPUT_CHARS, Card
 from unshelve.ingest import resolve
 from unshelve.pipeline import items as steps
@@ -296,7 +297,7 @@ async def test_workers_that_embed_their_first_items_at_the_same_moment_do_not_fa
 
     async def one_worker() -> int:
         async with services.sessions() as db:
-            found = await steps._embedding_set_id(db, spec)  # pyright: ignore[reportPrivateUsage]
+            found = await sets.ensure_set(db, spec)
             await db.commit()
         return found
 
