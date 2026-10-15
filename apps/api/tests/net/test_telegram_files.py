@@ -90,6 +90,7 @@ async def _failure(
     with pytest.raises(FetchError) as caught:
         await _files(telegram).read(media, max_bytes=max_bytes)
     error = caught.value
+    assert error.url == f"telegram file {media.file_unique_id or 'without an id'}"
     assert SECRET not in _all_text_of(error)
     assert error.__cause__ is None
     assert error.__context__ is None
@@ -225,6 +226,17 @@ async def test_a_failure_of_the_connection_can_pass_and_keeps_nothing_of_its_tex
 
     assert error.reason == reason
     assert error.retryable
+
+
+async def test_another_error_of_the_http_client_is_a_network_failure_and_keeps_nothing() -> None:
+    # The client of the service turns the errors of a connection into its own error. An error
+    # of httpx that it does not know comes through, and it can hold the address too.
+    def answer(request: httpx.Request) -> httpx.Response:
+        raise httpx.DecodingError(f"made-up failure of {request.url}", request=request)
+
+    error = await _failure(PretendTelegram(get_file=answer))
+
+    assert error.reason == "network"
 
 
 # --- The token ---------------------------------------------------------------------------

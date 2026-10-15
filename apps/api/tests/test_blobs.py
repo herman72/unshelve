@@ -33,6 +33,28 @@ async def test_a_write_leaves_no_temporary_file(tmp_path: Path) -> None:
     assert _temporary_files(tmp_path) == []
 
 
+async def test_a_file_gets_its_name_only_when_it_is_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    data = b"made-up bytes"
+    key = hashlib.sha256(data).hexdigest()
+    named = tmp_path / key[:2] / key[2:4] / key
+    during_the_write: list[bool] = []
+    real_fsync = os.fsync
+
+    def looking(handle: int) -> None:
+        # The bytes are written, but not yet renamed: a reader must find nothing.
+        during_the_write.append(named.exists())
+        real_fsync(handle)
+
+    monkeypatch.setattr(os, "fsync", looking)
+
+    await FileBlobStore(tmp_path).put(data, "application/octet-stream")
+
+    assert during_the_write == [False]
+    assert named.read_bytes() == data
+
+
 async def test_a_failed_write_leaves_no_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
