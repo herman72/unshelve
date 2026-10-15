@@ -19,11 +19,13 @@ from unshelve.auth import store as auth_store
 from unshelve.bot import cards
 from unshelve.bot.runner import run_bot
 from unshelve.config import Settings, get_settings
-from unshelve.contracts.dto import FetchResult
-from unshelve.contracts.errors import FetchError
+from unshelve.contracts.dto import Extracted, FetchResult, SourceRef
+from unshelve.contracts.errors import ExtractError, FetchError
+from unshelve.contracts.protocols import ExtractContext
 from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import Digest, Item
+from unshelve.extract.article import ArticleExtractor
 from unshelve.ingest import importer, resolve
 from unshelve.ingest.export_html import ExportFormatError, read_export
 from unshelve.log import configure_logging
@@ -34,6 +36,7 @@ from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
 from unshelve.resurface import digest, weekly
 from unshelve.runtime import shutdown_event, wait_for_shutdown
 from unshelve.services import build_services, close_services
+from unshelve.testing.fakes import FakeLLM, InMemoryBlobStore
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Unshelve service commands.")
 auth_app = typer.Typer(no_args_is_help=True, help="Sign-in helpers.")
@@ -123,6 +126,48 @@ def fetch(
     typer.echo(f"{result.status} {result.final_url}")
     content_type = result.content_type or "no content type"
     typer.echo(f"{content_type}, {len(result.body)} bytes, {seconds:.2f} s")
+
+
+@app.command()
+def extract(url: str) -> None:
+    """Read one link with the article extractor, and print what it found.
+
+    Nothing is stored. It shows the title, the facts of the page and the start of the text.
+    """
+    try:
+        found, seconds = asyncio.run(_extract(get_settings(), url))
+    except FetchError as error:
+        typer.echo(f"Not fetched: {_why(error)}.")
+        raise typer.Exit(1) from None
+    except ExtractError as error:
+        typer.echo(f"No article: {error}.")
+        raise typer.Exit(1) from None
+    day = f"{found.published_at:%Y-%m-%d}" if found.published_at else "-"
+    typer.echo(f"Title:  {found.title or '-'}")
+    typer.echo(f"Site:   {found.site or '-'} · language {found.lang or '-'} · date {day}")
+    typer.echo(f"Author: {found.author or '-'}")
+    typer.echo(f"Text:   {len(found.text.split())} words, read in {seconds:.2f} s")
+    typer.echo("")
+    typer.echo(_start(found.text, 600))
+
+
+async def _extract(settings: Settings, url: str) -> tuple[Extracted, float]:
+    fetcher = LiveFetcher.from_settings(settings)
+    # The article extractor uses only the fetcher. The other two are here for the contract.
+    context = ExtractContext(fetcher=fetcher, blobs=InMemoryBlobStore(), llm=FakeLLM())
+    started = time.perf_counter()
+    try:
+        found = await ArticleExtractor().extract(SourceRef(url=url), context)
+    finally:
+        await fetcher.aclose()
+    return found, time.perf_counter() - started
+
+
+def _start(text: str, characters: int) -> str:
+    """The start of a long text, cut after a whole word."""
+    if len(text) <= characters:
+        return text
+    return text[:characters].rsplit(" ", 1)[0] + " …"
 
 
 def _why(error: FetchError) -> str:
