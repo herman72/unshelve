@@ -268,4 +268,4 @@ A check protects only the thing that it checked. The connection must use the che
 - [Server-Side Request Forgery Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html), OWASP. Read "Case 2": an application that must be able to open any address on the internet. That is the case of Unshelve.
 - [Network Backends](https://www.encode.io/httpcore/network-backends/), the documentation of httpcore. It shows the method `connect_tcp` that the guard implements.
 
-Previous: [13. Cards, a button, and the digest](13-cards-and-digest.md) · Back to the [list of notes](README.md)
+Previous: [13. Cards, a button, and the digest](13-cards-and-digest.md) · Next: [15. Reading an article](15-article-extractor.md)
