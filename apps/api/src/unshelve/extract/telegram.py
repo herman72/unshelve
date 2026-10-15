@@ -69,11 +69,13 @@ class TelegramExtractor:
         if found is not None:
             return await _from_embed(*found, ctx)
         if ref.forward_origin is not None and ref.text.strip():
-            return _from_forward(ref.forward_origin, ref.text)
+            return from_forward(ref.forward_origin, ref.text)
         raise ExtractError("neither a forwarded message nor a link to a public post")
 
 
-def _from_forward(origin: ForwardOrigin, text: str) -> Extracted:
+def from_forward(origin: ForwardOrigin, text: str) -> Extracted:
+    """A forwarded message: its source and the date of the first post, then its text. The
+    image extractor uses it too, for a forwarded post with a photo."""
     name = (origin.name or "").strip()
     if not name:
         who = "A forwarded message"
