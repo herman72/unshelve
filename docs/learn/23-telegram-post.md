@@ -122,4 +122,4 @@ Which test fails? Why must a forwarded post with a link go to the extractor of t
 - [MessageOrigin](https://core.telegram.org/bots/api#messageorigin), Telegram Bot API. Read the four kinds of origin: they are the four kinds of forward in this note.
 - [Post widget](https://core.telegram.org/widgets/post), Telegram. Read how a website embeds a post: the extractor reads the same block.
 
-Previous: [22. Reading a paper on arXiv](22-arxiv-paper.md) · Back to the [list of notes](README.md)
+Previous: [22. Reading a paper on arXiv](22-arxiv-paper.md) · Next: [24. Reading a PDF file](24-pdf-file.md) · Back to the [list of notes](README.md)
