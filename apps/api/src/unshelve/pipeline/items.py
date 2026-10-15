@@ -18,7 +18,6 @@ the vectors of the card and of the pieces of the text (``unshelve.embed``). The 
 """
 
 import hashlib
-import math
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -65,13 +64,13 @@ from unshelve.extract.registry import FALLBACK, choose
 from unshelve.ingest import versions
 from unshelve.queue import store as queue
 from unshelve.queue.registry import registry
+from unshelve.reading import reading_minutes
 
 log = structlog.get_logger()
 
 # The card of milestone M2: title, summary, key points, tags and language.
 ENRICH_VERSION = 2
 MAX_TITLE_LENGTH = 200
-WORDS_PER_MINUTE = 220
 # A passing failure of the fetch (a timeout, a busy server) is tried again after 1, 2, 4 and
 # 8 minutes, or after the wait that the server asks for, but never later than one hour. The
 # last attempt keeps the saved text, so that no item waits for ever.
@@ -83,11 +82,6 @@ LONGEST_WAIT = timedelta(hours=1)
 MODEL_FIRST_WAIT = timedelta(minutes=2)
 MODEL_LONGEST_WAIT = timedelta(hours=1)
 PROVIDER_LONGEST_WAIT = timedelta(days=1)
-
-
-def reading_minutes(text: str) -> int:
-    """How long the text takes to read, in whole minutes. At least 1."""
-    return max(1, math.ceil(len(text.split()) / WORDS_PER_MINUTE))
 
 
 async def _item_waiting_for(session: AsyncSession, item_id: int, state: EnrichState) -> Item | None:

@@ -312,12 +312,6 @@ async def test_workers_that_embed_their_first_items_at_the_same_moment_do_not_fa
         assert await _count(services.sessions, EmbeddingSet) == 1
 
 
-def test_the_reading_time_is_at_least_one_minute() -> None:
-    assert steps.reading_minutes("") == 1
-    assert steps.reading_minutes("word " * 220) == 1
-    assert steps.reading_minutes("word " * 221) == 2
-
-
 # --- A step that runs more than once -----------------------------------------------------
 
 STEPS: list[tuple[int, Handler, type[JobPayload], JobKind | None]] = [
