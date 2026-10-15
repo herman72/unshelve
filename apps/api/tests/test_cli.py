@@ -13,9 +13,13 @@ from unshelve.auth import store as auth_store
 from unshelve.bot import cards
 from unshelve.cli import app
 from unshelve.config import Settings, get_settings
-from unshelve.contracts.dto import FetchResult
+from unshelve.contracts.dto import Extracted, FetchResult, SourceRef
+from unshelve.contracts.enums import ItemKind
+from unshelve.contracts.errors import ExtractError
+from unshelve.contracts.protocols import ExtractContext
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import Capture, ItemKey, Job
+from unshelve.extract.article import ArticleExtractor
 from unshelve.net.fetcher import LiveFetcher
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
@@ -56,6 +60,7 @@ def test_every_service_command_is_registered() -> None:
         "rekey",
         "digest",
         "fetch",
+        "extract",
     ):
         assert command in _plain(result.stdout)
 
@@ -93,6 +98,45 @@ def test_fetch_refuses_an_address_inside_the_network(
 
     assert result.exit_code == 1
     assert "Not fetched: blocked_address (169.254.169.254: link-local)." in _plain(result.output)
+
+
+def test_extract_prints_the_facts_and_the_start_of_the_text(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    async def pretend(self: ArticleExtractor, ref: SourceRef, ctx: ExtractContext) -> Extracted:
+        return Extracted(
+            kind=ItemKind.ARTICLE,
+            text="word " * 300,
+            title="Queues in Postgres",
+            site="blog.example.com",
+            lang="en",
+            published_at=datetime(2026, 9, 30, tzinfo=UTC),
+        )
+
+    monkeypatch.setattr(ArticleExtractor, "extract", pretend)
+
+    result = _run(monkeypatch, tmp_path, "extract", "https://blog.example.com/queues")
+
+    assert result.exit_code == 0
+    lines = _plain(result.output).splitlines()
+    assert "Title:  Queues in Postgres" in lines
+    assert "Site:   blog.example.com · language en · date 2026-09-30" in lines
+    assert any(line.startswith("Text:   300 words, read in ") for line in lines)
+    assert lines[-1].endswith("word …")  # the start of the text, cut after a whole word
+
+
+def test_extract_says_why_a_page_is_no_article(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    async def no_article(self: ArticleExtractor, ref: SourceRef, ctx: ExtractContext) -> Extracted:
+        raise ExtractError("the page has only 47 characters of text")
+
+    monkeypatch.setattr(ArticleExtractor, "extract", no_article)
+
+    result = _run(monkeypatch, tmp_path, "extract", "https://app.example.com/")
+
+    assert result.exit_code == 1
+    assert "No article: the page has only 47 characters of text." in _plain(result.output)
 
 
 def test_fetch_prints_what_came_back(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
