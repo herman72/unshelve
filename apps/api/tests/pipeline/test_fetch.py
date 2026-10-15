@@ -7,23 +7,27 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from unshelve.auth import store as auth
 from unshelve.config import Settings
 from unshelve.contracts.dto import CaptureEnvelope, MediaRef
 from unshelve.contracts.enums import Actor, CaptureSource, EnrichState, ItemKind, JobKind, JobState
-from unshelve.contracts.errors import FetchError
+from unshelve.contracts.errors import FetchError, ProviderError
 from unshelve.contracts.jobs import Services
 from unshelve.db.models import Asset, Event, Item, ItemContent, Job
 from unshelve.extract import pdf
+from unshelve.extract.image import ImageReading
 from unshelve.ingest import resolve, versions
 from unshelve.pipeline import items as steps
+from unshelve.providers.ledger import CachedLLM
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
 from unshelve.reading import reading_minutes
 from unshelve.services import build_services
-from unshelve.testing.fakes import FakeFetcher, FakeFiles
+from unshelve.testing.conformance import TINY_PNG
+from unshelve.testing.fakes import FakeFetcher, FakeFiles, FakeLLM, FakeLLMCall
 
 PAGES = Path(__file__).parents[1] / "extract" / "fixtures"
 ARTICLE = (PAGES / "article_en.html").read_text(encoding="utf-8")
@@ -279,6 +283,136 @@ async def test_a_pdf_of_an_export_is_read_from_its_copy(services: Services) -> N
         ItemKind.PDF,
         "Leases for Job Queues in Postgres",
     )
+
+
+# --- A photo or a screenshot: the model reads it ---------------------------------------------
+
+PHOTO = MediaRef(kind="photo", file_id="AgACAgMadeUpPhoto", file_unique_id="AQADmadeup")
+READING = ImageReading(
+    description="A whiteboard with a diagram of a job queue and its workers.",
+    text="SKIP LOCKED\nlease: 30 s",
+)
+
+
+def _reads_images(
+    services: Services, error: ProviderError | None = None, files: FakeFiles | None = None
+) -> tuple[Services, FakeLLM]:
+    """The services with a source of files and a pretend model that reads each image the same
+    way, behind the same cache as in the worker. The card is made up from the text."""
+
+    def respond(call: FakeLLMCall, schema: type[BaseModel]) -> BaseModel | None:
+        if call.task != "read_image":
+            return None
+        if error is not None:
+            raise error
+        return READING
+
+    model = FakeLLM(responder=respond)
+    services = dataclasses.replace(
+        services,
+        files=files or FakeFiles({str(PHOTO.file_id): TINY_PNG}),
+        llm=CachedLLM(model, services.sessions, model=FakeLLM.model),
+    )
+    return services, model
+
+
+def _image_calls(model: FakeLLM) -> int:
+    return sum(call.task == "read_image" for call in model.calls)
+
+
+async def test_a_photo_sent_to_the_channel_is_read_by_the_model(services: Services) -> None:
+    services, model = _reads_images(services)
+    item_id = await _save(
+        services.sessions, text="The whiteboard of today", url=None, media=[PHOTO]
+    )
+
+    await _run_all(services)
+
+    item = await _item(services.sessions, item_id)
+    assert (item.enrich_state, item.kind, item.partial) == (
+        EnrichState.READY,
+        ItemKind.IMAGE,
+        False,
+    )
+    content = await _content(services.sessions, item_id)
+    assert content is not None
+    assert content.extractor == "image"
+    assert content.text == (
+        "The whiteboard of today\n\n"
+        "An image: A whiteboard with a diagram of a job queue and its workers.\n\n"
+        "Text in the image:\nSKIP LOCKED\nlease: 30 s"
+    )
+    assert _image_calls(model) == 1
+    # The card is written from that text: the model got the words of the whiteboard.
+    [card_call] = [call for call in model.calls if call.task != "read_image"]
+    assert "SKIP LOCKED" in card_call.text
+
+
+async def test_a_photo_is_paid_one_time_also_when_it_is_read_again(services: Services) -> None:
+    services, model = _reads_images(services)
+    item_id = await _save(services.sessions, text="", url=None, media=[PHOTO])
+    await _run_all(services)
+
+    async with services.sessions() as db:
+        await resolve.restart_item(db, (await db.get_one(Item, item_id)).owner_id, item_id)
+        await db.commit()
+    await _run_all(services)
+
+    assert (await _item(services.sessions, item_id)).enrich_state == EnrichState.READY
+    assert _image_calls(model) == 1  # the second answer came from the ledger
+
+
+async def test_a_busy_model_reads_the_photo_later(services: Services) -> None:
+    busy = ProviderError("529 overloaded_error", retryable=True, retry_after=30)
+    services, _ = _reads_images(services, busy)
+    item_id = await _save(services.sessions, text="", url=None, media=[PHOTO])
+    started = datetime.now(UTC)
+
+    await _run_all(services)
+
+    assert (await _item(services.sessions, item_id)).enrich_state == EnrichState.PENDING
+    job = await _fetch_job(services.sessions)
+    assert (job.state, job.attempts) == (JobState.PENDING, 1)
+    assert job.run_after >= started + timedelta(seconds=29)
+
+
+async def test_a_photo_that_the_model_cannot_read_keeps_its_caption(services: Services) -> None:
+    declined = ProviderError("the model declined (cyber)", retryable=False)
+    services, _ = _reads_images(services, declined)
+    item_id = await _save(services.sessions, text="My caption", url=None, media=[PHOTO])
+
+    await _run_all(services)
+
+    # Not partial: the item has no link that could not be read, as for a sent PDF.
+    item = await _item(services.sessions, item_id)
+    assert (item.enrich_state, item.partial) == (EnrichState.READY, False)
+    content = await _content(services.sessions, item_id)
+    assert content is not None
+    assert (content.extractor, content.text) == ("saved_text", "My caption")
+    [event, *_] = await _events(services.sessions, item_id)
+    assert (event.payload["extractor"], event.payload["reason"], event.payload["detail"]) == (
+        "image",
+        "model",
+        "the model declined (cyber)",
+    )
+
+
+async def test_a_photo_of_an_export_is_read_from_its_copy(services: Services) -> None:
+    # The importer copied the photo, and the media names the copy. No bot token.
+    exported = MediaRef(
+        kind="photo",
+        local_path="photos/photo_1@13-10-2026_23-25-17.jpg",
+        file_name="photo_1@13-10-2026_23-25-17.jpg",
+        sha256=await services.blobs.put(TINY_PNG, "image/png"),
+    )
+    services, model = _reads_images(services, files=FakeFiles({}))
+    services = dataclasses.replace(services, files=None)
+    item_id = await _save(services.sessions, text="", url=None, media=[exported])
+
+    await _run_all(services)
+
+    assert (await _item(services.sessions, item_id)).kind == ItemKind.IMAGE
+    assert _image_calls(model) == 1
 
 
 async def test_an_article_after_a_video_counts_its_minutes_again(services: Services) -> None:
