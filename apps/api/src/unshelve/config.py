@@ -42,6 +42,12 @@ class Settings(BaseSettings):
     fetcher: Literal["fixtures", "live"] = "fixtures"
     llm_model: str = "claude-opus-5-5"
 
+    # The fetcher opens saved links (net/fetcher.py). The time is for one whole fetch, with its
+    # redirects. The interval is the pause between two requests to the same host.
+    fetch_timeout: float = Field(default=30.0, gt=0)
+    fetch_host_interval: float = Field(default=1.0, ge=0)
+    fetch_user_agent: str = "Mozilla/5.0 (compatible; Unshelve/0.1)"
+
     web_base_url: str = "http://localhost:3000"
     blob_dir: Path = Path("var/blobs")
 
