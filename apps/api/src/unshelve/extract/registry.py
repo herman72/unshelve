@@ -12,16 +12,19 @@ from unshelve.extract.article import ArticleExtractor
 from unshelve.extract.arxiv import ArxivExtractor
 from unshelve.extract.github import GitHubExtractor
 from unshelve.extract.saved_text import SavedTextExtractor
+from unshelve.extract.telegram import TelegramExtractor
 from unshelve.extract.x_post import XPostExtractor
 from unshelve.extract.youtube import YouTubeExtractor
 
 FALLBACK = SavedTextExtractor()
-# The scores: an extractor for one site 50, the article extractor 10, the saved text 1.
+# The scores: an extractor for one site 50, a forwarded message 20, the article extractor 10,
+# the saved text 1.
 EXTRACTORS: tuple[Extractor, ...] = (
     YouTubeExtractor(),
     XPostExtractor(),
     GitHubExtractor(),
     ArxivExtractor(),
+    TelegramExtractor(),
     ArticleExtractor(),
     FALLBACK,
 )
