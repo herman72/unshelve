@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Queues in Postgres | The Example Blog</title>
+<meta property="og:title" content="Queues in Postgres">
+<meta property="og:site_name" content="The Example Blog">
+<meta name="author" content="Ada Example">
+<meta property="article:published_time" content="2026-09-30T08:00:00Z">
+<link rel="stylesheet" href="/style.css">
+<script>window.analytics = {track: function () {}};</script>
+</head>
+<body>
+<nav class="menu"><a href="/">Home</a> <a href="/about">About</a> <a href="/login">Sign in</a></nav>
+<header>
+<h1>Queues in Postgres</h1>
+<p class="byline">By Ada Example, 30 September 2026</p>
+</header>
+<main>
+<article>
+<p>A job queue in Postgres needs one statement that many workers can run at the same time without taking the same job. The answer is <code>SELECT … FOR UPDATE SKIP LOCKED</code>, and it has been in Postgres since version 9.5.</p>
+<h2>Why SKIP LOCKED</h2>
+<p>Without SKIP LOCKED, the second worker waits for the lock of the first one. With it, the second worker takes the next free row. So the queue stays fast, and no job runs two times at once.</p>
+<ul>
+<li>One row for each job.</li>
+<li>A lease with a time limit, so that a job of a dead worker comes back.</li>
+</ul>
+<p>Read <a href="https://www.postgresql.org/docs/current/sql-select.html">the documentation of SELECT</a> for the details. The café on the corner has nothing to do with this, but the “é” must survive.</p>
+</article>
+<section class="comments">
+<h3>3 comments</h3>
+<div class="comment"><p>Great post! I use this in production.</p></div>
+<div class="comment"><p>What about LISTEN and NOTIFY?</p></div>
+</section>
+</main>
+<aside><h3>Popular posts</h3><ul><li><a href="/ten-tips">Ten tips for your database</a></li><li><a href="/list">Another list of things</a></li></ul></aside>
+<footer>Copyright 2026 The Example Blog. Subscribe to our newsletter for one post each week.</footer>
+</body>
+</html>
