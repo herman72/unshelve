@@ -10,11 +10,17 @@ from unshelve.contracts.dto import SourceRef
 from unshelve.contracts.protocols import Extractor
 from unshelve.extract.article import ArticleExtractor
 from unshelve.extract.saved_text import SavedTextExtractor
+from unshelve.extract.x_post import XPostExtractor
 from unshelve.extract.youtube import YouTubeExtractor
 
 FALLBACK = SavedTextExtractor()
 # The scores: an extractor for one site 50, the article extractor 10, the saved text 1.
-EXTRACTORS: tuple[Extractor, ...] = (YouTubeExtractor(), ArticleExtractor(), FALLBACK)
+EXTRACTORS: tuple[Extractor, ...] = (
+    YouTubeExtractor(),
+    XPostExtractor(),
+    ArticleExtractor(),
+    FALLBACK,
+)
 
 
 def choose(ref: SourceRef, extractors: Sequence[Extractor] = EXTRACTORS) -> Extractor:
