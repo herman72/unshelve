@@ -1,5 +1,6 @@
 """The pause between two requests to the same host. A fake clock: no test waits for real."""
 
+from unshelve.net.fetcher import LiveFetcher
 from unshelve.net.pacing import HostPacer
 
 
@@ -30,6 +31,37 @@ async def test_requests_to_one_host_get_turns_one_interval_apart() -> None:
 
     assert waits == [0.0, 1.0, 2.0]
     assert clock.slept == [1.0, 2.0]
+
+
+async def test_a_host_whose_terms_ask_for_a_longer_pause_gets_it() -> None:
+    clock = Clock()
+    pacer = HostPacer(1.0, slower={"Export.arXiv.org": 3.0}, clock=clock, sleep=clock.sleep)
+
+    slow = [await pacer.wait("export.arxiv.org") for _ in range(3)]
+    other = [await pacer.wait("example.com") for _ in range(2)]
+
+    assert slow == [0.0, 3.0, 6.0]
+    assert other == [0.0, 1.0]
+    assert pacer.interval_of("Export.ArXiv.org") == 3.0
+
+
+def test_an_entry_shorter_than_the_interval_does_not_shorten_it() -> None:
+    clock = Clock()
+    pacer = HostPacer(2.0, slower={"example.com": 0.5}, clock=clock, sleep=clock.sleep)
+
+    assert pacer.interval_of("example.com") == 2.0
+
+
+async def test_the_fetcher_paces_the_api_of_arxiv_as_its_terms_ask() -> None:
+    fetcher = LiveFetcher(host_interval=1.0)
+    try:
+        pacer = fetcher._pacer  # pyright: ignore[reportPrivateUsage]
+    finally:
+        await fetcher.aclose()
+
+    assert isinstance(pacer, HostPacer)
+    assert pacer.interval_of("export.arxiv.org") == 3.0
+    assert pacer.interval_of("example.com") == 1.0
 
 
 async def test_a_different_host_does_not_wait() -> None:
