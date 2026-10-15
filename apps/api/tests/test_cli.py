@@ -31,6 +31,7 @@ from unshelve.contracts.errors import ExtractError, ProviderError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import Capture, ItemKey, Job, LLMCall
+from unshelve.extract import image as image_extractor
 from unshelve.extract.article import ArticleExtractor
 from unshelve.extract.youtube import YouTubeExtractor
 from unshelve.ingest import resolve
@@ -40,6 +41,7 @@ from unshelve.providers.voyage import VoyageEmbedder, voyage_spec
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
 from unshelve.services import build_services
+from unshelve.testing.conformance import TINY_PNG
 from unshelve.testing.fakes import FakeEmbedder
 
 runner = CliRunner()
@@ -193,6 +195,80 @@ def test_extract_says_when_no_extractor_reads_a_link(
 
     assert result.exit_code == 1
     assert "No extractor reads this link yet" in _plain(result.output)
+
+
+def test_extract_reads_a_pdf_file_of_this_computer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    paper = Path(__file__).parent / "extract" / "fixtures" / "pdf" / "paper.pdf"
+
+    result = _run(monkeypatch, tmp_path, "extract", "--file", str(paper))
+
+    assert result.exit_code == 0, result.output
+    lines = _plain(result.output).splitlines()
+    assert "Reader: pdf" in lines
+    assert "Title:  Leases for Job Queues in Postgres" in lines
+
+
+def test_extract_reads_an_image_with_the_model_of_the_worker_and_its_ledger(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    # The pretend model of UNSHELVE_PROVIDERS=fake: no network, and the ledger keeps the call.
+    # The name has no type: the first bytes of the file say that it is an image.
+    image = tmp_path / "whiteboard"
+    image.write_bytes(TINY_PNG)
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "extract",
+        "--file",
+        str(image),
+        UNSHELVE_DATABASE_URL=private_database_url,
+    )
+
+    assert result.exit_code == 0, result.output
+    lines = _plain(result.output).splitlines()
+    assert "Reader: image" in lines
+    assert any(line.startswith("An image: ") for line in lines)
+    assert asyncio.run(_count_llm_calls(private_database_url)) == 1
+
+
+@pytest.mark.parametrize("arguments", [[], ["https://example.com/a", "--file", "x.png"]])
+def test_extract_needs_one_link_or_one_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, arguments: list[str]
+) -> None:
+    (tmp_path / "x.png").write_bytes(TINY_PNG)
+
+    result = _run(monkeypatch, tmp_path, "extract", *arguments)
+
+    assert result.exit_code == 2
+    assert "Give one link, or one file with --file." in _plain(result.output)
+
+
+def test_extract_says_when_a_file_is_too_large_for_its_reader(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(image_extractor, "MAX_IMAGE_BYTES", len(TINY_PNG) - 1)
+    image = tmp_path / "whiteboard.png"
+    image.write_bytes(TINY_PNG)
+
+    result = _run(monkeypatch, tmp_path, "extract", "--file", str(image))
+
+    assert result.exit_code == 1
+    assert "Not fetched: too_large." in _plain(result.output)
+
+
+def test_extract_says_when_no_extractor_reads_a_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    notes = tmp_path / "notes.txt"
+    notes.write_text("A list of things to read.", encoding="utf-8")
+
+    result = _run(monkeypatch, tmp_path, "extract", "--file", str(notes))
+
+    assert result.exit_code == 1
+    assert "No extractor reads this file yet" in _plain(result.output)
 
 
 def test_llm_check_prints_the_answer_and_its_price(

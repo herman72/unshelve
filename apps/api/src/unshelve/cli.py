@@ -29,6 +29,7 @@ from unshelve.contracts.dto import (
     Extracted,
     FetchResult,
     LLMResult,
+    MediaRef,
     SourceRef,
     TextPart,
 )
@@ -38,6 +39,7 @@ from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import Digest, EmbeddingSet, Item, LLMCall
 from unshelve.embed import sets
+from unshelve.extract.image import image_type
 from unshelve.extract.registry import FALLBACK, choose
 from unshelve.ingest import export_files, importer, resolve
 from unshelve.ingest.export_html import ExportedMessage, ExportFormatError, read_export
@@ -51,7 +53,13 @@ from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
 from unshelve.resurface import digest, weekly
 from unshelve.runtime import shutdown_event, wait_for_shutdown
-from unshelve.services import build_embedder, build_services, close_services, embedder_spec
+from unshelve.services import (
+    build_embedder,
+    build_model,
+    build_services,
+    close_services,
+    embedder_spec,
+)
 from unshelve.testing.fakes import FakeLLM, InMemoryBlobStore
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Unshelve service commands.")
@@ -151,22 +159,44 @@ def fetch(
 
 
 @app.command()
-def extract(url: str) -> None:
-    """Read one link with the extractor that the worker would choose, and print what it found.
+def extract(
+    url: Annotated[str | None, typer.Argument(help="The link to read.")] = None,
+    file: Annotated[
+        Path | None,
+        typer.Option(
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="A file on this computer, read as a file that you sent: an image or a PDF.",
+        ),
+    ] = None,
+) -> None:
+    """Read one link, or one file, with the extractor that the worker would choose, and print
+    what it found.
 
-    Nothing is stored. It shows the reader, the title, the facts and the start of the text.
+    Nothing is stored. It shows the reader, the title, the facts and the start of the text. An
+    image is read by the model of UNSHELVE_PROVIDERS: with "live" that is a paid call, and the
+    ledger keeps it.
     """
-    extractor = choose(SourceRef(url=url))
+    if (url is None) == (file is None):
+        typer.echo("Give one link, or one file with --file.")
+        raise typer.Exit(2)
+    ref = SourceRef(url=url) if file is None else _sent(file)
+    extractor = choose(ref)
     if extractor is FALLBACK:
-        typer.echo("No extractor reads this link yet: the item keeps its saved text.")
+        what = "link" if file is None else "file"
+        typer.echo(f"No extractor reads this {what} yet: the item keeps its saved text.")
         raise typer.Exit(1)
     try:
-        found, seconds = asyncio.run(_extract(get_settings(), extractor, url))
+        found, seconds = asyncio.run(_extract(get_settings(), extractor, ref, file))
     except FetchError as error:
         typer.echo(f"Not fetched: {_why(error)}.")
         raise typer.Exit(1) from None
     except ExtractError as error:
         typer.echo(f"Nothing read ({extractor.name}): {error}.")
+        raise typer.Exit(1) from None
+    except ProviderError as error:
+        typer.echo(f"No answer from the model ({extractor.name}): {error}.")
         raise typer.Exit(1) from None
     day = f"{found.published_at:%Y-%m-%d}" if found.published_at else "-"
     typer.echo(f"Reader: {extractor.name}")
@@ -180,15 +210,50 @@ def extract(url: str) -> None:
     typer.echo(_start(found.text, 600))
 
 
-async def _extract(settings: Settings, extractor: Extractor, url: str) -> tuple[Extracted, float]:
+def _sent(path: Path) -> SourceRef:
+    """A file on this computer, as a message that sends it: a photo when its bytes are an
+    image, else a document with its name."""
+    with path.open("rb") as handle:
+        start = handle.read(16)
+    kind = "photo" if image_type(start) is not None else "document"
+    return SourceRef(media=[MediaRef(kind=kind, file_name=path.name)])
+
+
+class _OneFile:
+    """The file of ``unshelve extract --file``, as the files of a message."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+
+    async def read(self, media: MediaRef, *, max_bytes: int) -> bytes:
+        if self._path.stat().st_size > max_bytes:
+            raise FetchError("too_large", self._path.name)
+        return await asyncio.to_thread(self._path.read_bytes)
+
+
+async def _extract(
+    settings: Settings, extractor: Extractor, ref: SourceRef, file: Path | None
+) -> tuple[Extracted, float]:
     fetcher = LiveFetcher.from_settings(settings)
-    # The extractors use only the fetcher. The other two are here for the contract.
-    context = ExtractContext(fetcher=fetcher, blobs=InMemoryBlobStore(), llm=FakeLLM())
+    # A link needs only the fetcher. A file can need the model: the one of the worker, behind
+    # its cache and its ledger. No connection is opened before the first question.
+    engine = create_engine(settings.database_url) if file is not None else None
+    llm = build_model(settings, create_session_factory(engine)) if engine else FakeLLM()
+    context = ExtractContext(
+        fetcher=fetcher,
+        blobs=InMemoryBlobStore(),
+        llm=llm,
+        files=_OneFile(file) if file is not None else None,
+    )
     started = time.perf_counter()
     try:
-        found = await extractor.extract(SourceRef(url=url), context)
+        found = await extractor.extract(ref, context)
     finally:
         await fetcher.aclose()
+        if isinstance(llm, CachedLLM):
+            await llm.aclose()
+        if engine is not None:
+            await engine.dispose()
     return found, time.perf_counter() - started
 
 
