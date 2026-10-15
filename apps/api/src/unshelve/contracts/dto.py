@@ -26,6 +26,9 @@ class MediaRef(Dto):
     mime: str | None = None
     size_bytes: int | None = None
     file_name: str | None = None
+    # The SHA-256 of the bytes: the key of their copy in the BlobStore, when the copy exists.
+    # The importer sets it for a file of an export (ingest.export_files).
+    sha256: str | None = None
 
 
 class ForwardOrigin(Dto):

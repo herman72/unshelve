@@ -165,3 +165,64 @@ async def test_two_files_with_the_same_bytes_share_one_copy(
 
     [asset] = await _assets(committed_db)
     assert asset.file_unique_id == "AgADmadeup"  # the first one
+
+
+# --- A file of an export: the importer copied it, and the media names the copy --------------
+
+
+def _exported(key: str) -> MediaRef:
+    return MediaRef(
+        kind="document",
+        local_path="files/leases.pdf",
+        mime="application/pdf",
+        file_name="leases.pdf",
+        sha256=key,
+    )
+
+
+async def test_the_copy_that_the_media_names_is_read_without_a_source(
+    committed_db: Sessions, tmp_path: Path
+) -> None:
+    blobs = FileBlobStore(tmp_path)
+    key = await blobs.put(PDF, "application/pdf")
+    owner_id = await _owner(committed_db)
+
+    files = StoredFiles(None, blobs, committed_db, owner_id)
+
+    assert await files.read(_exported(key), max_bytes=1_000) == PDF
+
+
+async def test_an_empty_copy_is_an_empty_file(committed_db: Sessions, tmp_path: Path) -> None:
+    blobs = FileBlobStore(tmp_path)
+    key = await blobs.put(b"", "text/plain")
+    owner_id = await _owner(committed_db)
+
+    files = StoredFiles(None, blobs, committed_db, owner_id)
+
+    assert await files.read(_exported(key), max_bytes=1_000) == b""
+
+
+async def test_a_named_copy_over_the_limit_of_the_reader_is_refused(
+    committed_db: Sessions, tmp_path: Path
+) -> None:
+    blobs = FileBlobStore(tmp_path)
+    key = await blobs.put(PDF, "application/pdf")
+    owner_id = await _owner(committed_db)
+
+    with pytest.raises(FetchError) as caught:
+        await StoredFiles(None, blobs, committed_db, owner_id).read(_exported(key), max_bytes=10)
+
+    assert (caught.value.reason, caught.value.url) == ("too_large", f"exported file {key[:12]}")
+
+
+async def test_a_named_copy_that_is_gone_cannot_be_read_without_a_source(
+    committed_db: Sessions, tmp_path: Path
+) -> None:
+    # A new, empty volume: the export folder is gone, and Telegram has no id for this file.
+    owner_id = await _owner(committed_db)
+    files = StoredFiles(None, FileBlobStore(tmp_path), committed_db, owner_id)
+
+    with pytest.raises(FetchError) as caught:
+        await files.read(_exported("ab" * 32), max_bytes=1_000)
+
+    assert (caught.value.reason, caught.value.url) == ("unsupported", "exported file abababababab")

@@ -259,6 +259,28 @@ async def test_a_pdf_sent_as_a_file_without_a_bot_token_keeps_its_caption(
     assert (event.payload["extractor"], event.payload["reason"]) == ("pdf", "unsupported")
 
 
+async def test_a_pdf_of_an_export_is_read_from_its_copy(services: Services) -> None:
+    # The importer copied the file of the export, and the media names the copy. No bot token.
+    data = (PAGES / "pdf" / "paper.pdf").read_bytes()
+    exported = MediaRef(
+        kind="document",
+        local_path="files/paper.pdf",
+        mime="application/pdf",
+        file_name="paper.pdf",
+        sha256=await services.blobs.put(data, "application/pdf"),
+    )
+    item_id = await _save(services.sessions, text="A paper to read", url=None, media=[exported])
+
+    await _run_all(services)
+
+    item = await _item(services.sessions, item_id)
+    assert (item.enrich_state, item.kind, item.title) == (
+        EnrichState.READY,
+        ItemKind.PDF,
+        "Leases for Job Queues in Postgres",
+    )
+
+
 async def test_an_article_after_a_video_counts_its_minutes_again(services: Services) -> None:
     # The fetch step writes the minutes on each run, also None. So after an edit that changes
     # the link, the old length of a video does not stay on the item.
