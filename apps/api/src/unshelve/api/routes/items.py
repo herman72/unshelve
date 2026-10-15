@@ -96,13 +96,16 @@ async def set_item_visibility(item_id: ItemId, body: VisibilityRequest) -> Visib
 
 
 @router.post("/items/{item_id}/reprocess", status_code=202, responses=problems(401, 404, 409, 422))
-async def reprocess_item(item_id: ItemId) -> ItemDetail:
+async def reprocess_item(item_id: ItemId, user: CurrentUserDep, db: DbDep) -> ItemDetail:
     """Send a failed or finished item back to the start of the pipeline.
 
     The answer comes at once and the work happens later, on the worker. An item that is still
     being processed cannot be sent back: 409.
     """
-    raise NotImplementedYetError
+    await item_views.reprocess_item(db, user.id, item_id)
+    # The new state, the job of the first step and the event are saved together.
+    await db.commit()
+    return await item_views.get_item(db, user.id, item_id)
 
 
 @router.get("/items/{item_id}/events", responses=problems(401, 404, 422))

@@ -1,5 +1,6 @@
 """Saving, listing and reading items over HTTP. Each test name is one rule."""
 
+import asyncio
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -15,8 +16,8 @@ from unshelve.api.deps import SESSION_COOKIE
 from unshelve.auth import store as auth
 from unshelve.config import Settings
 from unshelve.contracts.dto import CaptureEnvelope
-from unshelve.contracts.enums import CaptureSource, JobKind, JobState
-from unshelve.db.models import Capture, Goal, Item, ItemGoal, ItemTag, Job, Tag
+from unshelve.contracts.enums import Actor, CaptureSource, EnrichState, JobKind, JobState
+from unshelve.db.models import Capture, Event, Goal, Item, ItemGoal, ItemTag, Job, Tag
 from unshelve.ingest import resolve
 
 ITEMS = "/api/v1/items"
@@ -370,3 +371,111 @@ async def test_tags_and_goal_scores_are_part_of_an_item(
     ]
     assert detail["top_goal"] == detail["goals"][0]
     assert detail["goals"][0]["label"] is None
+
+
+# --- Starting the pipeline again ---------------------------------------------------------
+
+
+async def _at(sessions: Sessions, item_id: int, state: EnrichState) -> None:
+    """The item with its pipeline at ``state``, and no job waiting for it."""
+    async with sessions() as db:
+        await db.execute(sa.update(Item).where(Item.id == item_id).values(enrich_state=state))
+        await db.execute(sa.delete(Job))
+        await db.commit()
+
+
+async def _waiting_fetch_jobs(sessions: Sessions, item_id: int) -> int:
+    async with sessions() as db:
+        found = await db.scalar(
+            sa.select(sa.func.count())
+            .select_from(Job)
+            .where(
+                Job.kind == JobKind.FETCH_ITEM,
+                Job.state == JobState.PENDING,
+                Job.dedupe_key == f"item:{item_id}",
+            )
+        )
+    return found or 0
+
+
+async def _events(sessions: Sessions, item_id: int) -> list[Event]:
+    async with sessions() as db:
+        found = await db.scalars(sa.select(Event).where(Event.item_id == item_id))
+        return list(found.all())
+
+
+@pytest.mark.parametrize("state", [EnrichState.READY, EnrichState.FAILED])
+async def test_a_finished_or_failed_item_goes_back_to_the_start(
+    client: httpx.AsyncClient, committed_db: Sessions, state: EnrichState
+) -> None:
+    item_id = await _saved(committed_db, await _owner(committed_db))
+    await _at(committed_db, item_id, state)
+
+    response = await client.post(f"{ITEMS}/{item_id}/reprocess")
+
+    assert response.status_code == 202
+    assert (response.json()["id"], response.json()["enrich_state"]) == (item_id, "pending")
+    # The first step waits for the worker; the answer does not wait for the work.
+    assert await _waiting_fetch_jobs(committed_db, item_id) == 1
+    [event] = await _events(committed_db, item_id)
+    assert (event.actor, event.type, event.payload) == (
+        Actor.USER,
+        "reprocess",
+        {"enrich_state": state.value},
+    )
+
+
+@pytest.mark.parametrize("state", [EnrichState.PENDING, EnrichState.FETCHED, EnrichState.ENRICHED])
+async def test_an_item_in_the_pipeline_cannot_go_back_to_the_start(
+    client: httpx.AsyncClient, committed_db: Sessions, state: EnrichState
+) -> None:
+    item_id = await _saved(committed_db, await _owner(committed_db))
+    await _at(committed_db, item_id, state)
+
+    response = await client.post(f"{ITEMS}/{item_id}/reprocess")
+
+    detail = problem_body(response, 409)["detail"]
+    assert detail == f"the item is still in the pipeline ({state.value})"
+    assert await _waiting_fetch_jobs(committed_db, item_id) == 0
+    assert await _events(committed_db, item_id) == []
+
+
+async def test_a_second_request_finds_the_item_in_the_pipeline(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    # A double click: one start, one job.
+    item_id = await _saved(committed_db, await _owner(committed_db))
+    await _at(committed_db, item_id, EnrichState.READY)
+
+    first = await client.post(f"{ITEMS}/{item_id}/reprocess")
+    second = await client.post(f"{ITEMS}/{item_id}/reprocess")
+
+    assert (first.status_code, second.status_code) == (202, 409)
+    assert await _waiting_fetch_jobs(committed_db, item_id) == 1
+
+
+async def test_two_requests_at_the_same_moment_start_the_item_once(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    # The second request waits for the lock on the row of the item, then finds it pending.
+    item_id = await _saved(committed_db, await _owner(committed_db))
+    await _at(committed_db, item_id, EnrichState.READY)
+
+    answers = await asyncio.gather(
+        client.post(f"{ITEMS}/{item_id}/reprocess"),
+        client.post(f"{ITEMS}/{item_id}/reprocess"),
+    )
+
+    assert sorted(answer.status_code for answer in answers) == [202, 409]
+    assert len(await _events(committed_db, item_id)) == 1
+
+
+async def test_an_item_that_is_not_yours_cannot_be_sent_back(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    theirs = await _saved(committed_db, await _owner(committed_db, telegram_user_id=999))
+    await _at(committed_db, theirs, EnrichState.READY)
+
+    problem_body(await client.post(f"{ITEMS}/{theirs}/reprocess"), 404)
+    problem_body(await client.post(f"{ITEMS}/999/reprocess"), 404)
+    assert await _waiting_fetch_jobs(committed_db, theirs) == 0
