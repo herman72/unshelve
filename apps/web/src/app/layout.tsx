@@ -3,7 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { Suspense } from "react";
 import { ApiStatus, StatusLine } from "@/components/api-status";
-import { MainNav } from "@/components/main-nav";
+import { MainNav, NavLinks } from "@/components/main-nav";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -45,7 +45,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
             <Link href="/" className="text-lg font-semibold tracking-tight">
               Unshelve
             </Link>
-            <MainNav />
+            {/* The path of a page like /items/1 is known only at request time. */}
+            <Suspense fallback={<NavLinks pathname={null} />}>
+              <MainNav />
+            </Suspense>
           </div>
         </header>
         <main id="main" className={`${COLUMN} flex-1 py-8 sm:py-10`}>
