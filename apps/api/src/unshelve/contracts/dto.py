@@ -94,6 +94,9 @@ class Extracted(Dto):
     final_url: str | None = None
     published_at: AwareDatetime | None = None
     extra_links: list[str] = Field(default_factory=list[str])
+    # The minutes that the item takes, when the source knows them: the length of a video.
+    # None: the pipeline counts the minutes to read the text.
+    minutes: int | None = Field(default=None, ge=0)
 
 
 # --- Model providers ---------------------------------------------------------------------
