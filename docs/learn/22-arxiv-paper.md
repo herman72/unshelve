@@ -132,4 +132,4 @@ Which test fails? Why is a test of the constant `SLOW_HOSTS` alone not enough?
 - [Terms of Use for arXiv APIs](https://info.arxiv.org/help/api/tou.html), arXiv. Read the part about rate limits: the three seconds.
 - [XML security](https://docs.python.org/3/library/xml.html#xml-vulnerabilities), the Python documentation. Read the part about expat 2.7.2 and the "billion laughs".
 
-Previous: [21. Reading a GitHub repository](21-github-repository.md) · Back to the [list of notes](README.md)
+Previous: [21. Reading a GitHub repository](21-github-repository.md) · Next: [23. Reading a post on Telegram](23-telegram-post.md) · Back to the [list of notes](README.md)
