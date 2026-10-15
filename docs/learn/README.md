@@ -30,6 +30,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 16 | [The fetch step](16-fetch-step.md) | How each saved link gets the best reader, a second try, or the saved text | |
 | 17 | [Asking the model](17-model-card.md) | How the model writes the card of an item, why the same question is paid one time, and the daily budget | |
 | 18 | [Vectors for search](18-vectors-for-search.md) | How a text becomes pieces and vectors, why a second run costs nothing, and how to change the model without a broken search | |
+| 19 | [Reading a YouTube video](19-youtube-video.md) | How a bare link to a video becomes a title, a length and a description, and why the text holds no number of views | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 

@@ -261,4 +261,4 @@ The lesson: a step that waits for a slow service must check, before it writes, t
 - [Text embeddings](https://docs.voyageai.com/docs/embeddings), Voyage AI documentation. Read the table of the models and the part about `input_type`: why a question and a document get different instructions.
 - [pgvector](https://github.com/pgvector/pgvector), the README. Read the part "Querying": the operator `<=>` gives the cosine distance that search will use in M4.
 
-Previous: [17. Asking the model](17-model-card.md) · Back to the [list of notes](README.md)
+Previous: [17. Asking the model](17-model-card.md) · Next: [19. Reading a YouTube video](19-youtube-video.md) · Back to the [list of notes](README.md)
