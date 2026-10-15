@@ -145,4 +145,4 @@ Which tests fail? Our own code never logs the address. Why is that not enough?
 - [getFile](https://core.telegram.org/bots/api#getfile), Telegram Bot API. Read the limit of 20 MB and how long a file address is valid (at least one hour).
 - [Exception context](https://docs.python.org/3/library/exceptions.html#exception-context), Python. Read what `__context__`, `__cause__` and `from None` keep: it is why the error is raised after the `except` block.
 
-Previous: [24. Reading a PDF file](24-pdf-file.md) · Back to the [list of notes](README.md)
+Previous: [24. Reading a PDF file](24-pdf-file.md) · Next: [26. The page of an item](26-item-page.md) · Back to the [list of notes](README.md)
