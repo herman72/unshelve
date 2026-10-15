@@ -162,6 +162,13 @@ class FetcherConformance:
         # The type that was refused: a link to a page can answer with a PDF.
         assert caught.value.content_type == "text/plain"
 
+    async def test_the_type_is_checked_before_the_size(self, case: FetcherCase) -> None:
+        # A large PDF behind a link to a page is refused for its type, so that the PDF
+        # extractor can ask for it with the larger limit of a file.
+        with pytest.raises(FetchError) as caught:
+            await case.fetcher.get(case.large_url, max_bytes=1000, accept=["image/*"])
+        assert caught.value.reason == "unsupported"
+
 
 # --- LLM provider ------------------------------------------------------------------------
 

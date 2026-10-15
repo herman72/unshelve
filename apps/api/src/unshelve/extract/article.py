@@ -2,6 +2,9 @@
 
 It asks the fetcher for the page, decodes the bytes itself (``extract.html``), and lets
 trafilatura find the main text. trafilatura never opens a link here: it gets text.
+
+A link to a page can answer with a PDF file ("/download?id=7"). The fetcher refuses that body
+after its headers, and the PDF extractor reads the link (``extract.pdf``).
 """
 
 import asyncio
@@ -15,9 +18,10 @@ from trafilatura.settings import Document
 
 from unshelve.contracts.dto import Extracted, SourceRef
 from unshelve.contracts.enums import ItemKind
-from unshelve.contracts.errors import ExtractError
-from unshelve.contracts.protocols import ExtractContext
+from unshelve.contracts.errors import ExtractError, FetchError
+from unshelve.contracts.protocols import ExtractContext, accepts
 from unshelve.extract.html import decode_html, language_of
+from unshelve.extract.pdf import PDF_TYPES, read_pdf
 
 # Any web page can be an article. An extractor for one site gives a higher score.
 GENERIC_SCORE = 10
@@ -63,9 +67,16 @@ class ArticleExtractor:
     async def extract(self, ref: SourceRef, ctx: ExtractContext) -> Extracted:
         if ref.url is None:
             raise ExtractError("an article needs a link")
-        # A FetchError goes up unchanged: its reason, code and wait are for the step that
-        # decides between "try again" and "keep the saved text".
-        page = await ctx.fetcher.get(ref.url, max_bytes=MAX_HTML_BYTES, accept=list(HTML_TYPES))
+        try:
+            page = await ctx.fetcher.get(ref.url, max_bytes=MAX_HTML_BYTES, accept=list(HTML_TYPES))
+        except FetchError as error:
+            # The link answered with a PDF. The fetcher stopped after the headers, and the PDF
+            # extractor asks for the file again, with the limits of a file.
+            if error.reason == "unsupported" and accepts(error.content_type, PDF_TYPES):
+                return await read_pdf(ref.url, ctx)
+            # Any other FetchError goes up unchanged: its reason, code and wait are for the
+            # step that decides between "try again" and "keep the saved text".
+            raise
         html = decode_html(page.body, page.content_type)
         # trafilatura works for a moment on a long page. In a thread, the event loop of the
         # worker stays free, and the lease of the job keeps its heartbeat.
