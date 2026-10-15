@@ -16,7 +16,7 @@ from unshelve.contracts.enums import (
     JobState,
     Visibility,
 )
-from unshelve.db.models import Capture, Chunk, EmbeddingSet, Event, Item, Job, User
+from unshelve.db.models import Asset, Capture, Chunk, EmbeddingSet, Event, Item, Job, User
 from unshelve.testing.fakes import FakeEmbedder
 
 pytestmark = pytest.mark.db
@@ -231,6 +231,30 @@ async def test_only_one_embedding_set_is_active(db: AsyncSession) -> None:
     db.add(EmbeddingSet(provider="p", model="a", dim=8, is_active=True))
     await db.flush()
     await _rejects(db, EmbeddingSet(provider="p", model="b", dim=8, is_active=True))
+
+
+# --- Assets ------------------------------------------------------------------------------
+
+
+def _asset(owner: User, sha256: str, file_unique_id: str | None) -> Asset:
+    return Asset(
+        owner_id=owner.id,
+        sha256=sha256,
+        mime="application/pdf",
+        size_bytes=10,
+        storage_key=sha256,
+        file_unique_id=file_unique_id,
+    )
+
+
+async def test_a_file_of_telegram_has_one_copy_for_each_owner(db: AsyncSession) -> None:
+    owner = await _owner(db)
+    db.add(_asset(owner, "a" * 64, "AgADmadeup"))
+    # Files of an export have no id of Telegram, and there can be many of them.
+    db.add_all([_asset(owner, "b" * 64, None), _asset(owner, "c" * 64, None)])
+    await db.flush()
+
+    await _rejects(db, _asset(owner, "d" * 64, "AgADmadeup"))
 
 
 # --- Jobs --------------------------------------------------------------------------------
