@@ -1,5 +1,6 @@
 """Runtime settings, read from ``UNSHELVE_*`` environment variables."""
 
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -38,9 +39,14 @@ class Settings(BaseSettings):
     digest_hour: int = Field(default=9, ge=0, le=23)
 
     # "fake" and "fixtures" keep every model and network call local and deterministic.
+    # "live" asks Claude with ANTHROPIC_API_KEY; the embedder stays fake until milestone M2-5.
     providers: Literal["fake", "live"] = "fake"
     fetcher: Literal["fixtures", "live"] = "fixtures"
     llm_model: str = "claude-opus-5-5"
+    # How much the model thinks before it writes a card. "low" is enough for a summary.
+    llm_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
+    # No new call on a day when the calls have cost this many dollars. A stored answer is free.
+    llm_daily_budget_usd: Decimal = Field(default=Decimal("1.00"), ge=0)
 
     # The fetcher opens saved links (net/fetcher.py). The time is for one whole fetch, with its
     # redirects. The interval is the pause between two requests to the same host.

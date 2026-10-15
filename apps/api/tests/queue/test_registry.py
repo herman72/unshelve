@@ -4,8 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from unshelve.config import Settings
 from unshelve.contracts.enums import JobKind
 from unshelve.contracts.jobs import EnrichItemPayload, FetchItemPayload, JobContext
+from unshelve.providers.ledger import CachedLLM
 from unshelve.queue.registry import Registry, discover
 from unshelve.services import build_services
+from unshelve.testing.fakes import FakeLLM
 
 
 async def _fetch(ctx: JobContext, payload: FetchItemPayload) -> None:
@@ -52,11 +54,11 @@ def test_discover_imports_the_pipeline_package() -> None:
     assert discover("unshelve.pipeline") >= 0
 
 
-def test_services_are_fakes_by_default_and_live_is_refused_for_now() -> None:
+def test_services_are_fakes_by_default() -> None:
     sessions: async_sessionmaker[AsyncSession] = async_sessionmaker()
 
     services = build_services(Settings(env="test"), sessions)
 
     assert services.embedder.spec.provider == "fake"
-    with pytest.raises(NotImplementedError, match="M2"):
-        build_services(Settings(env="test", providers="live"), sessions)
+    assert isinstance(services.llm, CachedLLM)
+    assert isinstance(services.llm.inner, FakeLLM)

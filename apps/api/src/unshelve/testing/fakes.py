@@ -33,6 +33,10 @@ def _words(text: str) -> list[str]:
     return _WORD.findall(text.lower())
 
 
+# The tags of a prompt, such as <saved_text>. A fake card is made from the words of the text.
+_PROMPT_TAG = re.compile(r"</?[A-Za-z_][\w-]*>")
+
+
 # --- Fetcher -----------------------------------------------------------------------------
 
 
@@ -194,8 +198,11 @@ class FakeLLM:
         self.calls.append(call)
 
         scripted = self.responder(call, schema) if self.responder else None
+        content = _PROMPT_TAG.sub(" ", text)
         value = (
-            schema.model_validate(scripted.model_dump()) if scripted else synthesize(schema, text)
+            schema.model_validate(scripted.model_dump())
+            if scripted
+            else synthesize(schema, content)
         )
         usage = LLMUsage(
             input_tokens=len(_words(system)) + len(_words(text)),
