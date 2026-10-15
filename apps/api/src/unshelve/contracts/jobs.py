@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from unshelve.config import Settings
 from unshelve.contracts.enums import JobKind
-from unshelve.contracts.protocols import BlobStore, Embedder, Fetcher, LLMProvider
+from unshelve.contracts.protocols import BlobStore, Embedder, Fetcher, FileSource, LLMProvider
 
 # --- Payloads ----------------------------------------------------------------------------
 
@@ -134,6 +134,8 @@ class Services:
     blobs: BlobStore
     # The connection to Telegram, for the jobs that send a message. None without a bot token.
     bot: Bot | None = None
+    # The files of saved messages, from the Bot API. None without a bot token.
+    files: FileSource | None = None
 
 
 @dataclass(frozen=True, slots=True)

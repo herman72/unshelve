@@ -19,6 +19,7 @@ from unshelve.contracts.dto import (
     ImagePart,
     LLMResult,
     LLMUsage,
+    MediaRef,
     SourceRef,
     TextPart,
 )
@@ -82,6 +83,29 @@ class InMemoryBlobStore:
 
     async def get(self, key: str) -> bytes:
         return self._blobs[key]
+
+
+# --- Files of messages -------------------------------------------------------------------
+
+
+class FakeFiles:
+    """Serves the bytes of files by their ``file_id``. An unknown file is unsupported."""
+
+    def __init__(self, files: Mapping[str, bytes | FetchError] | None = None) -> None:
+        self.files: dict[str, bytes | FetchError] = dict(files or {})
+        self.read_ids: list[str] = []
+
+    async def read(self, media: MediaRef, *, max_bytes: int) -> bytes:
+        label = f"telegram file {media.file_unique_id or 'without an id'}"
+        found = self.files.get(media.file_id) if media.file_id is not None else None
+        if found is None:
+            raise FetchError("unsupported", label)
+        self.read_ids.append(str(media.file_id))
+        if isinstance(found, FetchError):
+            raise found
+        if len(found) > max_bytes:
+            raise FetchError("too_large", label)
+        return found
 
 
 # --- Embedder ----------------------------------------------------------------------------

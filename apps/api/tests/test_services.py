@@ -13,6 +13,7 @@ from unshelve import services as services_module
 from unshelve.blobs import FileBlobStore
 from unshelve.config import Settings
 from unshelve.net.fetcher import LiveFetcher
+from unshelve.net.telegram_files import TelegramFiles
 from unshelve.providers.claude import ClaudeLLM
 from unshelve.providers.ledger import CachedLLM
 from unshelve.providers.voyage import VoyageEmbedder
@@ -117,6 +118,29 @@ async def test_voyage_is_built_from_the_settings_and_closed_at_the_end(
     assert isinstance(services.embedder, VoyageEmbedder)
     assert (services.embedder.spec.provider, services.embedder.spec.dim) == ("voyage", 512)
     assert closed == ["voyage-4-lite"]
+
+
+async def test_the_files_of_messages_come_from_the_bot_api_and_are_closed_at_the_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed: list[bool] = []
+
+    async def record(self: TelegramFiles) -> None:
+        closed.append(True)
+
+    monkeypatch.setattr(TelegramFiles, "aclose", record)
+    token = SecretStr("123456789:made-up-token")
+    settings = Settings(env="test", telegram_bot_token=token)
+
+    services = build_services(settings, NO_DATABASE)
+    await close_services(services)
+
+    assert isinstance(services.files, TelegramFiles)
+    assert closed == [True]
+
+
+def test_without_a_bot_token_no_file_of_a_message_is_downloaded() -> None:
+    assert build_services(Settings(env="test"), NO_DATABASE).files is None
 
 
 def test_voyage_without_a_key_says_so_in_the_log(monkeypatch: pytest.MonkeyPatch) -> None:
