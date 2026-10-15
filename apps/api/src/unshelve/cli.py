@@ -32,12 +32,12 @@ from unshelve.contracts.dto import (
     TextPart,
 )
 from unshelve.contracts.errors import ExtractError, FetchError, ProviderError
-from unshelve.contracts.protocols import ExtractContext
+from unshelve.contracts.protocols import ExtractContext, Extractor
 from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import Digest, EmbeddingSet, Item, LLMCall
 from unshelve.embed import sets
-from unshelve.extract.article import ArticleExtractor
+from unshelve.extract.registry import FALLBACK, choose
 from unshelve.ingest import importer, resolve
 from unshelve.ingest.export_html import ExportFormatError, read_export
 from unshelve.log import configure_logging
@@ -151,34 +151,41 @@ def fetch(
 
 @app.command()
 def extract(url: str) -> None:
-    """Read one link with the article extractor, and print what it found.
+    """Read one link with the extractor that the worker would choose, and print what it found.
 
-    Nothing is stored. It shows the title, the facts of the page and the start of the text.
+    Nothing is stored. It shows the reader, the title, the facts and the start of the text.
     """
+    extractor = choose(SourceRef(url=url))
+    if extractor is FALLBACK:
+        typer.echo("No extractor reads this link yet: the item keeps its saved text.")
+        raise typer.Exit(1)
     try:
-        found, seconds = asyncio.run(_extract(get_settings(), url))
+        found, seconds = asyncio.run(_extract(get_settings(), extractor, url))
     except FetchError as error:
         typer.echo(f"Not fetched: {_why(error)}.")
         raise typer.Exit(1) from None
     except ExtractError as error:
-        typer.echo(f"No article: {error}.")
+        typer.echo(f"Nothing read ({extractor.name}): {error}.")
         raise typer.Exit(1) from None
     day = f"{found.published_at:%Y-%m-%d}" if found.published_at else "-"
+    typer.echo(f"Reader: {extractor.name}")
     typer.echo(f"Title:  {found.title or '-'}")
     typer.echo(f"Site:   {found.site or '-'} · language {found.lang or '-'} · date {day}")
     typer.echo(f"Author: {found.author or '-'}")
+    if found.minutes is not None:
+        typer.echo(f"Length: {found.minutes} min")
     typer.echo(f"Text:   {len(found.text.split())} words, read in {seconds:.2f} s")
     typer.echo("")
     typer.echo(_start(found.text, 600))
 
 
-async def _extract(settings: Settings, url: str) -> tuple[Extracted, float]:
+async def _extract(settings: Settings, extractor: Extractor, url: str) -> tuple[Extracted, float]:
     fetcher = LiveFetcher.from_settings(settings)
-    # The article extractor uses only the fetcher. The other two are here for the contract.
+    # The extractors use only the fetcher. The other two are here for the contract.
     context = ExtractContext(fetcher=fetcher, blobs=InMemoryBlobStore(), llm=FakeLLM())
     started = time.perf_counter()
     try:
-        found = await ArticleExtractor().extract(SourceRef(url=url), context)
+        found = await extractor.extract(SourceRef(url=url), context)
     finally:
         await fetcher.aclose()
     return found, time.perf_counter() - started
