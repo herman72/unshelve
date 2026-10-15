@@ -32,6 +32,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 18 | [Vectors for search](18-vectors-for-search.md) | How a text becomes pieces and vectors, why a second run costs nothing, and how to change the model without a broken search | |
 | 19 | [Reading a YouTube video](19-youtube-video.md) | How a bare link to a video becomes a title, a length and a description, and why the text holds no number of views | |
 | 20 | [Reading a post on X](20-post-on-x.md) | How a post on X is read through two ways in, why one of them is a safety net, and what X does not give | |
+| 21 | [Reading a GitHub repository](21-github-repository.md) | How the API of GitHub gives the facts and the whole README of a repository, and what happens at its limit | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 
