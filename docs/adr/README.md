@@ -14,6 +14,7 @@ Each record states one decision, why it was made, and what it costs. A record is
 | [0008](0008-long-polling-and-bot-issued-login-links.md) | Telegram long polling and bot-issued login links | Accepted |
 | [0009](0009-capture-rules-from-a-real-bot-and-real-exports.md) | Capture rules from a test with a real bot and real exports | Accepted |
 | [0010](0010-one-guarded-way-to-the-internet.md) | One guarded way to the internet | Accepted |
+| [0011](0011-claude-for-the-cards.md) | Claude for the cards: structured output, a cache in front, a daily budget | Accepted |
 
 ## Template
 
