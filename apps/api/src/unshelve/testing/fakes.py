@@ -63,7 +63,7 @@ class FakeFetcher:
         if len(page.body) > max_bytes:
             raise FetchError("too_large", url)
         if not accepts(page.content_type, accept):
-            raise FetchError("unsupported", url)
+            raise FetchError("unsupported", url, content_type=page.content_type)
         return page
 
 

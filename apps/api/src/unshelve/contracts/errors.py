@@ -29,6 +29,7 @@ class FetchError(UnshelveError):
         *,
         status: int | None = None,
         retry_after: float | None = None,
+        content_type: str | None = None,
     ) -> None:
         detail = f"{reason} ({status})" if status is not None else reason
         super().__init__(f"fetch failed: {detail}: {url}")
@@ -37,6 +38,9 @@ class FetchError(UnshelveError):
         self.status = status
         # Seconds that the server asked us to wait ("Retry-After"), for a 429 or a 503.
         self.retry_after = retry_after
+        # The type of a body that was not accepted ("unsupported"). A link to a page can
+        # answer with a PDF, and then the extractor for PDF files can read it.
+        self.content_type = content_type
 
     @property
     def retryable(self) -> bool:
