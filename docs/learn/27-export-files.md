@@ -134,7 +134,7 @@ Where does the link from a post to its copy go?
   - Now the tests find each of the 38.
 - **What is not done:**
   - A copy that is lost (a new volume without a backup) is not copied again by a later import: the post says that it has a copy. Its item keeps its text.
-  - The photos are copied, but no extractor reads them yet: the images come with [issue #18](https://github.com/herman72/unshelve/issues/18).
+  - The photos are copied; the image extractor reads them ([note 28](28-image.md)).
   - Videos and audio files are copied (50 MB at most), and nothing reads them.
   - A file of an export gives no key to its item, so the same PDF saved two times is two items ([note 12](12-resolver.md)).
 
@@ -203,4 +203,4 @@ The lesson: check a path after you resolve it, not before.
 - [Path Traversal](https://owasp.org/www-community/attacks/Path_Traversal), OWASP. Read the examples with `../`: they are the attack that part 3 stops.
 - [pathlib](https://docs.python.org/3/library/pathlib.html), Python. Read `PurePath.is_relative_to` and `Path.resolve`: the first compares text only, and the second follows `..` and links.
 
-Previous: [26. The page of an item](26-item-page.md) · Back to the [list of notes](README.md)
+Previous: [26. The page of an item](26-item-page.md) · Next: [28. Reading an image](28-image.md) · Back to the [list of notes](README.md)
