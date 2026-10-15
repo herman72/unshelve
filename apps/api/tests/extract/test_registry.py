@@ -47,6 +47,8 @@ class TestSavedTextExtractor(ExtractorConformance):
         (SourceRef(url="https://www.youtube.com/@made-up-channel"), "article"),
         (SourceRef(url="https://twitter.com/MadeUp_Person/status/1234567890123456789"), "x"),
         (SourceRef(url="https://x.com/madeup_person"), "article"),
+        (SourceRef(url="https://github.com/made-up-org/queue-kit"), "github"),
+        (SourceRef(url="https://github.com/made-up-org/queue-kit/issues/7"), "article"),
         (SourceRef(text="a note without a link"), "saved_text"),
         (SourceRef(url="https://example.com/paper.pdf"), "saved_text"),  # no reader yet
         (SourceRef(), "saved_text"),  # a photo without a caption: nobody claims it
