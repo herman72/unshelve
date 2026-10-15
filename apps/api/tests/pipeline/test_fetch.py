@@ -125,6 +125,38 @@ async def test_a_link_to_an_article_gives_the_text_of_the_article(services: Serv
     assert await _events(services.sessions, item_id) == []
 
 
+async def test_a_video_gets_its_length_as_its_minutes(services: Services) -> None:
+    video = "https://youtu.be/dEmOvIdEo01?si=made-up"
+    watch = "https://www.youtube.com/watch?v=dEmOvIdEo01&hl=en"
+    page = (PAGES / "youtube" / "watch_en.html").read_bytes()
+    _web(services).add(watch, page, content_type="text/html; charset=utf-8")
+    item_id = await _save(services.sessions, text=video, url=video)
+
+    await _run_all(services)
+
+    item = await _item(services.sessions, item_id)
+    assert (item.enrich_state, item.kind, item.partial) == (
+        EnrichState.READY,
+        ItemKind.VIDEO,
+        False,
+    )
+    assert (item.title, item.author, item.site) == (
+        "Job queues in Postgres, from scratch",
+        "Made-up Channel",
+        "youtube.com",
+    )
+    # The length of the video (30.5 minutes), not the time to read its description.
+    assert item.est_minutes == 31
+    assert item.extra_links == [
+        "https://github.com/example/queue-demo",
+        "https://example.com/queue-slides.pdf",
+        "https://example.com/notes",  # without the full stop after it, and each link one time
+    ]
+    content = await _content(services.sessions, item_id)
+    assert content is not None
+    assert content.extractor == "youtube"
+
+
 async def test_an_article_after_a_video_counts_its_minutes_again(services: Services) -> None:
     # The fetch step writes the minutes on each run, also None. So after an edit that changes
     # the link, the old length of a video does not stay on the item.

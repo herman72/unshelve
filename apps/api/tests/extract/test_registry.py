@@ -43,6 +43,8 @@ class TestSavedTextExtractor(ExtractorConformance):
     ("ref", "expected"),
     [
         (SourceRef(url="https://blog.example.com/queues", text="read later"), "article"),
+        (SourceRef(url="https://youtu.be/dEmOvIdEo01?si=made-up"), "youtube"),
+        (SourceRef(url="https://www.youtube.com/@made-up-channel"), "article"),
         (SourceRef(text="a note without a link"), "saved_text"),
         (SourceRef(url="https://example.com/paper.pdf"), "saved_text"),  # no reader yet
         (SourceRef(), "saved_text"),  # a photo without a caption: nobody claims it
