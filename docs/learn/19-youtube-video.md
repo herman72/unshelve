@@ -142,4 +142,4 @@ Which test fails? And why is that a cost, not a matter of style?
 - [oEmbed](https://oembed.com/), the specification. Read part 2.2, "Consumer Request", and the example: it is the request that the extractor sends.
 - [Videos: list](https://developers.google.com/youtube/v3/docs/videos/list), YouTube Data API. Read the part "Quota impact", to see what the other way would cost.
 
-Previous: [18. Vectors for search](18-vectors-for-search.md) · Back to the [list of notes](README.md)
+Previous: [18. Vectors for search](18-vectors-for-search.md) · Next: [20. Reading a post on X](20-post-on-x.md) · Back to the [list of notes](README.md)
