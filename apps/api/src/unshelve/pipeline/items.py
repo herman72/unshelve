@@ -11,35 +11,49 @@ Point 3 is what makes a step safe to run twice. The move to the next state happe
 the item is still in the state that the step started from. A second run finds that the item
 has moved, and writes nothing.
 
-These are the first, thin versions of the steps. Real fetching, the real prompt and text
-chunks arrive in milestone M2. The states are in ``unshelve.contracts.states``.
+The fetch step reads the source with the best extractor (``unshelve.extract.registry``). The
+real prompt and the text chunks arrive later in milestone M2. The states are in
+``unshelve.contracts.states``.
 """
 
 import hashlib
 import math
+from datetime import timedelta
 from typing import Any
 
 import sqlalchemy as sa
+import structlog
 from pydantic import BaseModel
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from unshelve.contracts.dto import EmbeddingSpec, ForwardOrigin, MediaRef, SourceRef, TextPart
-from unshelve.contracts.enums import ChunkKind, EnrichState, JobKind
+from unshelve.contracts.dto import (
+    EmbeddingSpec,
+    Extracted,
+    ForwardOrigin,
+    MediaRef,
+    SourceRef,
+    TextPart,
+)
+from unshelve.contracts.enums import Actor, ChunkKind, EnrichState, JobKind
+from unshelve.contracts.errors import ExtractError, FetchError
 from unshelve.contracts.jobs import (
     EmbedItemPayload,
     EnrichItemPayload,
     FetchItemPayload,
     JobContext,
     Permanent,
+    Retry,
 )
-from unshelve.contracts.protocols import ExtractContext
+from unshelve.contracts.protocols import ExtractContext, Extractor
 from unshelve.contracts.states import check_enrich_change
-from unshelve.db.models import Capture, Chunk, EmbeddingSet, Item, ItemContent
+from unshelve.db.models import Capture, Chunk, EmbeddingSet, Event, Item, ItemContent
+from unshelve.extract.registry import FALLBACK, choose
 from unshelve.ingest import versions
 from unshelve.queue import store as queue
 from unshelve.queue.registry import registry
-from unshelve.testing.fakes import EchoExtractor
+
+log = structlog.get_logger()
 
 ENRICH_VERSION = 1
 PROMPT_VERSION = "skeleton-1"
@@ -50,6 +64,11 @@ SYSTEM_PROMPT = (
 MAX_MODEL_INPUT_CHARS = 8000
 MAX_TITLE_LENGTH = 200
 WORDS_PER_MINUTE = 220
+# A passing failure of the fetch (a timeout, a busy server) is tried again after 1, 2, 4 and
+# 8 minutes, or after the wait that the server asks for, but never later than one hour. The
+# last attempt keeps the saved text, so that no item waits for ever.
+FIRST_WAIT = timedelta(minutes=1)
+LONGEST_WAIT = timedelta(hours=1)
 
 
 class Card(BaseModel):
@@ -111,9 +130,47 @@ def _linked_now(item_id: int) -> tuple[sa.ScalarSelect[int], sa.ScalarSelect[int
     )
 
 
+def _address_to_open(read: versions.Source, canonical_url: str | None) -> str | None:
+    """The link as you saved it.
+
+    The canonical address is made for identity: it drops "www." and turns http into https. A
+    site can answer only on the form that you saved, so the fetch opens that form.
+    """
+    if canonical_url is None:
+        return None
+    saved = read.urls[0] if read.urls else None
+    return saved if saved and saved.lower().startswith(("http://", "https://")) else canonical_url
+
+
+def _wait(error: FetchError, attempts: int) -> timedelta:
+    """The pause before the next try of a passing failure."""
+    if error.retry_after is not None:
+        return min(timedelta(seconds=error.retry_after), LONGEST_WAIT)
+    return min(FIRST_WAIT * 2 ** (attempts - 1), LONGEST_WAIT)
+
+
+def _why_not_read(
+    extractor: Extractor, error: FetchError | ExtractError, attempt: int
+) -> dict[str, Any]:
+    """What the event log keeps about a source that could not be read."""
+    if isinstance(error, FetchError):
+        return {
+            "extractor": extractor.name,
+            "reason": error.reason,
+            "status": error.status,
+            "attempt": attempt,
+        }
+    return {"extractor": extractor.name, "reason": "no_text", "detail": str(error)[:300]}
+
+
 @registry.handler(JobKind.FETCH_ITEM)
 async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
-    """Read the source of the item and store its text."""
+    """Read the source of the item with the best extractor, and store its text.
+
+    A dead link, an address that the guard refuses, or a page without an article gives the
+    saved text instead, and the item is partial. A passing failure is tried again later, and
+    the last attempt also gives the saved text.
+    """
     services = ctx.services
     async with services.sessions() as session:
         item = await _item_waiting_for(session, payload.item_id, EnrichState.PENDING)
@@ -127,19 +184,30 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
         seen = (len(linked), max(capture.id for capture in linked) if linked else 0)
 
     source = SourceRef(
-        url=item.canonical_url,
+        url=_address_to_open(read, item.canonical_url),
         text=read.text,
         media=[MediaRef.model_validate(media) for media in read.media],
         forward_origin=ForwardOrigin.model_validate(read.forward_origin)
         if read.forward_origin
         else None,
     )
-    # For now, one extractor that returns the saved text itself. It does not open the link, so
-    # an item with a link is marked as partial. M2 chooses among real extractors here.
-    extractor = EchoExtractor()
-    extracted = await extractor.extract(
-        source, ExtractContext(fetcher=services.fetcher, blobs=services.blobs, llm=services.llm)
-    )
+    context = ExtractContext(fetcher=services.fetcher, blobs=services.blobs, llm=services.llm)
+    extractor = tried = choose(source)
+    extracted: Extracted | None = None
+    failure: FetchError | ExtractError | None = None
+    try:
+        extracted = await extractor.extract(source, context)
+    except FetchError as error:
+        if error.retryable and ctx.job.attempts < ctx.job.max_attempts:
+            detail = f"{error.reason} {error.status}" if error.status else error.reason
+            raise Retry(f"fetch: {detail}", after=_wait(error, ctx.job.attempts)) from error
+        failure = error
+    except ExtractError as error:
+        failure = error
+    why = _why_not_read(tried, failure, ctx.job.attempts) if failure is not None else None
+    if extracted is None:
+        extractor = FALLBACK
+        extracted = await FALLBACK.extract(source, context)
     found = {
         "title": extracted.title[:MAX_TITLE_LENGTH] if extracted.title else None,
         "author": extracted.author,
@@ -155,7 +223,8 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
             end=EnrichState.FETCHED,
             unchanged=sa.tuple_(*_linked_now(item.id)) == sa.tuple_(*seen),
             kind=extracted.kind,
-            partial=item.canonical_url is not None,
+            # The item has a link, but its text is only the saved text: the page was not read.
+            partial=source.url is not None and extractor is FALLBACK,
             extra_links=extracted.extra_links,
             # Each field is written on each run, also an empty one. After an edit, a field
             # of the old version must not stay.
@@ -177,6 +246,17 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
                     set_={**content, "fetched_at": sa.func.now()},
                 )
             )
+            if why is not None:
+                # The log of the item says why it has only the saved text.
+                session.add(
+                    Event(
+                        owner_id=item.owner_id,
+                        item_id=item.id,
+                        actor=Actor.WORKER,
+                        type="fetch_failed",
+                        payload=why,
+                    )
+                )
             await queue.enqueue(
                 session,
                 JobKind.ENRICH_ITEM,
@@ -185,6 +265,9 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
                 dedupe_key=f"item:{item.id}",
             )
         await session.commit()
+    if moved and why is not None:
+        # The reason and the code only: a link can hold private words in its path or query.
+        log.info("fetch.saved_text", item_id=item.id, **why)
 
 
 # --- Step 2: enrich ----------------------------------------------------------------------

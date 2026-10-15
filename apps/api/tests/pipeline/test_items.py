@@ -135,13 +135,15 @@ async def test_fetch_stores_the_text_and_hands_over_to_enrich(services: Services
 
     item = await _item(services.sessions, item_id)
     assert item.enrich_state is EnrichState.FETCHED
-    assert item.kind is ItemKind.NOTE
-    assert item.partial is True  # it has a link, and the link was not opened
+    # The pretend web of the tests has no page at the link. So the item has the saved text,
+    # and it is partial (tests/pipeline/test_fetch.py has the other cases).
+    assert item.kind is ItemKind.UNKNOWN
+    assert item.partial is True
     async with services.sessions() as db:
         content = await db.get_one(ItemContent, item_id)
     assert content.text == TEXT
-    assert (content.extractor, content.extractor_version) == ("echo", 1)
-    assert content.final_url == URL
+    assert (content.extractor, content.extractor_version) == ("saved_text", 1)
+    assert content.final_url is None
     assert len(content.content_hash) == 64
     jobs = await _jobs(services.sessions)
     assert [job.state for job in jobs[JobKind.FETCH_ITEM]] == [JobState.DONE]
