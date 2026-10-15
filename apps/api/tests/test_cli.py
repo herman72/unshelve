@@ -188,7 +188,7 @@ def test_extract_reads_a_video_with_the_youtube_extractor(
 def test_extract_says_when_no_extractor_reads_a_link(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    result = _run(monkeypatch, tmp_path, "extract", "https://example.com/paper.pdf")
+    result = _run(monkeypatch, tmp_path, "extract", "https://example.com/queue-data.zip")
 
     assert result.exit_code == 1
     assert "No extractor reads this link yet" in _plain(result.output)

@@ -50,8 +50,11 @@ class TestSavedTextExtractor(ExtractorConformance):
         (SourceRef(url="https://github.com/made-up-org/queue-kit"), "github"),
         (SourceRef(url="https://github.com/made-up-org/queue-kit/issues/7"), "article"),
         (SourceRef(text="a note without a link"), "saved_text"),
-        (SourceRef(url="https://example.com/paper.pdf"), "saved_text"),  # no reader yet
+        (SourceRef(url="https://example.com/paper.pdf"), "pdf"),
+        (SourceRef(url="https://example.com/paper.pdf?download=1"), "pdf"),
+        (SourceRef(url="https://github.com/made-up-org/queue-kit/blob/main/leases.pdf"), "pdf"),
         (SourceRef(url="https://arxiv.org/pdf/2610.01234v1"), "arxiv"),  # a PDF of arXiv
+        (SourceRef(url="https://arxiv.org/pdf/2610.01234v1.pdf"), "arxiv"),  # arXiv wins: 50
         (SourceRef(url="https://arxiv.org/list/cs.DB/recent"), "article"),
         (SourceRef(url="https://t.me/s/made_up_channel/42"), "telegram"),
         (SourceRef(url="https://t.me/made_up_channel"), "article"),

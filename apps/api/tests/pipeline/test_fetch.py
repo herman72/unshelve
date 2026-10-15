@@ -15,10 +15,12 @@ from unshelve.contracts.enums import Actor, CaptureSource, EnrichState, ItemKind
 from unshelve.contracts.errors import FetchError
 from unshelve.contracts.jobs import Services
 from unshelve.db.models import Event, Item, ItemContent, Job
+from unshelve.extract import pdf
 from unshelve.ingest import resolve, versions
 from unshelve.pipeline import items as steps
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
+from unshelve.reading import reading_minutes
 from unshelve.services import build_services
 from unshelve.testing.fakes import FakeFetcher
 
@@ -157,6 +159,49 @@ async def test_a_video_gets_its_length_as_its_minutes(services: Services) -> Non
     assert content.extractor == "youtube"
 
 
+PDF_LINK = "https://example.com/papers/leases.pdf"
+
+
+async def test_a_pdf_gives_its_text_and_its_facts_to_the_pipeline(services: Services) -> None:
+    paper = (PAGES / "pdf" / "paper.pdf").read_bytes()
+    _web(services).add(PDF_LINK, paper, content_type="application/pdf")
+    item_id = await _save(services.sessions, text=PDF_LINK, url=PDF_LINK)
+
+    await _run_all(services)
+
+    item = await _item(services.sessions, item_id)
+    assert (item.enrich_state, item.kind, item.partial) == (
+        EnrichState.READY,
+        ItemKind.PDF,
+        False,
+    )
+    assert (item.title, item.site) == ("Leases for Job Queues in Postgres", "example.com")
+    assert item.extra_links == ["https://example.org/queue-data", "https://example.com/queue-notes"]
+    content = await _content(services.sessions, item_id)
+    assert content is not None
+    assert content.extractor == "pdf"
+    assert content.text.startswith("Leases for Job Queues in Postgres\nA PDF document, 3 pages")
+    # The whole file was read, so the pipeline counts the minutes of its text.
+    assert item.est_minutes == reading_minutes(content.text)
+
+
+async def test_a_pdf_read_in_part_gets_the_minutes_of_all_its_pages(
+    services: Services, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pdf, "MAX_PAGES", 1)
+    paper = (PAGES / "pdf" / "paper.pdf").read_bytes()
+    _web(services).add(PDF_LINK, paper, content_type="application/pdf")
+    item_id = await _save(services.sessions, text=PDF_LINK, url=PDF_LINK)
+
+    await _run_all(services)
+
+    content = await _content(services.sessions, item_id)
+    assert content is not None
+    first_page = content.text.split("\n\n", 1)[1]
+    # 1 of 3 pages was read: the minutes of that page, three times.
+    assert (await _item(services.sessions, item_id)).est_minutes == 3 * reading_minutes(first_page)
+
+
 async def test_an_article_after_a_video_counts_its_minutes_again(services: Services) -> None:
     # The fetch step writes the minutes on each run, also None. So after an edit that changes
     # the link, the old length of a video does not stay on the item.
@@ -274,12 +319,12 @@ async def test_a_page_that_is_no_article_keeps_the_saved_text(services: Services
     assert event.payload["detail"].startswith("the page has only ")
 
 
-async def test_a_link_to_a_file_is_not_opened_yet(services: Services) -> None:
-    item_id = await _save(services.sessions, url="https://example.com/paper.pdf")
+async def test_a_link_to_a_file_that_no_extractor_reads_is_not_opened(services: Services) -> None:
+    item_id = await _save(services.sessions, url="https://example.com/queue-data.zip")
 
     await _worker(services).run_one()
 
-    assert _web(services).requested == []  # no extractor reads a PDF file yet
+    assert _web(services).requested == []  # no extractor reads a zip file
     assert (await _item(services.sessions, item_id)).partial is True
     assert await _events(services.sessions, item_id) == []
 
