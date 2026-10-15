@@ -7,6 +7,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+import structlog
+from structlog.testing import capture_logs
 
 from unshelve.contracts.dto import Extracted, FetchResult, SourceRef
 from unshelve.contracts.enums import ItemKind
@@ -14,7 +16,7 @@ from unshelve.contracts.errors import FetchError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.extract import arxiv as arxiv_module
 from unshelve.extract.article import GENERIC_SCORE, ArticleExtractor
-from unshelve.extract.arxiv import MIN_EXPAT, ArxivExtractor
+from unshelve.extract.arxiv import MIN_EXPAT, ArxivExtractor, safe_expat
 from unshelve.testing.conformance import ExtractorCase, ExtractorConformance
 from unshelve.testing.fakes import FakeFetcher, FakeLLM, InMemoryBlobStore
 
@@ -42,6 +44,12 @@ class Fetcher(FakeFetcher):
     async def get(self, url: str, *, max_bytes: int, accept: Sequence[str]) -> FetchResult:
         self.asked.append(url)
         return await super().get(url, max_bytes=max_bytes, accept=accept)
+
+
+@pytest.fixture(autouse=True)
+def safe_parser(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The tests of the behaviour do not depend on the expat of this computer: CI has 2.6.3."""
+    monkeypatch.setattr(pyexpat, "version_info", (2, 8, 5))
 
 
 def _context(fetcher: FakeFetcher) -> ExtractContext:
@@ -236,23 +244,29 @@ async def test_a_paper_that_the_api_does_not_know_ends_with_the_404_of_its_page(
     assert (caught.value.status, caught.value.retryable) == (404, False)
 
 
-def test_the_xml_parser_is_new_enough_to_refuse_entity_expansion() -> None:
+def test_only_an_expat_of_2_7_2_or_newer_counts_as_safe() -> None:
     # The Python documentation: "Expat versions lower than 2.7.2 may be vulnerable to the
     # 'billion laughs', 'quadratic blowup' and 'large tokens' vulnerabilities".
     assert MIN_EXPAT == (2, 7, 2)
-    assert pyexpat.version_info >= MIN_EXPAT
+    assert safe_expat((2, 7, 2)) is True
+    assert safe_expat((2, 8, 5)) is True  # the worker, in October 2026
+    assert safe_expat((2, 6, 3)) is False  # the Python of CI, in October 2026
 
 
 async def test_with_an_older_parser_the_xml_is_not_read_and_the_page_is(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(arxiv_module, "_SAFE_PARSER", False)
+    monkeypatch.setattr(pyexpat, "version_info", (2, 6, 3))
+    # A new logger: one that an earlier test configured and cached would not be captured.
+    monkeypatch.setattr(arxiv_module, "log", structlog.get_logger())
     fetcher = Fetcher()
 
-    found = await _extract(fetcher)
+    with capture_logs() as logs:
+        found = await _extract(fetcher)
 
     assert fetcher.asked == [PAGE]
     assert found.kind is ItemKind.PAPER
+    assert [entry["event"] for entry in logs] == ["arxiv.old_expat"]
 
 
 async def test_an_error_entry_of_the_api_gives_way_to_the_page() -> None:
