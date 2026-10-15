@@ -51,6 +51,8 @@ class TestSavedTextExtractor(ExtractorConformance):
         (SourceRef(url="https://github.com/made-up-org/queue-kit/issues/7"), "article"),
         (SourceRef(text="a note without a link"), "saved_text"),
         (SourceRef(url="https://example.com/paper.pdf"), "saved_text"),  # no reader yet
+        (SourceRef(url="https://arxiv.org/pdf/2610.01234v1"), "arxiv"),  # a PDF of arXiv
+        (SourceRef(url="https://arxiv.org/list/cs.DB/recent"), "article"),
         (SourceRef(), "saved_text"),  # a photo without a caption: nobody claims it
     ],
 )
