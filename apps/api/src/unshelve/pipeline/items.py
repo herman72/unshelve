@@ -62,6 +62,7 @@ from unshelve.enrich.card import (
 )
 from unshelve.extract.registry import FALLBACK, choose
 from unshelve.ingest import versions
+from unshelve.pipeline.files import StoredFiles
 from unshelve.queue import store as queue
 from unshelve.queue.registry import registry
 from unshelve.reading import reading_minutes
@@ -191,7 +192,13 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
         if read.forward_origin
         else None,
     )
-    context = ExtractContext(fetcher=services.fetcher, blobs=services.blobs, llm=services.llm)
+    context = ExtractContext(
+        fetcher=services.fetcher,
+        blobs=services.blobs,
+        llm=services.llm,
+        # A file of the message is downloaded once; later runs read its copy.
+        files=StoredFiles(services.files, services.blobs, services.sessions, item.owner_id),
+    )
     extractor = tried = choose(source)
     extracted: Extracted | None = None
     failure: FetchError | ExtractError | None = None

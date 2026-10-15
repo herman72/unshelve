@@ -13,6 +13,7 @@ from unshelve.contracts.dto import (
     FetchResult,
     ImagePart,
     LLMResult,
+    MediaRef,
     SourceRef,
     TextPart,
 )
@@ -77,6 +78,16 @@ class Embedder(Protocol):
     async def embed_query(self, text: str) -> list[float]: ...
 
 
+class FileSource(Protocol):
+    """The bytes of a file of a saved message: a document or a photo that you sent.
+
+    Raises ``FetchError``: ``unsupported`` for a file that it cannot get, ``too_large`` over
+    ``max_bytes``, and the reasons of a fetch for a failure of the network.
+    """
+
+    async def read(self, media: MediaRef, *, max_bytes: int) -> bytes: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ExtractContext:
     """What an extractor may use. It never opens a socket itself."""
@@ -84,6 +95,8 @@ class ExtractContext:
     fetcher: Fetcher
     blobs: BlobStore
     llm: LLMProvider
+    # The files of the message. None where no file can be read: the CLI reads links only.
+    files: FileSource | None = None
 
 
 class Extractor(Protocol):

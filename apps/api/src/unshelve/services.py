@@ -12,6 +12,7 @@ from unshelve.contracts.dto import EmbeddingSpec
 from unshelve.contracts.jobs import Services
 from unshelve.contracts.protocols import Embedder, Fetcher
 from unshelve.net.fetcher import LiveFetcher
+from unshelve.net.telegram_files import TelegramFiles
 from unshelve.providers.claude import ClaudeLLM
 from unshelve.providers.ledger import CachedLLM
 from unshelve.providers.voyage import VoyageEmbedder, voyage_spec
@@ -38,6 +39,12 @@ def build_services(settings: Settings, sessions: async_sessionmaker[AsyncSession
         # it does not compete with the bot process for them.
         bot=(
             Bot(settings.telegram_bot_token.get_secret_value())
+            if settings.telegram_bot_token is not None
+            else None
+        ),
+        # The files that you send come from the Bot API, with the same token.
+        files=(
+            TelegramFiles(settings.telegram_bot_token.get_secret_value())
             if settings.telegram_bot_token is not None
             else None
         ),
@@ -89,3 +96,5 @@ async def close_services(services: Services) -> None:
         await services.embedder.aclose()
     if services.bot is not None:
         await services.bot.session.close()
+    if isinstance(services.files, TelegramFiles):
+        await services.files.aclose()
