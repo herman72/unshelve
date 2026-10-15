@@ -28,6 +28,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 14 | [The fetcher and its guard](14-fetcher-and-guard.md) | How a saved link is opened without opening a door into your own network | |
 | 15 | [Reading an article](15-article-extractor.md) | How the bytes of a page become the clean text of its article, also in Persian | |
 | 16 | [The fetch step](16-fetch-step.md) | How each saved link gets the best reader, a second try, or the saved text | |
+| 17 | [Asking the model](17-model-card.md) | How the model writes the card of an item, why the same question is paid one time, and the daily budget | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 

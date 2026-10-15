@@ -183,4 +183,4 @@ The lesson: a retry needs an end, and the end needs a plan for the thing that wa
 - [Retry-After](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Retry-After), MDN Web Docs. It shows the two forms of the header: a number of seconds, and a date.
 - [Exponential backoff](https://en.wikipedia.org/wiki/Exponential_backoff), Wikipedia. Read the first part: why the wait doubles after each failure.
 
-Previous: [15. Reading an article](15-article-extractor.md) · Back to the [list of notes](README.md)
+Previous: [15. Reading an article](15-article-extractor.md) · Next: [17. Asking the model](17-model-card.md)
