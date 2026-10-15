@@ -53,6 +53,8 @@ class TestSavedTextExtractor(ExtractorConformance):
         (SourceRef(url="https://example.com/paper.pdf"), "saved_text"),  # no reader yet
         (SourceRef(url="https://arxiv.org/pdf/2610.01234v1"), "arxiv"),  # a PDF of arXiv
         (SourceRef(url="https://arxiv.org/list/cs.DB/recent"), "article"),
+        (SourceRef(url="https://t.me/s/made_up_channel/42"), "telegram"),
+        (SourceRef(url="https://t.me/made_up_channel"), "article"),
         (SourceRef(), "saved_text"),  # a photo without a caption: nobody claims it
     ],
 )
