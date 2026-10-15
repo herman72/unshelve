@@ -71,6 +71,37 @@ async def test_a_request_cannot_leave_the_host_of_the_service(path: str) -> None
     assert seen == []
 
 
+async def test_a_get_goes_to_a_path_of_the_service_without_a_body() -> None:
+    transport, seen = _recording(body=b"%PDF-1.7 made-up bytes")
+
+    answer = await _client(transport).get("/file/report.pdf")
+
+    assert (answer.status, answer.body) == (200, b"%PDF-1.7 made-up bytes")
+    [request] = seen
+    assert (request.method, str(request.url)) == ("GET", "https://api.example.com/file/report.pdf")
+    assert request.content == b""
+
+
+async def test_a_get_counts_its_answer_against_the_limit_too() -> None:
+    transport, _ = _recording(body=b"x" * 10_001)
+
+    with pytest.raises(ServiceUnreachableError) as caught:
+        await _client(transport, max_bytes=10_000).get("/file/large.pdf")
+
+    assert caught.value.reason == "too_large"
+
+
+async def test_the_error_of_a_wrong_path_does_not_repeat_the_path() -> None:
+    # The path of a service can hold a secret: the bot token of Telegram is in the path.
+    transport, seen = _recording()
+
+    with pytest.raises(ValueError, match="not a path") as caught:
+        await _client(transport).get("bot123:made-up-secret/getFile")
+
+    assert "made-up-secret" not in str(caught.value)
+    assert seen == []
+
+
 @pytest.mark.parametrize("base", ["http://api.example.com", "api.example.com", "https://"])
 def test_a_service_needs_an_https_address(base: str) -> None:
     with pytest.raises(ValueError, match="https"):
