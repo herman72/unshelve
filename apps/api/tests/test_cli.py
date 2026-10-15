@@ -31,6 +31,7 @@ from unshelve.contracts.protocols import ExtractContext
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import Capture, ItemKey, Job, LLMCall
 from unshelve.extract.article import ArticleExtractor
+from unshelve.extract.youtube import YouTubeExtractor
 from unshelve.ingest import resolve
 from unshelve.net.fetcher import LiveFetcher
 from unshelve.providers.claude import ClaudeLLM
@@ -138,6 +139,7 @@ def test_extract_prints_the_facts_and_the_start_of_the_text(
 
     assert result.exit_code == 0
     lines = _plain(result.output).splitlines()
+    assert "Reader: article" in lines
     assert "Title:  Queues in Postgres" in lines
     assert "Site:   blog.example.com · language en · date 2026-09-30" in lines
     assert any(line.startswith("Text:   300 words, read in ") for line in lines)
@@ -155,7 +157,41 @@ def test_extract_says_why_a_page_is_no_article(
     result = _run(monkeypatch, tmp_path, "extract", "https://app.example.com/")
 
     assert result.exit_code == 1
-    assert "No article: the page has only 47 characters of text." in _plain(result.output)
+    assert "Nothing read (article): the page has only 47 characters of text." in _plain(
+        result.output
+    )
+
+
+def test_extract_reads_a_video_with_the_youtube_extractor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    async def pretend(self: YouTubeExtractor, ref: SourceRef, ctx: ExtractContext) -> Extracted:
+        return Extracted(
+            kind=ItemKind.VIDEO,
+            text="Job queues in Postgres\nA video by Made-up Channel on YouTube, 31 minutes.",
+            title="Job queues in Postgres",
+            author="Made-up Channel",
+            site="youtube.com",
+            minutes=31,
+        )
+
+    monkeypatch.setattr(YouTubeExtractor, "extract", pretend)
+
+    result = _run(monkeypatch, tmp_path, "extract", "https://youtu.be/dEmOvIdEo01")
+
+    assert result.exit_code == 0, result.output
+    lines = _plain(result.output).splitlines()
+    assert "Reader: youtube" in lines
+    assert "Length: 31 min" in lines
+
+
+def test_extract_says_when_no_extractor_reads_a_link(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    result = _run(monkeypatch, tmp_path, "extract", "https://example.com/paper.pdf")
+
+    assert result.exit_code == 1
+    assert "No extractor reads this link yet" in _plain(result.output)
 
 
 def test_llm_check_prints_the_answer_and_its_price(
