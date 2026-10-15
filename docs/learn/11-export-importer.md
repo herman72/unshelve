@@ -207,10 +207,10 @@ A third way was the plan before the test with real exports: read the JSON export
 - **Who owns the format?** Telegram does, and it can change it. So the reader is strict, the tests use real pages, and an unknown structure gives a clear error or a count. It never gives a silent wrong row.
 - **Is it safe to run two times?** Yes. The key of a capture makes the second run store nothing.
 - **What if it stops in the middle?** The importer saves 200 posts in one transaction, then the next 200. A post and its job are saved together. After a stop, you run the command again.
-- **Is the input trusted?** No. The page is data. The path of a file is text from the page, so the code that opens the file later must make sure that the path stays inside the folder of the export.
+- **Is the input trusted?** No. The page is data. The path of a file is text from the page, so the code that opens the file must make sure that the path stays inside the folder of the export ([note 27](27-export-files.md), part 3).
 - **Can the tests fail?** I broke the code in 72 places, one at a time. The tests missed 8. Three of them showed code that no real export needs, and I removed that code. Three showed a missing test, and I added it. Two changed nothing that a user can see. Now the tests find each of the 69 mistakes of the final list.
 - **What is not done:**
-  - The files of an export are not copied. A capture holds the path of the file inside the export folder. Keep the folder until a later step copies the files ([issue #57](https://github.com/herman72/unshelve/issues/57)).
+  - The files of an export were not copied. Since [#85](https://github.com/herman72/unshelve/pull/85), the import copies them, and a second run gives the posts of an earlier import their files ([note 27](27-export-files.md)).
   - The JSON export has no reader. No real JSON export was seen ([issue #58](https://github.com/herman72/unshelve/issues/58)).
   - The album rule was not seen on a real export yet. It follows the code of Telegram Desktop and the test with the bot.
   - The export of Telegram for macOS was seen with five simple posts. Use Telegram Lite for an export when you can.

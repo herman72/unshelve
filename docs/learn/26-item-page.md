@@ -149,4 +149,4 @@ The build stops at `/items/[id]`: "Next.js encountered URL data `usePathname()` 
 - [usePathname](https://nextjs.org/docs/app/api-reference/functions/use-pathname), Next.js. Read the part "Cache Components": it is the rule that stopped the build.
 - [dir](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Global_attributes/dir), MDN. Read the value `auto`, and why it is the choice for text from users.
 
-Previous: [25. A file that you send](25-files-you-send.md) · Back to the [list of notes](README.md)
+Previous: [25. A file that you send](25-files-you-send.md) · Next: [27. The files of an export](27-export-files.md) · Back to the [list of notes](README.md)

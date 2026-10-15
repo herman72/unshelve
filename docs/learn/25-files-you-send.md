@@ -84,7 +84,7 @@ In the stack, the store is the Docker volume `blobs`. The files stay when a cont
 | A PDF with a link to YouTube or arXiv in the caption | the extractor for that site wins (score 50 over 30) |
 | A photo, a video, another document | not read yet; the images come with #18 |
 | More than 20 MB | the Bot API gives no file over 20 MB: the item keeps its caption, and no request is made |
-| A file of an export | not read yet (#57): it has a path in the export, not an id of the Bot API |
+| A file of an export | read from the copy that the import made ([note 27](27-export-files.md)) |
 | A worker without a bot token | only copies that exist are read; a new file keeps its caption |
 | 429, 503, a timeout | the fetch step tries again later, with the wait that Telegram asks for |
 

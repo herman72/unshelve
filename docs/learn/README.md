@@ -38,6 +38,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 24 | [Reading a PDF file](24-pdf-file.md) | How a PDF becomes text in a process of its own, how its limits were measured, and how Persian glyph forms become letters again | |
 | 25 | [A file that you send](25-files-you-send.md) | How the worker downloads a file from Telegram once, keeps a copy, and keeps the bot token out of each log line and error | |
 | 26 | [The page of an item](26-item-page.md) | How the web app shows one item, sends it back to the start, keeps Persian right to left, and is tested against a pretend API | |
+| 27 | [The files of an export](27-export-files.md) | How the import copies the files of an export, why a file is known by its post and not by its path, and how a path is kept inside its folder | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 
