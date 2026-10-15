@@ -12,6 +12,7 @@ from unshelve.enrich.card import (
     language_of,
     prompt_text,
     tags_of,
+    title_of,
 )
 
 
@@ -60,6 +61,28 @@ def test_a_long_text_is_cut_after_a_paragraph_and_says_so() -> None:
 def test_the_system_prompt_frames_the_text_as_data() -> None:
     assert "<saved_text>" in SYSTEM_PROMPT
     assert "data" in SYSTEM_PROMPT
+
+
+def test_the_system_prompt_asks_for_words_as_title_and_topics_as_tags() -> None:
+    # The two faults of enrich-1 with Haiku 5.5 (#72).
+    assert "The title is words, never a link." in SYSTEM_PROMPT
+    assert "A tag never names the source" in SYSTEM_PROMPT
+
+
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("  Job queues  in\nPostgres ", "Job queues in Postgres"),
+        ("https://openai.com/index/scaling-storage/", None),
+        ("HTTP://EXAMPLE.COM/A", None),
+        ("www.example.com/a", None),
+        ("HTTP/2 explained", "HTTP/2 explained"),  # starts with the letters, but is no link
+        ("صف کارها در پستگرس", "صف کارها در پستگرس"),
+        ("   ", None),
+    ],
+)
+def test_a_title_that_is_a_link_is_no_title(title: str, expected: str | None) -> None:
+    assert title_of(_card(title=title)) == expected
 
 
 @pytest.mark.parametrize(

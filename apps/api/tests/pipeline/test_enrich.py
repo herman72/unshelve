@@ -158,6 +158,19 @@ async def test_the_card_of_the_model_is_written(services: Services) -> None:
     assert await _events(services.sessions, item_id) == []
 
 
+async def test_a_title_that_is_a_link_does_not_reach_the_item(services: Services) -> None:
+    # Haiku 5.5 gave the link itself as the title of a bare link (#72).
+    link = "https://openai.com/index/scaling-storage-one-billion-users/"
+    services = _with_model(services, _answers(CARD.model_copy(update={"title": link})))
+    item_id = await _save(services.sessions, text=link)
+
+    await _run_all(services)
+
+    item = await _item(services.sessions, item_id)
+    assert (item.enrich_state, item.title) == (EnrichState.READY, None)
+    assert item.summary == CARD.summary  # the rest of the card is written
+
+
 async def test_a_second_run_with_the_same_text_asks_the_model_no_second_time(
     services: Services,
 ) -> None:
