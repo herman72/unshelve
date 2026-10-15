@@ -1,0 +1,156 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/MadeUpQueryId</id>
+  <title>arXiv Query: search_query=&amp;id_list=2610.01234&amp;start=0&amp;max_results=10</title>
+  <updated>2026-10-15T16:10:37Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=&amp;start=0&amp;max_results=10&amp;id_list=2610.01234" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>10</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2610.01234v1</id>
+    <title>A Paper of a Large Team</title>
+    <updated>2026-09-01T00:00:00Z</updated>
+    <link href="https://arxiv.org/abs/2610.01234v1" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2610.01234v1" rel="related" type="application/pdf" title="pdf"/>
+    <summary>A short abstract.</summary>
+    <category term="hep-ex" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-09-01T00:00:00Z</published>
+    <arxiv:primary_category term="hep-ex"/>
+    <author>
+      <name>Author 01 Example</name>
+    </author>
+    <author>
+      <name>Author 02 Example</name>
+    </author>
+    <author>
+      <name>Author 03 Example</name>
+    </author>
+    <author>
+      <name>Author 04 Example</name>
+    </author>
+    <author>
+      <name>Author 05 Example</name>
+    </author>
+    <author>
+      <name>Author 06 Example</name>
+    </author>
+    <author>
+      <name>Author 07 Example</name>
+    </author>
+    <author>
+      <name>Author 08 Example</name>
+    </author>
+    <author>
+      <name>Author 09 Example</name>
+    </author>
+    <author>
+      <name>Author 10 Example</name>
+    </author>
+    <author>
+      <name>Author 11 Example</name>
+    </author>
+    <author>
+      <name>Author 12 Example</name>
+    </author>
+    <author>
+      <name>Author 13 Example</name>
+    </author>
+    <author>
+      <name>Author 14 Example</name>
+    </author>
+    <author>
+      <name>Author 15 Example</name>
+    </author>
+    <author>
+      <name>Author 16 Example</name>
+    </author>
+    <author>
+      <name>Author 17 Example</name>
+    </author>
+    <author>
+      <name>Author 18 Example</name>
+    </author>
+    <author>
+      <name>Author 19 Example</name>
+    </author>
+    <author>
+      <name>Author 20 Example</name>
+    </author>
+    <author>
+      <name>Author 21 Example</name>
+    </author>
+    <author>
+      <name>Author 22 Example</name>
+    </author>
+    <author>
+      <name>Author 23 Example</name>
+    </author>
+    <author>
+      <name>Author 24 Example</name>
+    </author>
+    <author>
+      <name>Author 25 Example</name>
+    </author>
+    <author>
+      <name>Author 26 Example</name>
+    </author>
+    <author>
+      <name>Author 27 Example</name>
+    </author>
+    <author>
+      <name>Author 28 Example</name>
+    </author>
+    <author>
+      <name>Author 29 Example</name>
+    </author>
+    <author>
+      <name>Author 30 Example</name>
+    </author>
+    <author>
+      <name>Author 31 Example</name>
+    </author>
+    <author>
+      <name>Author 32 Example</name>
+    </author>
+    <author>
+      <name>Author 33 Example</name>
+    </author>
+    <author>
+      <name>Author 34 Example</name>
+    </author>
+    <author>
+      <name>Author 35 Example</name>
+    </author>
+    <author>
+      <name>Author 36 Example</name>
+    </author>
+    <author>
+      <name>Author 37 Example</name>
+    </author>
+    <author>
+      <name>Author 38 Example</name>
+    </author>
+    <author>
+      <name>Author 39 Example</name>
+    </author>
+    <author>
+      <name>Author 40 Example</name>
+    </author>
+    <author>
+      <name>Author 41 Example</name>
+    </author>
+    <author>
+      <name>Author 42 Example</name>
+    </author>
+    <author>
+      <name>Author 43 Example</name>
+    </author>
+    <author>
+      <name>Author 44 Example</name>
+    </author>
+    <author>
+      <name>Author 45 Example</name>
+    </author>
+  </entry>
+</feed>
