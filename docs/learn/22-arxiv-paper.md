@@ -58,7 +58,17 @@ The worker runs one job at a time, so there is one connection at a time.
 
 XML can carry traps. One is the "billion laughs": a small entity that expands into gigabytes. Another is an entity that makes the parser read a local file. The standard library of Python reads XML with expat. The Python documentation says: "Expat versions lower than 2.7.2 may be vulnerable to the 'billion laughs', 'quadratic blowup' and 'large tokens' vulnerabilities". It also says that expat, by default, opens no local file and no network connection.
 
-So a test checks that the expat in use is 2.7.2 or newer, and a second test sends a billion laughs: the parser refuses it, and the extractor reads the page. The worker has expat 2.8.5. A comment at the parser says why it is safe; the linter's warning there is silenced on purpose.
+So the extractor checks the version of expat each time. With 2.7.2 or newer, it parses the XML. With an older one, it reads the page, and the worker writes a warning (`arxiv.old_expat`) to its log. A test checks the rule, and a second test sends a billion laughs: the parser refuses it, and the extractor reads the page. A comment at the parser says why it is safe; the linter's warning there is silenced on purpose.
+
+The version is a fact of the computer, not of the code:
+
+| Where | Python | expat |
+|---|---|---|
+| your worker (Docker) | 3.13.16 | 2.8.5 |
+| a Mac with Homebrew | 3.13.1 | 2.7.4 |
+| CI (the Python that uv downloads) | 3.13.9 | 2.6.3 |
+
+My first tests expected the API on each computer, and they failed on CI: there the guard did its work and read the page. The tests now set the version themselves, and they pass with the Python of CI too.
 
 ## 5. The minutes of a paper
 
@@ -79,7 +89,8 @@ The PDF is the next step for the whole text of a paper, in package M2-2h.
 ## What a senior engineer checks here
 
 - **Does the code keep the terms of a service?** Three seconds for this host: a test of the pacer, and a test of the pacer that the fetcher really builds.
-- **Is XML from the internet read safely?** expat 2.7.2 or newer: a test checks the version, and a second test sends a billion laughs. The worker has 2.8.5.
+- **Is XML from the internet read safely?** Only with expat 2.7.2 or newer, checked each time; else the page, and a warning in the log. A test sends a billion laughs.
+- **Does a test depend on the computer that runs it?** My first tests did: they passed on a Mac and failed on CI, which has an older expat. A test that sets the fact itself passes everywhere.
 - **Is a number in the text stable?** The first date, not the date of the latest version: a test.
 - **Is a long list of authors cut?** 30 names in the text, 3 as the author: a test with 45 authors.
 
