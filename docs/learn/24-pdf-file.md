@@ -186,4 +186,4 @@ Two tests fail: `test_a_persian_pdf_gives_letters_and_not_the_forms_of_its_glyph
 - [Extract Text from a PDF](https://pypdf.readthedocs.io/en/stable/user/extract-text.html), pypdf. Read the part "Why Text Extraction is hard": it lists the marks of the format in part 3.
 - [Subprocesses](https://docs.python.org/3/library/asyncio-subprocess.html), Python. Read `communicate()` and `kill()`: the worker uses both, and the page says why `communicate()` avoids a deadlock.
 
-Previous: [23. Reading a post on Telegram](23-telegram-post.md) · Back to the [list of notes](README.md)
+Previous: [23. Reading a post on Telegram](23-telegram-post.md) · Next: [25. A file that you send](25-files-you-send.md) · Back to the [list of notes](README.md)
