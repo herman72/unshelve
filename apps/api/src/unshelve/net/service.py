@@ -84,12 +84,20 @@ class ServiceClient:
 
     async def post_json(self, path: str, body: object) -> ServiceAnswer:
         """Send ``body`` as JSON to ``path`` of the service, and read the whole answer."""
+        return await self._send("POST", path, body)
+
+    async def get(self, path: str) -> ServiceAnswer:
+        """Ask for ``path`` of the service, and read the whole answer."""
+        return await self._send("GET", path, None)
+
+    async def _send(self, method: str, path: str, body: object) -> ServiceAnswer:
         if not path.startswith("/") or path.startswith("//"):
-            raise ValueError(f"not a path of the service: {path!r}")
+            # Without the path: the path of a service can hold a secret (the bot token).
+            raise ValueError("not a path of the service: a path starts with one '/'")
         try:
             async with (
                 asyncio.timeout(self._timeout),
-                self._client.stream("POST", path, json=body) as response,
+                self._client.stream(method, path, json=body) as response,
             ):
                 data = await read_body(
                     response.aiter_raw(),
