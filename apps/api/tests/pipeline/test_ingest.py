@@ -16,12 +16,12 @@ from unshelve.contracts.enums import CaptureSource, EnrichState, JobKind, JobSta
 from unshelve.contracts.jobs import IngestCapturePayload, Services
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.db.models import Capture, Item, ItemContent, Job
+from unshelve.extract.saved_text import SavedTextExtractor
 from unshelve.ingest import resolve
 from unshelve.queue import store as queue
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
 from unshelve.services import build_services
-from unshelve.testing.fakes import EchoExtractor
 
 NOON = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
 CHAT = -1001234567890
@@ -241,10 +241,10 @@ async def test_a_fetch_that_read_an_old_version_writes_nothing(
     await _arrive(services.sessions, _post(10, text="The first text"))
     worker = _worker(services)
     assert await worker.run_one()  # the ingest job: the item exists, and its fetch job waits
-    extract = EchoExtractor.extract
+    extract = SavedTextExtractor.extract
 
     async def an_edit_arrives_during_the_fetch(
-        self: EchoExtractor, source: SourceRef, context: ExtractContext
+        self: SavedTextExtractor, source: SourceRef, context: ExtractContext
     ) -> Extracted:
         result = await extract(self, source, context)
         if source.text == "The first text":
@@ -258,7 +258,7 @@ async def test_a_fetch_that_read_an_old_version_writes_nothing(
                 await db.commit()
         return result
 
-    monkeypatch.setattr(EchoExtractor, "extract", an_edit_arrives_during_the_fetch)
+    monkeypatch.setattr(SavedTextExtractor, "extract", an_edit_arrives_during_the_fetch)
 
     await _run_all(worker)
 
