@@ -86,6 +86,9 @@ _FILE_NAME = re.compile(
 # Names that a computer gives to its user. They are not the name of a person.
 _NO_AUTHORS = frozenset({"administrator", "admin", "user", "owner", "author", "unknown"})
 _PDF_DATE = re.compile(r"(?:D:)?(\d{4})(\d{2})(\d{2})")
+# A file of a repository: GitHub shows it in a page of its own ("/blob/"), and "/raw/" gives
+# the bytes.
+_GITHUB_FILE = re.compile(r"(https?://(?:www\.)?github\.com/[^/?#]+/[^/?#]+)/blob/", re.IGNORECASE)
 _MONTHS = (
     "January", "February", "March", "April", "May", "June",
     "July", "August", "September", "October", "November", "December",
@@ -136,7 +139,8 @@ async def read_pdf(url: str, ctx: ExtractContext) -> Extracted:
     """
     # A FetchError goes up unchanged: the fetch step decides between "try again" and "keep
     # the saved text".
-    file = await ctx.fetcher.get(url, max_bytes=MAX_PDF_BYTES, accept=list(ACCEPT))
+    address = _GITHUB_FILE.sub(r"\1/raw/", url, count=1)
+    file = await ctx.fetcher.get(address, max_bytes=MAX_PDF_BYTES, accept=list(ACCEPT))
     # Each PDF file has the mark "%PDF-" in its first 1,024 bytes.
     if b"%PDF-" not in file.body[:1024]:
         raise ExtractError("the file is not a PDF")

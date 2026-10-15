@@ -181,6 +181,19 @@ async def test_a_file_without_a_type_is_read_by_its_first_bytes() -> None:
     assert found.title == "Leases for Job Queues in Postgres"
 
 
+async def test_a_file_in_a_repository_on_github_is_asked_for_as_a_raw_file() -> None:
+    # The address with "/blob/" opens a page that shows the file; "/raw/" gives the file.
+    page = "https://github.com/made-up-org/queue-kit/blob/main/docs/leases.pdf"
+    raw = "https://github.com/made-up-org/queue-kit/raw/main/docs/leases.pdf"
+    fetcher = Fetcher(None)
+    fetcher.add(raw, (FIXTURES / "paper.pdf").read_bytes(), "application/octet-stream")
+
+    found = await _extract(fetcher, page)
+
+    assert found.title == "Leases for Job Queues in Postgres"
+    assert [url for url, *_ in fetcher.asked] == [raw]
+
+
 async def test_a_file_that_limits_only_printing_is_read() -> None:
     found = await _extract(Fetcher("owner_password.pdf"))
 
