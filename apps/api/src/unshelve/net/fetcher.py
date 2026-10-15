@@ -153,7 +153,7 @@ class LiveFetcher:
                         address = self._checked(str(address.join(location)), url)
                         continue
                     if not 200 <= status < 300:
-                        wait = _seconds(_header(response.headers, "retry-after"))
+                        wait = retry_after_seconds(_header(response.headers, "retry-after"))
                         raise FetchError("http_error", url, status=status, retry_after=wait)
                     content_type = _header(response.headers, "content-type")
                     if not accepts(content_type, accept):
@@ -247,7 +247,7 @@ def _header(headers: list[tuple[bytes, bytes]], name: str) -> str | None:
     return ", ".join(found) if found else None
 
 
-def _seconds(retry_after: str | None) -> float | None:
+def retry_after_seconds(retry_after: str | None) -> float | None:
     """The seconds of "Retry-After": a number, or a date."""
     if retry_after is None:
         return None

@@ -3,7 +3,8 @@
 A module that imports an HTTP client could open a saved link without the guard. This test
 reads the imports of each module of the package, and allows an HTTP client only in
 ``unshelve.net``. Libraries that talk to one fixed service (aiogram for Telegram, the SDK of
-Anthropic) are not HTTP clients for this rule: they open no saved link.
+Anthropic) are not HTTP clients for this rule: they open no saved link. Our own client for a
+fixed service, ``ServiceClient`` (ADR 0012), is in ``unshelve.net`` too.
 """
 
 import ast
