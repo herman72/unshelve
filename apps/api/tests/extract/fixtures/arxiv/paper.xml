@@ -1,0 +1,38 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/MadeUpQueryId</id>
+  <title>arXiv Query: search_query=&amp;id_list=2610.01234&amp;start=0&amp;max_results=10</title>
+  <updated>2026-10-15T16:10:37Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=&amp;start=0&amp;max_results=10&amp;id_list=2610.01234" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>10</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2610.01234v2</id>
+    <title>A Job Queue on One Postgres Table: Leases,
+  Retries and SKIP LOCKED</title>
+    <updated>2026-10-08T12:00:00Z</updated>
+    <link href="https://arxiv.org/abs/2610.01234v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2610.01234v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>We describe a job queue that keeps each job in one row of a Postgres table. Workers
+take jobs with FOR UPDATE SKIP LOCKED, so that two workers never take the same job. A
+lease with a time limit frees the job of a worker that dies. Code: https://github.com/example/queue-paper.</summary>
+    <category term="cs.DB" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.DC" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-10-01T09:30:00Z</published>
+    <arxiv:comment>12 pages, 3 figures. Slides at https://example.com/queue-slides.pdf</arxiv:comment>
+    <arxiv:primary_category term="cs.DB"/>
+    <author>
+      <name>Ada Example</name>
+    </author>
+    <author>
+      <name>Bo Example</name>
+    </author>
+    <author>
+      <name>Cy Example</name>
+    </author>
+    <author>
+      <name>Di Example</name>
+    </author>
+  </entry>
+</feed>
