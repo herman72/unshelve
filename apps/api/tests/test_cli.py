@@ -1,6 +1,7 @@
 import asyncio
 import dataclasses
 import re
+import shutil
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -11,7 +12,7 @@ import pytest
 import sqlalchemy as sa
 from typer.testing import CliRunner, Result
 
-from tests.ingest.support import DESKTOP, MACOS, MADE_UP
+from tests.ingest.support import DESKTOP, MACOS, MADE_UP, made_up_with_files
 from unshelve import __version__
 from unshelve.auth import store as auth_store
 from unshelve.bot import cards
@@ -445,6 +446,8 @@ def test_import_stores_the_posts_of_an_export(
         "From 2026-10-13 22:40 to 2026-10-13 22:44, clock time of Europe/Helsinki.",
         "Not imported: 1 x service message.",
         "Stored 5 new posts. 0 were stored already.",
+        # The recorded export names a photo, and its folder does not have it (no media).
+        "Files: 0 copied, 1 not in the folder.",
     ]
     stored = _stored(private_database_url)
     assert [(chat, message) for chat, message, _ in stored] == [
@@ -466,8 +469,8 @@ def test_import_is_safe_to_run_again_and_with_the_export_of_the_other_app(
         monkeypatch, tmp_path, private_database_url, MACOS, "--timezone", "Europe/Helsinki"
     )
 
-    assert again.stdout.splitlines()[-1] == "Stored 0 new posts. 5 were stored already."
-    assert other_app.stdout.splitlines()[-1] == "Stored 0 new posts. 5 were stored already."
+    assert "Stored 0 new posts. 5 were stored already." in again.stdout.splitlines()
+    assert "Stored 0 new posts. 5 were stored already." in other_app.stdout.splitlines()
     assert len(_stored(private_database_url)) == 5
 
 
@@ -494,6 +497,7 @@ def test_import_dry_run_changes_nothing(
         "Not imported: 1 x rich message.",
         "Not imported: 1 x service message.",
         "Dry run: 16 posts are new, 0 are stored already. Nothing was changed.",
+        "Files: 0 to copy, 6 not in the folder.",
     ]
     assert _stored(private_database_url) == []
 
@@ -525,6 +529,7 @@ def test_import_can_take_a_part_of_an_export(
         "Not imported (in the whole export): 1 x rich message.",
         "Not imported (in the whole export): 1 x service message.",
         "Stored 2 new posts. 0 were stored already.",
+        "Files: 0 copied, 1 not in the folder.",
     ]
     assert [message for _, message, _ in _stored(private_database_url)] == [23, 24]
 
@@ -561,11 +566,61 @@ def test_import_counts_one_post_as_one_post(
     assert one.stdout.splitlines()[0] == (
         'Export of "Unshelve test": 1 post, into the chat -1001234567890.'
     )
-    assert one.stdout.splitlines()[-1] == "Stored 1 new post. 0 were stored already."
-    assert two.stdout.splitlines()[-1] == (
+    assert "Stored 1 new post. 0 were stored already." in one.stdout.splitlines()
+    assert (
         "Dry run: 1 post is new, 1 is stored already. Nothing was changed."
+        in two.stdout.splitlines()
     )
-    assert again.stdout.splitlines()[-1] == "Stored 0 new posts. 1 was stored already."
+    assert "Stored 0 new posts. 1 was stored already." in again.stdout.splitlines()
+
+
+def test_import_copies_the_files_of_an_export_one_time(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    # The first run finds no file; then the files are put into the folder.
+    folder = tmp_path / "export"
+    shutil.copytree(MADE_UP, folder)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+
+    def run() -> list[str]:
+        result = _import(
+            monkeypatch, empty, private_database_url, folder, "--timezone", "Europe/Helsinki"
+        )
+        assert result.exit_code == 0, result.output
+        return result.stdout.splitlines()
+
+    without = run()
+    made_up_with_files(tmp_path / "with-files")
+    for name in ("photos", "files"):
+        shutil.copytree(tmp_path / "with-files" / name, folder / name)
+    filled = run()
+    again = run()
+
+    assert without[-2:] == [
+        "Stored 16 new posts. 0 were stored already.",
+        "Files: 0 copied, 6 not in the folder.",
+    ]
+    assert filled[-3:] == [
+        "Stored 0 new posts. 16 were stored already.",
+        "Files: 3 copied, 3 not in the folder.",
+        "Posts of an earlier import that got their files: 3. Their items are read again.",
+    ]
+    assert again[-2:] == [
+        "Stored 0 new posts. 16 were stored already.",
+        "Files: 0 copied, 3 copied before, 3 not in the folder.",
+    ]
+
+    async def pdf_key() -> str | None:
+        engine = create_engine(private_database_url)
+        try:
+            async with create_session_factory(engine)() as db:
+                media = await db.scalar(sa.select(Capture.media).where(Capture.message_id == 23))
+                return media[0]["sha256"] if media else None
+        finally:
+            await engine.dispose()
+
+    assert asyncio.run(pdf_key()) is not None
 
 
 def test_import_takes_the_chat_from_an_option(

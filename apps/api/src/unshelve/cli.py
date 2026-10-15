@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from unshelve import __version__
 from unshelve.api.app import create_app
 from unshelve.auth import store as auth_store
+from unshelve.blobs import FileBlobStore
 from unshelve.bot import cards
 from unshelve.bot.runner import run_bot
 from unshelve.config import Settings, get_settings
@@ -38,8 +39,8 @@ from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import Digest, EmbeddingSet, Item, LLMCall
 from unshelve.embed import sets
 from unshelve.extract.registry import FALLBACK, choose
-from unshelve.ingest import importer, resolve
-from unshelve.ingest.export_html import ExportFormatError, read_export
+from unshelve.ingest import export_files, importer, resolve
+from unshelve.ingest.export_html import ExportedMessage, ExportFormatError, read_export
 from unshelve.log import configure_logging
 from unshelve.net.fetcher import LiveFetcher
 from unshelve.net.guard import BlockedAddressError
@@ -287,20 +288,55 @@ def _posts(number: int) -> str:
 
 
 async def _import(
-    database_url: str,
+    settings: Settings,
     owner_telegram_id: int,
-    envelopes: list[importer.CaptureEnvelope],
+    folder: Path,
+    messages: Sequence[ExportedMessage],
     *,
+    chat_id: int,
+    zone: ZoneInfo,
+    albums: dict[int, str],
     dry_run: bool,
-) -> importer.ImportCount:
-    engine = create_engine(database_url)
+) -> importer.Imported:
+    engine = create_engine(settings.database_url)
     try:
-        sessions = create_session_factory(engine)
-        if dry_run:
-            return await importer.count_new(sessions, owner_telegram_id, envelopes)
-        return await importer.import_envelopes(sessions, owner_telegram_id, envelopes)
+        return await importer.import_folder(
+            create_session_factory(engine),
+            FileBlobStore(settings.blob_dir),
+            owner_telegram_id,
+            folder,
+            messages,
+            chat_id=chat_id,
+            zone=zone,
+            albums=albums,
+            dry_run=dry_run,
+        )
     finally:
         await engine.dispose()
+
+
+def _echo_files(result: importer.Imported, *, dry_run: bool) -> None:
+    """The lines about the files of an import, when the export has files."""
+    files = result.files
+    largest = export_files.MAX_FILE_BYTES // 1_000_000
+    others = [
+        (files.known, "copied before"),
+        (files.not_needed, "not needed (the bot stored their posts)"),
+        (files.too_large, f"too large (over {largest} MB)"),
+        (files.refused, "refused (a path out of the folder)"),
+        (files.missing, "not in the folder"),
+        (files.unreadable, "not readable"),
+    ]
+    if not files.copied and not any(number for number, _ in others):
+        return
+    parts = [f"{files.copied} {'to copy' if dry_run else 'copied'}"]
+    parts += [f"{number} {what}" for number, what in others if number]
+    typer.echo(f"Files: {', '.join(parts)}.")
+    if result.filled:
+        typer.echo(
+            f"Posts of an earlier import that got their files: {result.filled}. "
+            "Their items are read again."
+        )
 
 
 @app.command("import")
@@ -366,10 +402,19 @@ def import_export(
     # gives the two parts the same album.
     albums = importer.album_groups(chat.messages)
     messages = importer.in_range(chat.messages, since=since, limit=limit)
-    envelopes = importer.to_envelopes(messages, chat_id=chat_id, zone=zone, albums=albums)
-    count = asyncio.run(
-        _import(settings.database_url, settings.owner_telegram_id, envelopes, dry_run=dry_run)
+    result = asyncio.run(
+        _import(
+            settings,
+            settings.owner_telegram_id,
+            folder,
+            messages,
+            chat_id=chat_id,
+            zone=zone,
+            albums=albums,
+            dry_run=dry_run,
+        )
     )
+    envelopes, count = result.envelopes, result.count
 
     typer.echo(f'Export of "{chat.title}": {_posts(len(messages))}, into the chat {chat_id}.')
     if messages:
@@ -395,6 +440,7 @@ def import_export(
             f"Stored {count.stored} new {'post' if one_new else 'posts'}. "
             f"{count.repeats} {'was' if one_repeat else 'were'} stored already."
         )
+    _echo_files(result, dry_run=dry_run)
 
 
 async def _rekey(database_url: str) -> tuple[int, int, int]:
