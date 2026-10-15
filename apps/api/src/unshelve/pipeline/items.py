@@ -59,6 +59,7 @@ from unshelve.enrich.card import (
     language_of,
     prompt_text,
     tags_of,
+    title_of,
 )
 from unshelve.extract.registry import FALLBACK, choose
 from unshelve.ingest import versions
@@ -69,8 +70,8 @@ from unshelve.reading import reading_minutes
 
 log = structlog.get_logger()
 
-# The card of milestone M2: title, summary, key points, tags and language.
-ENRICH_VERSION = 2
+# The card of milestone M2: title, summary, key points, tags and language. 3: prompt enrich-2.
+ENRICH_VERSION = 3
 MAX_TITLE_LENGTH = 200
 # A passing failure of the fetch (a timeout, a busy server) is tried again after 1, 2, 4 and
 # 8 minutes, or after the wait that the server asks for, but never later than one hour. The
@@ -372,9 +373,11 @@ async def enrich_item(ctx: JobContext, payload: EnrichItemPayload) -> None:
     }
     tags: list[tuple[str, str]] = []
     if card is not None:
+        title = title_of(card)
         written |= {
-            # A title or a language that the page gave is kept. The card fills an empty one.
-            "title": sa.func.coalesce(Item.title, card.title.strip()[:MAX_TITLE_LENGTH] or None),
+            # A title or a language that the page gave is kept. The card fills an empty one,
+            # but never with a link.
+            "title": sa.func.coalesce(Item.title, title[:MAX_TITLE_LENGTH] if title else None),
             "summary": card.summary.strip() or None,
             "key_points": key_points_of(card),
         }
