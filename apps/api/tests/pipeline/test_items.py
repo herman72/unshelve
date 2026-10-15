@@ -34,7 +34,8 @@ from unshelve.contracts.jobs import (
     JobPayload,
     Services,
 )
-from unshelve.db.models import Chunk, EmbeddingSet, Item, ItemContent, Job
+from unshelve.db.models import Chunk, EmbeddingSet, Item, ItemContent, ItemTag, Job, Tag
+from unshelve.enrich.card import MAX_INPUT_CHARS, Card
 from unshelve.ingest import resolve
 from unshelve.pipeline import items as steps
 from unshelve.queue import store as queue
@@ -162,11 +163,13 @@ async def test_a_note_without_a_link_is_not_partial(services: Services) -> None:
 async def test_enrich_writes_the_card_and_hands_over_to_embed(services: Services) -> None:
     def scripted(call: FakeLLMCall, schema: type[BaseModel]) -> BaseModel:
         assert call.task == "enrich_item"
-        assert call.text == TEXT
-        return steps.Card(
+        assert TEXT in call.text
+        return Card(
             title="Vector search in Postgres",
             summary="How pgvector stores and compares vectors.",
             key_points=["Vectors are a column type", "Exact search comes first"],
+            tags=["Postgres", "vector search"],
+            language="en",
         )
 
     services = dataclasses.replace(services, llm=FakeLLM(responder=scripted))
@@ -182,7 +185,13 @@ async def test_enrich_writes_the_card_and_hands_over_to_embed(services: Services
     assert item.summary == "How pgvector stores and compares vectors."
     assert item.key_points == ["Vectors are a column type", "Exact search comes first"]
     assert item.est_minutes == 1
+    assert item.lang == "en"  # the page gave no language, so the card fills it
     assert item.enrich_version == steps.ENRICH_VERSION
+    async with services.sessions() as db:
+        slugs = await db.scalars(
+            sa.select(Tag.slug).join(ItemTag).where(ItemTag.item_id == item_id).order_by(Tag.slug)
+        )
+        assert list(slugs.all()) == ["postgres", "vector-search"]
     jobs = await _jobs(services.sessions)
     assert [job.state for job in jobs[JobKind.ENRICH_ITEM]] == [JobState.DONE]
     assert [job.state for job in jobs[JobKind.EMBED_ITEM]] == [JobState.PENDING]
@@ -210,8 +219,10 @@ async def test_the_model_gets_at_most_the_start_of_a_long_text(services: Service
     await worker.run_one()
     await worker.run_one()
 
-    assert len(llm.calls) == 1
-    assert len(llm.calls[0].text) <= steps.MAX_MODEL_INPUT_CHARS
+    (call,) = llm.calls
+    shown = call.text.split("\n</saved_text>")[0].removeprefix("<saved_text>\n")
+    assert len(shown) <= MAX_INPUT_CHARS
+    assert call.text.endswith("(The text continues. This is its start.)")
 
 
 async def test_an_item_without_text_is_not_sent_to_the_model(services: Services) -> None:
@@ -394,7 +405,13 @@ class SlowModel:
     ) -> LLMResult[T]:
         self.asked.set()
         await self.may_answer.wait()
-        late = {"title": "late title", "summary": "late summary", "key_points": ["late"]}
+        late = {
+            "title": "late title",
+            "summary": "late summary",
+            "key_points": ["late"],
+            "tags": ["late"],
+            "language": "en",
+        }
         return LLMResult[schema](value=schema.model_validate(late), model="slow")
 
 
