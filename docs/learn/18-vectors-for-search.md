@@ -147,6 +147,8 @@ A **backfill** is the work that gives the old items their vectors in the new set
 
 A test sends the path `https://other.example/v1/x` and checks that no request leaves.
 
+Voyage AI is part of MongoDB now. A key of the Voyage platform starts with `pa-` and goes to `api.voyageai.com`. A model key of MongoDB Atlas starts with `al-` and goes to `ai.mongodb.com`. The two addresses take the same request, and the adapter chooses by the start of the key, as the official client does.
+
 Why not the official SDK of Voyage? It would add 24 packages that the project does not have now, for one request. ADR 0012 lists the other choices.
 
 ## A choice that we made
@@ -170,6 +172,7 @@ How do we cut a text?
 - **Can the tests fail?** I broke the new code in 79 places, one at a time. The first run found 68. For each of the other 11, I added a test: for example, a proxy in the environment, a Persian question mark, and an item that goes back to the start during the request. Now the tests find each of the 79.
 - **What is not done:**
   - No real call to Voyage yet: it needs your yes, also if the tokens are free.
+  - Where do the texts go? Voyage can keep them for training until you opt out (part "Try it yourself", step 4).
   - Search itself (M4) does not read the vectors yet.
   - A title that you change by hand (M2-6) must add an embed job, or the card vector stays old.
   - An old set keeps its vectors; there is no command to remove them yet.
@@ -193,7 +196,7 @@ docker compose exec worker unshelve embeddings check
 
 You see the length of a vector, and two numbers: the Persian question and its English text should be closer than the question and the text about bread.
 
-4. Give your items their vectors:
+4. Before this step, open the dashboard of Voyage and opt out of training. By default, Voyage can keep the texts that it gets and use them to train its models; after the opt-out it keeps them for zero days. The opt-out needs a payment method, and it cannot be undone in the dashboard. Step 3 sends only made-up sentences, so it can come first. Then give your items their vectors:
 
 ```bash
 docker compose exec worker unshelve embeddings backfill
