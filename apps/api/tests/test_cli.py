@@ -13,8 +13,10 @@ from unshelve.auth import store as auth_store
 from unshelve.bot import cards
 from unshelve.cli import app
 from unshelve.config import Settings, get_settings
+from unshelve.contracts.dto import FetchResult
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import Capture, ItemKey, Job
+from unshelve.net.fetcher import LiveFetcher
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
 from unshelve.services import build_services
@@ -44,7 +46,17 @@ def test_version_prints_the_installed_version() -> None:
 def test_every_service_command_is_registered() -> None:
     result = runner.invoke(app, ["--help"])
 
-    for command in ("api", "worker", "bot", "migrate", "auth", "import", "rekey", "digest"):
+    for command in (
+        "api",
+        "worker",
+        "bot",
+        "migrate",
+        "auth",
+        "import",
+        "rekey",
+        "digest",
+        "fetch",
+    ):
         assert command in _plain(result.stdout)
 
 
@@ -71,6 +83,41 @@ def _run(monkeypatch: pytest.MonkeyPatch, empty_dir: Path, *args: str, **env: st
 
 def _auth_link(monkeypatch: pytest.MonkeyPatch, empty_dir: Path, **env: str) -> Result:
     return _run(monkeypatch, empty_dir, "auth", "link", **env)
+
+
+def test_fetch_refuses_an_address_inside_the_network(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # The metadata service of a cloud machine. The guard refuses it before any connection.
+    result = _run(monkeypatch, tmp_path, "fetch", "http://169.254.169.254/latest/meta-data/")
+
+    assert result.exit_code == 1
+    assert "Not fetched: blocked_address (169.254.169.254: link-local)." in _plain(result.output)
+
+
+def test_fetch_prints_what_came_back(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    async def pretend(
+        self: LiveFetcher, url: str, *, max_bytes: int, accept: list[str]
+    ) -> FetchResult:
+        assert (max_bytes, accept) == (5_000_000, ["text/html"])
+        return FetchResult(
+            url=url,
+            final_url="https://example.com/new",
+            status=200,
+            content_type="text/html; charset=utf-8",
+            body=b"<p>hello</p>",
+        )
+
+    monkeypatch.setattr(LiveFetcher, "get", pretend)
+
+    result = _run(
+        monkeypatch, tmp_path, "fetch", "https://example.com/old", "--accept", "text/html"
+    )
+
+    assert result.exit_code == 0
+    lines = _plain(result.output).splitlines()
+    assert "200 https://example.com/new" in lines
+    assert any(line.startswith("text/html; charset=utf-8, 12 bytes, ") for line in lines)
 
 
 def test_auth_link_prints_a_link_that_signs_the_owner_in(

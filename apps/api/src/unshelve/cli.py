@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
@@ -18,17 +19,21 @@ from unshelve.auth import store as auth_store
 from unshelve.bot import cards
 from unshelve.bot.runner import run_bot
 from unshelve.config import Settings, get_settings
+from unshelve.contracts.dto import FetchResult
+from unshelve.contracts.errors import FetchError
 from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import Digest, Item
 from unshelve.ingest import importer, resolve
 from unshelve.ingest.export_html import ExportFormatError, read_export
 from unshelve.log import configure_logging
+from unshelve.net.fetcher import LiveFetcher
+from unshelve.net.guard import BlockedAddressError
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
 from unshelve.resurface import digest, weekly
 from unshelve.runtime import shutdown_event, wait_for_shutdown
-from unshelve.services import build_services
+from unshelve.services import build_services, close_services
 
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Unshelve service commands.")
 auth_app = typer.Typer(no_args_is_help=True, help="Sign-in helpers.")
@@ -87,8 +92,7 @@ async def _work() -> None:
         await weekly.run_worker(Worker(services, registry, config), services, shutdown_event())
         log.info("worker.stopped")
     finally:
-        if services.bot is not None:
-            await services.bot.session.close()
+        await close_services(services)
         await engine.dispose()
 
 
@@ -96,6 +100,50 @@ async def _work() -> None:
 def worker() -> None:
     """Run queued jobs until the process is told to stop."""
     asyncio.run(_work())
+
+
+@app.command()
+def fetch(
+    url: str,
+    max_bytes: Annotated[int, typer.Option(help="Refuse a body that is longer.")] = 5_000_000,
+    accept: Annotated[
+        list[str] | None,
+        typer.Option(help="A content type to accept, such as text/html. Repeat it for more."),
+    ] = None,
+) -> None:
+    """Open one link with the real fetcher and its guard, and print what came back.
+
+    Nothing is stored. An address inside a private network is refused.
+    """
+    try:
+        result, seconds = asyncio.run(_fetch(get_settings(), url, max_bytes, accept or []))
+    except FetchError as error:
+        typer.echo(f"Not fetched: {_why(error)}.")
+        raise typer.Exit(1) from None
+    typer.echo(f"{result.status} {result.final_url}")
+    content_type = result.content_type or "no content type"
+    typer.echo(f"{content_type}, {len(result.body)} bytes, {seconds:.2f} s")
+
+
+def _why(error: FetchError) -> str:
+    """The reason of a failed fetch, with the words of the guard when it refused."""
+    if isinstance(error.__cause__, BlockedAddressError):
+        return f"{error.reason} ({error.__cause__})"
+    if error.status is not None:
+        return f"{error.reason} ({error.status})"
+    return error.reason
+
+
+async def _fetch(
+    settings: Settings, url: str, max_bytes: int, accept: list[str]
+) -> tuple[FetchResult, float]:
+    fetcher = LiveFetcher.from_settings(settings)
+    started = time.perf_counter()
+    try:
+        result = await fetcher.get(url, max_bytes=max_bytes, accept=accept)
+    finally:
+        await fetcher.aclose()
+    return result, time.perf_counter() - started
 
 
 async def _bot() -> None:
@@ -334,8 +382,7 @@ async def _digest(settings: Settings, *, send: bool) -> tuple[str, int]:
             await weekly.send(services, owner_id, f"try-{now:%Y-%m-%dT%H:%M:%S}", now)
         return text, items
     finally:
-        if services.bot is not None:
-            await services.bot.session.close()
+        await close_services(services)
         await engine.dispose()
 
 
