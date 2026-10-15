@@ -1,0 +1,52 @@
+{
+ "id": 123456789,
+ "node_id": "R_kgDOmadeup",
+ "name": "queue-kit",
+ "full_name": "made-up-org/queue-kit",
+ "private": false,
+ "owner": {
+  "login": "made-up-org",
+  "id": 42,
+  "type": "Organization",
+  "html_url": "https://github.com/made-up-org",
+  "avatar_url": "https://avatars.githubusercontent.com/u/42?v=4"
+ },
+ "html_url": "https://github.com/made-up-org/queue-kit",
+ "description": "A job queue on one Postgres table",
+ "fork": false,
+ "url": "https://api.github.com/repos/made-up-org/queue-kit",
+ "created_at": "2025-04-20T21:13:52Z",
+ "updated_at": "2026-10-14T08:00:00Z",
+ "pushed_at": "2026-10-13T08:00:00Z",
+ "homepage": "https://queue-kit.example.com",
+ "size": 1234,
+ "stargazers_count": 4321,
+ "watchers_count": 4321,
+ "language": "Python",
+ "has_issues": true,
+ "forks_count": 210,
+ "archived": false,
+ "disabled": false,
+ "open_issues_count": 17,
+ "license": {
+  "key": "mit",
+  "name": "MIT License",
+  "spdx_id": "MIT",
+  "url": "https://api.github.com/licenses/mit",
+  "node_id": "MDc6TGljZW5zZTEz"
+ },
+ "allow_forking": true,
+ "is_template": false,
+ "topics": [
+  "postgres",
+  "job-queue",
+  "skip-locked"
+ ],
+ "visibility": "public",
+ "forks": 210,
+ "open_issues": 17,
+ "watchers": 4321,
+ "default_branch": "main",
+ "subscribers_count": 99,
+ "network_count": 210
+}
