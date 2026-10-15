@@ -1,5 +1,7 @@
 import asyncio
+import dataclasses
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -15,18 +17,28 @@ from unshelve.auth import store as auth_store
 from unshelve.bot import cards
 from unshelve.cli import app
 from unshelve.config import Settings, get_settings
-from unshelve.contracts.dto import Extracted, FetchResult, LLMResult, LLMUsage, SourceRef
-from unshelve.contracts.enums import ItemKind
+from unshelve.contracts.dto import (
+    CaptureEnvelope,
+    Extracted,
+    FetchResult,
+    LLMResult,
+    LLMUsage,
+    SourceRef,
+)
+from unshelve.contracts.enums import CaptureSource, ItemKind
 from unshelve.contracts.errors import ExtractError, ProviderError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import Capture, ItemKey, Job, LLMCall
 from unshelve.extract.article import ArticleExtractor
+from unshelve.ingest import resolve
 from unshelve.net.fetcher import LiveFetcher
 from unshelve.providers.claude import ClaudeLLM
+from unshelve.providers.voyage import VoyageEmbedder, voyage_spec
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
 from unshelve.services import build_services
+from unshelve.testing.fakes import FakeEmbedder
 
 runner = CliRunner()
 
@@ -65,6 +77,7 @@ def test_every_service_command_is_registered() -> None:
         "fetch",
         "extract",
         "llm",
+        "embeddings",
     ):
         assert command in _plain(result.stdout)
 
@@ -79,6 +92,8 @@ def _run(monkeypatch: pytest.MonkeyPatch, empty_dir: Path, *args: str, **env: st
         "UNSHELVE_DATABASE_URL",
         "UNSHELVE_WEB_BASE_URL",
         "UNSHELVE_CAPTURE_CHAT_IDS",
+        "UNSHELVE_EMBEDDER",
+        "VOYAGE_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
@@ -693,3 +708,228 @@ def test_digest_needs_an_owner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
 
     assert result.exit_code == 1
     assert "UNSHELVE_OWNER_TELEGRAM_ID is not set" in result.stderr
+
+
+# --- unshelve embeddings -------------------------------------------------------------------
+
+_LONG = "\n\n".join(
+    f"Part {n}. " + "Postgres keeps each job in one row, and a worker locks the row. " * 8
+    for n in range(6)
+)
+
+
+def _two_ready_items(database_url: str) -> None:
+    """A long text (three pieces) and a short note, through the whole pipeline."""
+
+    async def save_and_work() -> None:
+        engine = create_engine(database_url)
+        try:
+            sessions = create_session_factory(engine)
+            for text in (_LONG, "A short note about vector search."):
+                async with sessions() as db:
+                    owner_id = await auth_store.ensure_owner(db, 1)
+                    envelope = CaptureEnvelope(
+                        source=CaptureSource.API,
+                        chat_id=resolve.API_CHAT_ID,
+                        message_id=await resolve.next_api_message_id(db),
+                        posted_at=datetime(2026, 10, 15, 12, tzinfo=UTC),
+                        text=text,
+                        urls=[],
+                    )
+                    capture_id = await resolve.store_capture(db, owner_id, envelope)
+                    assert capture_id is not None
+                    await resolve.resolve_capture(db, capture_id)
+                    await db.commit()
+            discover()
+            settings = Settings(env="test", database_url=database_url)
+            worker = Worker(build_services(settings, sessions), registry, WorkerConfig("w1"))
+            while await worker.run_one():
+                pass
+        finally:
+            await engine.dispose()
+
+    asyncio.run(save_and_work())
+
+
+def test_embeddings_status_prints_each_set_and_the_set_that_search_reads(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _two_ready_items(private_database_url)
+
+    result = _run(
+        monkeypatch, tmp_path, "embeddings", "status", UNSHELVE_DATABASE_URL=private_database_url
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines() == [
+        "Embedder: fake hashed-bow-64 64, set 1",
+        "Ready items: 2",
+        "Set 1: fake hashed-bow-64 64, active, 2 of 2 items, 3 pieces",
+    ]
+
+
+class _VoyageStandIn:
+    """Vectors with the spec of Voyage, made by the fake embedder: no request leaves."""
+
+    def __init__(self) -> None:
+        self.spec = voyage_spec("voyage-4-large", 1024)
+        self._inner = FakeEmbedder(1024)
+
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return await self._inner.embed_documents(texts)
+
+    async def embed_query(self, text: str) -> list[float]:
+        return await self._inner.embed_query(text)
+
+
+def _run_the_jobs_with_voyage(database_url: str) -> None:
+    async def work() -> None:
+        engine = create_engine(database_url)
+        try:
+            sessions = create_session_factory(engine)
+            settings = Settings(env="test", database_url=database_url)
+            services = dataclasses.replace(
+                build_services(settings, sessions), embedder=_VoyageStandIn()
+            )
+            discover()
+            worker = Worker(services, registry, WorkerConfig("w1"))
+            while await worker.run_one():
+                pass
+        finally:
+            await engine.dispose()
+
+    asyncio.run(work())
+
+
+def test_a_new_embedder_is_filled_by_a_backfill_and_then_activated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _two_ready_items(private_database_url)
+    voyage = {"UNSHELVE_DATABASE_URL": private_database_url, "UNSHELVE_EMBEDDER": "voyage"}
+
+    def embeddings(*args: str) -> Result:
+        return _run(monkeypatch, tmp_path, "embeddings", *args, **voyage)
+
+    before = embeddings("status")
+    backfill = embeddings("backfill")
+    again = embeddings("backfill")
+    early = embeddings("activate", "2")
+    waiting = embeddings("status")
+    _run_the_jobs_with_voyage(private_database_url)
+    filled = embeddings("status")
+    activated = embeddings("activate", "2")
+    after = embeddings("status")
+
+    assert before.stdout.splitlines() == [
+        "Embedder: voyage voyage-4-large 1024, no vector yet",
+        "Ready items: 2",
+        "Set 1: fake hashed-bow-64 64, active, 2 of 2 items, 3 pieces",
+        "Next: unshelve embeddings backfill",
+    ]
+    assert backfill.stdout.splitlines() == [
+        "Added 2 embed jobs for set 2 (voyage voyage-4-large 1024).",
+        "The worker runs them. `unshelve embeddings status` shows the progress.",
+    ]
+    assert again.stdout.splitlines() == [
+        "Added 0 embed jobs for set 2 (voyage voyage-4-large 1024)."
+    ]
+    assert early.exit_code == 1
+    assert "Set 2 has no vector for 2 of 2 ready items." in early.stderr
+    assert waiting.stdout.splitlines()[2:] == [
+        "Set 1: fake hashed-bow-64 64, active, 2 of 2 items, 3 pieces",  # still the active set
+        "Set 2: voyage voyage-4-large 1024, 0 of 2 items, 0 pieces",
+        "Next: unshelve embeddings backfill",
+    ]
+    assert filled.stdout.splitlines()[2:] == [
+        "Set 1: fake hashed-bow-64 64, active, 2 of 2 items, 3 pieces",
+        "Set 2: voyage voyage-4-large 1024, 2 of 2 items, 3 pieces",
+        "Next: unshelve embeddings activate 2",
+    ]
+    assert activated.exit_code == 0, activated.output
+    assert activated.stdout.strip() == "Search now reads set 2."
+    assert after.stdout.splitlines()[2:] == [
+        "Set 1: fake hashed-bow-64 64, 2 of 2 items, 3 pieces",
+        "Set 2: voyage voyage-4-large 1024, active, 2 of 2 items, 3 pieces",
+    ]
+
+
+def test_embeddings_activate_with_force_does_not_wait_for_the_backfill(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _two_ready_items(private_database_url)
+    voyage = {"UNSHELVE_DATABASE_URL": private_database_url, "UNSHELVE_EMBEDDER": "voyage"}
+    _run(monkeypatch, tmp_path, "embeddings", "backfill", **voyage)
+
+    forced = _run(monkeypatch, tmp_path, "embeddings", "activate", "2", "--force", **voyage)
+
+    assert forced.exit_code == 0, forced.output
+    assert forced.stdout.strip() == "Search now reads set 2."
+
+
+def test_embeddings_activate_refuses_a_set_that_does_not_exist(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "embeddings",
+        "activate",
+        "9",
+        UNSHELVE_DATABASE_URL=private_database_url,
+    )
+
+    assert result.exit_code == 1
+    assert "There is no embedding set 9." in result.stderr
+
+
+def test_embeddings_check_prints_the_length_of_a_vector_and_the_similarities(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    asked: list[str] = []
+    closed: list[bool] = []
+
+    async def query(self: VoyageEmbedder, text: str) -> list[float]:
+        asked.append(text)
+        return [1.0, 0.0, 0.0]
+
+    async def documents(self: VoyageEmbedder, texts: list[str]) -> list[list[float]]:
+        return [[0.8, 0.6, 0.0], [0.0, 0.6, 0.8]]
+
+    async def close(self: VoyageEmbedder) -> None:
+        closed.append(True)
+
+    monkeypatch.setattr(VoyageEmbedder, "embed_query", query)
+    monkeypatch.setattr(VoyageEmbedder, "embed_documents", documents)
+    monkeypatch.setattr(VoyageEmbedder, "aclose", close)
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "embeddings",
+        "check",
+        UNSHELVE_EMBEDDER="voyage",
+        VOYAGE_API_KEY="made-up",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.splitlines() == [
+        "voyage voyage-4-large 1024: vectors of 3 numbers",
+        "A Persian question and an English text on its topic: 0.80",
+        "The same question and a text on another topic: 0.00",
+    ]
+    assert len(asked) == 1  # the question goes as a query
+    assert closed == [True]
+
+
+def test_embeddings_check_says_why_there_are_no_vectors(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    async def refused(self: VoyageEmbedder, text: str) -> list[float]:
+        raise ProviderError("voyage 401: Provided API key is invalid.", retryable=True)
+
+    monkeypatch.setattr(VoyageEmbedder, "embed_query", refused)
+
+    result = _run(monkeypatch, tmp_path, "embeddings", "check", UNSHELVE_EMBEDDER="voyage")
+
+    assert result.exit_code == 1
+    assert "No vectors: voyage 401: Provided API key is invalid." in result.stderr
