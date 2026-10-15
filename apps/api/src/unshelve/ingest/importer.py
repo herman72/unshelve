@@ -6,11 +6,15 @@ same envelope that the bot makes, and gives it to the same function, ``accept_ca
 
 So a post that the bot stored and that is also in the export is stored one time: the two
 have the same chat and the same message id. And an import that runs again stores nothing.
+
+The files of the export are copied into the blob store first (``export_files``), so that each
+new post names the copies of its files.
 """
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import sqlalchemy as sa
@@ -19,9 +23,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from unshelve.auth import store as auth_store
 from unshelve.contracts.dto import CaptureEnvelope, ForwardOrigin, MediaRef
 from unshelve.contracts.enums import CaptureSource
+from unshelve.contracts.protocols import BlobStore
 from unshelve.db.models import Capture, User
-from unshelve.ingest import resolve
-from unshelve.ingest.export_html import ExportedMessage
+from unshelve.ingest import export_files, resolve
+from unshelve.ingest.export_files import FileCount, FileKey, StoredFile
+from unshelve.ingest.export_html import ExportedFile, ExportedMessage
 
 # Telegram lets a person send some files together as one album: photos with videos, documents
 # with documents, audio files with audio files. The value is the sort of album.
@@ -85,12 +91,15 @@ def to_envelopes(
     chat_id: int,
     zone: ZoneInfo,
     albums: Mapping[int, str],
+    files: Mapping[FileKey, StoredFile] | None = None,
 ) -> list[CaptureEnvelope]:
     """The envelopes of exported messages. Pure: no database.
 
     ``zone`` is the time zone of the computer that made the export. The export has clock times
     only, and the zone turns them into exact moments. ``albums`` comes from ``album_groups``.
+    ``files``: the copies of the files, by message and place (``export_files.copy_files``).
     """
+    copies = files or {}
     envelopes: list[CaptureEnvelope] = []
     for message in messages:
         forwarded = None
@@ -110,8 +119,8 @@ def to_envelopes(
                 text=message.text,
                 urls=list(message.urls),
                 media=[
-                    MediaRef(kind=file.kind, local_path=file.path, file_name=file.name)
-                    for file in message.files
+                    _media(file, copies.get((message.message_id, index)))
+                    for index, file in enumerate(message.files)
                 ],
                 media_group_id=albums.get(message.message_id),
                 forward_origin=forwarded,
@@ -123,6 +132,17 @@ def to_envelopes(
             )
         )
     return envelopes
+
+
+def _media(file: ExportedFile, copy: StoredFile | None) -> MediaRef:
+    """The media of a file of an export: its path, and the key of its copy when there is one."""
+    return MediaRef(
+        kind=file.kind,
+        local_path=file.path,
+        file_name=file.name,
+        mime=copy.mime if copy else None,
+        sha256=copy.sha256 if copy else None,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +194,60 @@ async def import_envelopes(
                     stored += 1
             await session.commit()
     return ImportCount(stored=stored, repeats=len(envelopes) - stored)
+
+
+@dataclass(frozen=True, slots=True)
+class Imported:
+    envelopes: list[CaptureEnvelope]
+    count: ImportCount
+    files: FileCount
+    filled: int  # posts of an earlier import that got the copies of their files
+
+
+async def import_folder(
+    sessions: async_sessionmaker[AsyncSession],
+    blobs: BlobStore,
+    owner_telegram_id: int,
+    folder: Path,
+    messages: Sequence[ExportedMessage],
+    *,
+    chat_id: int,
+    zone: ZoneInfo,
+    albums: Mapping[int, str],
+    dry_run: bool = False,
+) -> Imported:
+    """Copy the files of the messages, store the posts, and give the posts of an earlier import
+    the copies of their files. A dry run checks and counts, and changes nothing."""
+    async with sessions() as session:
+        if dry_run:
+            # A dry run changes nothing, so it does not make the owner either.
+            owner_id = await session.scalar(
+                sa.select(User.id).where(User.telegram_user_id == owner_telegram_id)
+            )
+        else:
+            owner_id = await auth_store.ensure_owner(session, owner_telegram_id)
+            await session.commit()
+        posts: export_files.StoredPosts = (
+            await export_files.stored_posts(session, owner_id, chat_id)
+            if owner_id is not None
+            else {}
+        )
+    stored, files = await export_files.copy_files(
+        folder,
+        messages,
+        blobs=blobs,
+        sessions=sessions,
+        owner_id=owner_id or 0,  # without an owner, this is a dry run: nothing is written
+        posts=posts,
+        dry_run=dry_run,
+    )
+    envelopes = to_envelopes(messages, chat_id=chat_id, zone=zone, albums=albums, files=stored)
+    if dry_run or owner_id is None:
+        count = await count_new(sessions, owner_telegram_id, envelopes)
+        return Imported(envelopes, count, files, filled=0)
+    count = await import_envelopes(sessions, owner_telegram_id, envelopes)
+    filled = await export_files.fill_captures(sessions, owner_id, chat_id, stored)
+    return Imported(envelopes, count, files, filled)
 
 
 def in_range(
