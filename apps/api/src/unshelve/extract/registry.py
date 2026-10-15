@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from unshelve.contracts.dto import SourceRef
 from unshelve.contracts.protocols import Extractor
 from unshelve.extract.article import ArticleExtractor
+from unshelve.extract.arxiv import ArxivExtractor
 from unshelve.extract.github import GitHubExtractor
 from unshelve.extract.saved_text import SavedTextExtractor
 from unshelve.extract.x_post import XPostExtractor
@@ -20,6 +21,7 @@ EXTRACTORS: tuple[Extractor, ...] = (
     YouTubeExtractor(),
     XPostExtractor(),
     GitHubExtractor(),
+    ArxivExtractor(),
     ArticleExtractor(),
     FALLBACK,
 )
