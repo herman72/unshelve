@@ -26,6 +26,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 12 | [The resolver](12-resolver.md) | How a thing that you save two times stays one item, also when two workers see it at the same moment | |
 | 13 | [Cards, a button, and the digest](13-cards-and-digest.md) | How the bot brings saved things back, why text from the internet is escaped, and what a press of a button does | |
 | 14 | [The fetcher and its guard](14-fetcher-and-guard.md) | How a saved link is opened without opening a door into your own network | |
+| 15 | [Reading an article](15-article-extractor.md) | How the bytes of a page become the clean text of its article, also in Persian | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 

@@ -92,7 +92,7 @@ From milestone M2, the worker opens saved links. To see what it does with one li
 docker compose exec worker unshelve fetch https://example.com/
 ```
 
-[The fetcher note](docs/learn/14-fetcher-and-guard.md) explains the guard.
+[The fetcher note](docs/learn/14-fetcher-and-guard.md) explains the guard. To see the text that Unshelve reads from an article, use `unshelve extract` in the same way. [The article note](docs/learn/15-article-extractor.md) explains how a page becomes clean text.
 
 A thing that you save again does not make a second item. The item counts one more save, also when the second address looks different (`http`, `www.`, a tracking parameter, a `youtu.be` link). [The resolver note](docs/learn/12-resolver.md) explains the rules. After an update that changes these rules, run `docker compose exec api unshelve rekey` one time.
 
