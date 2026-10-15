@@ -6,6 +6,7 @@ import structlog
 from aiogram import Bot
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from unshelve.blobs import FileBlobStore
 from unshelve.config import Settings
 from unshelve.contracts.dto import EmbeddingSpec
 from unshelve.contracts.jobs import Services
@@ -14,7 +15,7 @@ from unshelve.net.fetcher import LiveFetcher
 from unshelve.providers.claude import ClaudeLLM
 from unshelve.providers.ledger import CachedLLM
 from unshelve.providers.voyage import VoyageEmbedder, voyage_spec
-from unshelve.testing.fakes import FakeEmbedder, FakeFetcher, FakeLLM, InMemoryBlobStore
+from unshelve.testing.fakes import FakeEmbedder, FakeFetcher, FakeLLM
 
 log = structlog.get_logger()
 
@@ -31,7 +32,8 @@ def build_services(settings: Settings, sessions: async_sessionmaker[AsyncSession
         fetcher=fetcher,
         llm=build_model(settings, sessions),
         embedder=build_embedder(settings),
-        blobs=InMemoryBlobStore(),
+        # The files that you send stay on disk, in UNSHELVE_BLOB_DIR (a volume in the stack).
+        blobs=FileBlobStore(settings.blob_dir),
         # The bot sends messages from a job: the weekly digest. It reads no updates here, so
         # it does not compete with the bot process for them.
         bot=(

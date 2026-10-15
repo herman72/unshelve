@@ -3,7 +3,8 @@
 .env.*
 !.env.example
 /data/
-/var/
+# Local state, also apps/api/var/ of a worker that runs outside Docker.
+var/
 /exports/*
 !/exports/README.md
 *.private.md

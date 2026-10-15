@@ -1,6 +1,7 @@
 """The services that the job handlers use, as the settings choose them."""
 
 from decimal import Decimal
+from pathlib import Path
 
 import pytest
 import structlog
@@ -9,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from structlog.testing import capture_logs
 
 from unshelve import services as services_module
+from unshelve.blobs import FileBlobStore
 from unshelve.config import Settings
 from unshelve.net.fetcher import LiveFetcher
 from unshelve.providers.claude import ClaudeLLM
@@ -25,6 +27,15 @@ async def test_the_default_fetcher_serves_recorded_pages_only() -> None:
     services = build_services(Settings(env="test"), NO_DATABASE)
 
     assert isinstance(services.fetcher, FakeFetcher)
+
+
+async def test_the_blobs_are_files_in_the_folder_of_the_settings(tmp_path: Path) -> None:
+    services = build_services(Settings(env="test", blob_dir=tmp_path), NO_DATABASE)
+
+    key = await services.blobs.put(b"made-up bytes", "application/octet-stream")
+
+    assert isinstance(services.blobs, FileBlobStore)
+    assert (tmp_path / key[:2] / key[2:4] / key).exists()
 
 
 async def test_the_live_fetcher_is_built_from_the_settings_and_closed_at_the_end(
