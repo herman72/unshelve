@@ -31,6 +31,7 @@ Three facts shaped the decision:
 - Search (M4) reads only the active set. Until a new set is active, a new item has vectors only in the new set.
 - English pieces hold more words than Persian pieces of the same length in tokens. Both are far below the limits of the model.
 - Live tests run only with `-m live`. CI never sends a request to Voyage.
+- The numbers of a vector change a little from call to call, because a GPU is not exact: the same text gave a cosine of 0.998 or more, and two different short texts 0.79. A test compares vectors with a tolerance, and the embed step keeps a stored vector instead of making it again.
 - A title or a summary that the owner changes by hand (milestone M2-6) must add an embed job, or the card vector stays old.
 
 ## Alternatives considered
