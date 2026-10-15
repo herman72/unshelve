@@ -60,10 +60,11 @@ class FakeFetcher:
             raise FetchError("http_error", url, status=404)
         if isinstance(page, FetchError):
             raise page
-        if len(page.body) > max_bytes:
-            raise FetchError("too_large", url)
+        # The type first, as the real fetcher: it knows the type from the headers.
         if not accepts(page.content_type, accept):
             raise FetchError("unsupported", url, content_type=page.content_type)
+        if len(page.body) > max_bytes:
+            raise FetchError("too_large", url)
         return page
 
 

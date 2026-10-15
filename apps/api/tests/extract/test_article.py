@@ -17,6 +17,7 @@ from unshelve.contracts.errors import ExtractError, FetchError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.extract import article as article_module
 from unshelve.extract.article import GENERIC_SCORE, HTML_TYPES, MAX_HTML_BYTES, ArticleExtractor
+from unshelve.extract.pdf import ACCEPT, MAX_PDF_BYTES
 from unshelve.testing.conformance import ExtractorCase, ExtractorConformance
 from unshelve.testing.fakes import FakeFetcher, FakeLLM, InMemoryBlobStore
 
@@ -228,6 +229,37 @@ async def test_an_error_of_the_fetcher_is_passed_on_unchanged(error: FetchError)
 
     # The same error: its reason, its code and its wait reach the step that decides.
     assert caught.value is error
+
+
+@pytest.mark.parametrize("content_type", ["application/pdf", "application/x-pdf; name=x.pdf"])
+async def test_a_link_to_a_page_that_answers_with_a_pdf_is_read_as_a_pdf(
+    content_type: str,
+) -> None:
+    fetcher = Fetcher()
+    paper = (FIXTURES / "pdf" / "paper.pdf").read_bytes()
+    fetcher.pages[URL] = FetchResult(
+        url=URL, final_url=URL, status=200, content_type=content_type, body=paper
+    )
+
+    found = await _extract(fetcher)
+
+    assert (found.kind, found.title) == (ItemKind.PDF, "Leases for Job Queues in Postgres")
+    # As a page first, refused after the headers. Then as a file, with the limit of a file.
+    assert fetcher.asked == [
+        (URL, MAX_HTML_BYTES, list(HTML_TYPES)),
+        (URL, MAX_PDF_BYTES, list(ACCEPT)),
+    ]
+
+
+async def test_a_link_to_a_page_that_answers_with_another_file_is_unsupported() -> None:
+    fetcher = Fetcher()
+    fetcher.add(URL, b"PK made-up zip", "application/zip")
+
+    with pytest.raises(FetchError) as caught:
+        await _extract(fetcher)
+
+    assert (caught.value.reason, caught.value.content_type) == ("unsupported", "application/zip")
+    assert len(fetcher.asked) == 1
 
 
 async def test_a_source_without_a_link_is_an_extract_error() -> None:
