@@ -22,9 +22,10 @@ COPY apps/api/ ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
+# A new volume at /app/var/blobs takes the owner of this folder, so the app can write there.
 RUN useradd --system --uid 10001 --create-home app \
-    && mkdir -p /app/var \
-    && chown app /app/var
+    && mkdir -p /app/var/blobs \
+    && chown -R app /app/var
 USER app
 
 ENV PATH="/app/.venv/bin:$PATH"

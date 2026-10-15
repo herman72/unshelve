@@ -52,6 +52,8 @@ services:
     volumes:
       # Exports of Telegram chats, for `unshelve import /imports/<folder>`. Read only.
       - ../exports:/imports:ro
+      # The files that you send: the worker keeps them, and the web app will show them.
+      - blobs:/app/var/blobs
     healthcheck:
       test:
         - CMD
@@ -69,6 +71,9 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    volumes:
+      # The files that you send, under the SHA-256 of their bytes (FileBlobStore).
+      - blobs:/app/var/blobs
 
   bot:
     <<: *app
@@ -103,3 +108,4 @@ services:
 
 volumes:
   db-data:
+  blobs:
