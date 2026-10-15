@@ -52,6 +52,9 @@ class ExtractError(UnshelveError):
 class ProviderError(UnshelveError):
     """A model or embedding provider failed."""
 
-    def __init__(self, message: str, *, retryable: bool) -> None:
+    def __init__(self, message: str, *, retryable: bool, retry_after: float | None = None) -> None:
         super().__init__(message)
         self.retryable = retryable
+        # Seconds to wait before the next try: the wait of a 429, or the time until the daily
+        # budget is new again.
+        self.retry_after = retry_after

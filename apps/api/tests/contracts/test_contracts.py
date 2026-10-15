@@ -5,7 +5,7 @@ from pydantic import ValidationError
 
 from unshelve.contracts.dto import CaptureEnvelope, EmbeddingSpec, MediaRef
 from unshelve.contracts.enums import CaptureSource, JobKind
-from unshelve.contracts.errors import FetchError
+from unshelve.contracts.errors import FetchError, ProviderError
 from unshelve.contracts.jobs import PAYLOAD_TYPES, FetchItemPayload, Permanent, Retry
 from unshelve.contracts.protocols import accepts
 
@@ -81,6 +81,13 @@ def test_failure_signals_carry_their_reason() -> None:
 )
 def test_only_transient_fetch_failures_are_retryable(error: FetchError, retryable: bool) -> None:
     assert error.retryable is retryable
+
+
+def test_a_provider_error_keeps_its_wait() -> None:
+    error = ProviderError("rate limited", retryable=True, retry_after=30.0)
+
+    assert (error.retryable, error.retry_after) == (True, 30.0)
+    assert ProviderError("declined", retryable=False).retry_after is None
 
 
 def test_a_fetch_error_keeps_the_wait_that_the_server_asked_for() -> None:
