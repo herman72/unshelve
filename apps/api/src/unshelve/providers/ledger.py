@@ -1,0 +1,210 @@
+"""The cache and the cost ledger in front of a model provider: the table ``llm_calls``.
+
+Each call is kept with its cache key, its tokens and its price. The same question is never
+paid two times: a job that runs again gets the stored answer. A question is the model, the
+task, the prompt version, the system prompt, the parts and the schema; a different image
+is a different question, but the ledger keeps only its hash.
+
+The same table gives the cost of each day, so a daily budget can stop new calls before
+they cost more. A stored answer needs no budget.
+"""
+
+import hashlib
+import json
+import time
+from collections.abc import Callable, Sequence
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from typing import Any
+from zoneinfo import ZoneInfo
+
+import sqlalchemy as sa
+import structlog
+from pydantic import BaseModel
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from unshelve.contracts.dto import ImagePart, LLMResult, LLMUsage, TextPart
+from unshelve.contracts.errors import ProviderError
+from unshelve.contracts.protocols import LLMProvider
+from unshelve.db.models import LLMCall
+
+log = structlog.get_logger()
+
+_MILLION = Decimal(1_000_000)
+# Dollars for one million tokens: input, output, input read from the cache. From the
+# documentation of the Claude API (prices of October 2026).
+PRICES: dict[str, tuple[Decimal, Decimal, Decimal]] = {
+    "claude-opus-5-5": (Decimal("4.00"), Decimal("20.00"), Decimal("0.20")),
+    "claude-sonnet-5-5": (Decimal("2.00"), Decimal("10.00"), Decimal("0.20")),
+    "claude-haiku-5-5": (Decimal("0.10"), Decimal("0.50"), Decimal("0.01")),
+    "fake-llm": (Decimal(0), Decimal(0), Decimal(0)),
+}
+# Claude Haiku 5.5 costs more for a prompt of more than 100,000 tokens.
+_HAIKU_LONG_PROMPT = 100_000
+_HAIKU_LONG_PRICES = (Decimal("0.50"), Decimal("2.50"), Decimal("0.05"))
+
+
+def cost_usd(model: str, usage: LLMUsage) -> Decimal | None:
+    """The price of one call in dollars, or None for a model without a known price."""
+    prices = PRICES.get(model)
+    if prices is None:
+        return None
+    if model == "claude-haiku-5-5" and usage.input_tokens > _HAIKU_LONG_PROMPT:
+        prices = _HAIKU_LONG_PRICES
+    per_input, per_output, per_cache_read = prices
+    total = (
+        usage.input_tokens * per_input
+        + usage.output_tokens * per_output
+        + usage.cache_read_tokens * per_cache_read
+    )
+    return (total / _MILLION).normalize() if total else Decimal(0)
+
+
+def _part(part: TextPart | ImagePart) -> dict[str, str]:
+    if isinstance(part, TextPart):
+        return {"text": part.text}
+    return {"image_sha256": hashlib.sha256(part.data).hexdigest(), "mime": part.mime}
+
+
+def cache_key(
+    model: str,
+    task: str,
+    prompt_version: str,
+    system: str,
+    parts: Sequence[TextPart | ImagePart],
+    schema: type[BaseModel],
+) -> str:
+    question = {
+        "model": model,
+        "task": task,
+        "prompt_version": prompt_version,
+        "system": system,
+        "parts": [_part(part) for part in parts],
+        "schema": schema.model_json_schema(),
+    }
+    encoded = json.dumps(question, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+class CachedLLM:
+    """An ``LLMProvider`` that asks ``inner`` only for a question that it has not stored."""
+
+    def __init__(
+        self,
+        inner: LLMProvider,
+        sessions: async_sessionmaker[AsyncSession],
+        *,
+        model: str,
+        budget_usd: Decimal | None = None,
+        timezone: str = "UTC",
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
+        self.inner = inner
+        self._sessions = sessions
+        self._model = model
+        self.budget_usd = budget_usd
+        self._zone = ZoneInfo(timezone)
+        self._clock = clock
+
+    async def aclose(self) -> None:
+        close: Any = getattr(self.inner, "aclose", None)
+        if close is not None:
+            await close()
+
+    async def generate[T: BaseModel](
+        self,
+        *,
+        task: str,
+        prompt_version: str,
+        system: str,
+        parts: Sequence[TextPart | ImagePart],
+        schema: type[T],
+        max_output_tokens: int,
+    ) -> LLMResult[T]:
+        key = cache_key(self._model, task, prompt_version, system, parts, schema)
+        async with self._sessions() as session:
+            stored = await session.scalar(sa.select(LLMCall).where(LLMCall.cache_key == key))
+            if stored is None:
+                await self._check_budget(session)
+        if stored is not None:
+            return LLMResult[schema](
+                value=schema.model_validate(stored.response["value"]),
+                model=stored.model,
+                usage=LLMUsage(
+                    input_tokens=stored.input_tokens,
+                    output_tokens=stored.output_tokens,
+                    cache_read_tokens=stored.cache_read_tokens,
+                ),
+                cached=True,
+            )
+
+        started = time.monotonic()
+        result = await self.inner.generate(
+            task=task,
+            prompt_version=prompt_version,
+            system=system,
+            parts=parts,
+            schema=schema,
+            max_output_tokens=max_output_tokens,
+        )
+        milliseconds = round((time.monotonic() - started) * 1000)
+        cost = cost_usd(result.model, result.usage)
+        if cost is None:
+            log.warning("llm.no_price", model=result.model)
+        async with self._sessions() as session:
+            await session.execute(
+                postgresql.insert(LLMCall)
+                .values(
+                    cache_key=key,
+                    task=task,
+                    model=result.model,
+                    prompt_version=prompt_version,
+                    request={
+                        "system": system,
+                        "parts": [_part(part) for part in parts],
+                        "schema": schema.__name__,
+                        "max_output_tokens": max_output_tokens,
+                    },
+                    response={"value": result.value.model_dump(mode="json")},
+                    input_tokens=result.usage.input_tokens,
+                    output_tokens=result.usage.output_tokens,
+                    cache_read_tokens=result.usage.cache_read_tokens,
+                    cost_usd=cost or Decimal(0),
+                    duration_ms=milliseconds,
+                )
+                # Two workers can ask the same question at the same moment. One row is enough.
+                .on_conflict_do_nothing(index_elements=[LLMCall.cache_key])
+            )
+            await session.commit()
+        log.info(
+            "llm.call",
+            task=task,
+            model=result.model,
+            input_tokens=result.usage.input_tokens,
+            output_tokens=result.usage.output_tokens,
+            cost_usd=str(cost),
+            seconds=round(milliseconds / 1000, 2),
+        )
+        return result
+
+    async def _check_budget(self, session: AsyncSession) -> None:
+        if self.budget_usd is None:
+            return
+        now = self._clock().astimezone(self._zone)
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        spent = await session.scalar(
+            sa.select(sa.func.coalesce(sa.func.sum(LLMCall.cost_usd), 0)).where(
+                LLMCall.created_at >= today
+            )
+        )
+        if Decimal(spent or 0) >= self.budget_usd:
+            # Midnight on the wall clock of the next day. The difference is taken in UTC:
+            # Python ignores a change of the clocks between two times of one time zone.
+            tomorrow = today + timedelta(days=1)
+            wait = tomorrow.astimezone(UTC) - now.astimezone(UTC)
+            raise ProviderError(
+                f"the daily budget of ${self.budget_usd} is used",
+                retryable=True,
+                retry_after=wait.total_seconds(),
+            )
