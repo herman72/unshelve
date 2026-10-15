@@ -219,6 +219,8 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
         "author": extracted.author,
         "site": extracted.site,
         "lang": extracted.lang,
+        # The length of a video. None for a text: the enrich step counts its reading time.
+        "est_minutes": extracted.minutes,
     }
 
     async with services.sessions() as session:
@@ -362,7 +364,10 @@ async def enrich_item(ctx: JobContext, payload: EnrichItemPayload) -> None:
     written: dict[str, Any] = {
         "summary": None,
         "key_points": [],
-        "est_minutes": reading_minutes(text) if text.strip() else None,
+        # The minutes that the source gave (the length of a video) stay.
+        "est_minutes": sa.func.coalesce(
+            Item.est_minutes, reading_minutes(text) if text.strip() else None
+        ),
     }
     tags: list[tuple[str, str]] = []
     if card is not None:

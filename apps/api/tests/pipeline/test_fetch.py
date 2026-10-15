@@ -125,6 +125,20 @@ async def test_a_link_to_an_article_gives_the_text_of_the_article(services: Serv
     assert await _events(services.sessions, item_id) == []
 
 
+async def test_an_article_after_a_video_counts_its_minutes_again(services: Services) -> None:
+    # The fetch step writes the minutes on each run, also None. So after an edit that changes
+    # the link, the old length of a video does not stay on the item.
+    item_id = await _save(services.sessions)
+    _web(services).add(URL, ARTICLE, content_type="text/html; charset=utf-8")
+    async with services.sessions() as db:
+        await db.execute(sa.update(Item).where(Item.id == item_id).values(est_minutes=99))
+        await db.commit()
+
+    await _run_all(services)
+
+    assert (await _item(services.sessions, item_id)).est_minutes == 1
+
+
 async def test_the_link_is_opened_as_it_was_saved(services: Services) -> None:
     # The canonical address drops "www.", the tracking and the http. It is for identity only.
     saved = "http://www.blog.example.com/2026/queues?utm_source=telegram"
