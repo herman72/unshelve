@@ -1,0 +1,35 @@
+{
+ "__typename": "Tweet",
+ "favorite_count": 12345,
+ "lang": "fa",
+ "possibly_sensitive": false,
+ "created_at": "2026-10-03T06:30:00.000Z",
+ "display_text_range": [
+  0,
+  43
+ ],
+ "entities": {},
+ "id_str": "1234567890123456789",
+ "text": "\u0635\u0641 \u06a9\u0627\u0631\u0647\u0627 \u062f\u0631 \u067e\u0633\u062a\u06af\u0631\u0633 \u0631\u0627 \u0628\u0627 SKIP LOCKED \u0645\u06cc\u200c\u0633\u0627\u0632\u06cc\u0645.",
+ "user": {
+  "id_str": "44",
+  "name": "\u06a9\u0627\u0631\u0628\u0631 \u0646\u0645\u0648\u0646\u0647",
+  "screen_name": "sample_user",
+  "is_blue_verified": false,
+  "profile_image_shape": "Circle",
+  "verified": false,
+  "profile_image_url_https": "https://pbs.twimg.com/profile_images/44/made_up_normal.jpg"
+ },
+ "edit_control": {
+  "edit_tweet_ids": [
+   "1234567890123456789"
+  ],
+  "editable_until_msecs": "1790000000000",
+  "edits_remaining": "5",
+  "is_edit_eligible": false
+ },
+ "conversation_count": 7,
+ "news_action_type": "conversation",
+ "isEdited": false,
+ "isStaleEdit": false
+}

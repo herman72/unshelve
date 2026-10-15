@@ -1,0 +1,93 @@
+{
+ "__typename": "Tweet",
+ "favorite_count": 12345,
+ "lang": "en",
+ "possibly_sensitive": false,
+ "created_at": "2026-09-30T08:15:00.000Z",
+ "display_text_range": [
+  0,
+  112
+ ],
+ "entities": {
+  "urls": [
+   {
+    "display_url": "example.com/queues",
+    "expanded_url": "https://example.com/queues",
+    "indices": [
+     89,
+     112
+    ],
+    "url": "https://t.co/AbCdEf1234"
+   }
+  ],
+  "media": [
+   {
+    "display_url": "pic.x.com/MeDiA98765",
+    "expanded_url": "https://x.com/madeup_person/status/1234567890123456789/photo/1",
+    "indices": [
+     113,
+     136
+    ],
+    "url": "https://t.co/MeDiA98765"
+   }
+  ]
+ },
+ "id_str": "1234567890123456789",
+ "text": "Postgres can be a job queue &amp; a log: SKIP LOCKED lets workers share one table.\n\nhttps://t.co/AbCdEf1234 https://t.co/MeDiA98765",
+ "user": {
+  "id_str": "42",
+  "name": "Made-up Person",
+  "screen_name": "madeup_person",
+  "is_blue_verified": false,
+  "profile_image_shape": "Circle",
+  "verified": false,
+  "profile_image_url_https": "https://pbs.twimg.com/profile_images/42/made_up_normal.jpg"
+ },
+ "edit_control": {
+  "edit_tweet_ids": [
+   "1234567890123456789"
+  ],
+  "editable_until_msecs": "1790000000000",
+  "edits_remaining": "5",
+  "is_edit_eligible": false
+ },
+ "conversation_count": 7,
+ "news_action_type": "conversation",
+ "isEdited": false,
+ "isStaleEdit": false,
+ "mediaDetails": [
+  {
+   "display_url": "pic.x.com/MeDiA98765",
+   "expanded_url": "https://x.com/madeup_person/status/1234567890123456789/photo/1",
+   "indices": [
+    113,
+    136
+   ],
+   "url": "https://t.co/MeDiA98765",
+   "media_url_https": "https://pbs.twimg.com/media/MadeUpPhoto.jpg",
+   "type": "photo",
+   "ext_media_availability": {
+    "status": "Available"
+   },
+   "original_info": {
+    "focus_rects": [],
+    "height": 600,
+    "width": 800
+   }
+  }
+ ],
+ "photos": [
+  {
+   "backgroundColor": {
+    "red": 0,
+    "green": 0,
+    "blue": 0
+   },
+   "cropCandidates": [],
+   "expandedUrl": "https://x.com/madeup_person/status/1234567890123456789/photo/1",
+   "url": "https://pbs.twimg.com/media/MadeUpPhoto.jpg",
+   "width": 800,
+   "height": 600
+  }
+ ]
+}
