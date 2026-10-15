@@ -1,7 +1,9 @@
 import asyncio
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 import sqlalchemy as sa
@@ -13,14 +15,15 @@ from unshelve.auth import store as auth_store
 from unshelve.bot import cards
 from unshelve.cli import app
 from unshelve.config import Settings, get_settings
-from unshelve.contracts.dto import Extracted, FetchResult, SourceRef
+from unshelve.contracts.dto import Extracted, FetchResult, LLMResult, LLMUsage, SourceRef
 from unshelve.contracts.enums import ItemKind
-from unshelve.contracts.errors import ExtractError
+from unshelve.contracts.errors import ExtractError, ProviderError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.db.engine import create_engine, create_session_factory
-from unshelve.db.models import Capture, ItemKey, Job
+from unshelve.db.models import Capture, ItemKey, Job, LLMCall
 from unshelve.extract.article import ArticleExtractor
 from unshelve.net.fetcher import LiveFetcher
+from unshelve.providers.claude import ClaudeLLM
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
 from unshelve.services import build_services
@@ -61,6 +64,7 @@ def test_every_service_command_is_registered() -> None:
         "digest",
         "fetch",
         "extract",
+        "llm",
     ):
         assert command in _plain(result.stdout)
 
@@ -137,6 +141,111 @@ def test_extract_says_why_a_page_is_no_article(
 
     assert result.exit_code == 1
     assert "No article: the page has only 47 characters of text." in _plain(result.output)
+
+
+def test_llm_check_prints_the_answer_and_its_price(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    async def pretend(self: ClaudeLLM, **question: Any) -> LLMResult[Any]:
+        schema = question["schema"]
+        return LLMResult[schema](
+            value=schema(title="Job queues in Postgres"),
+            model="claude-haiku-5-5",
+            usage=LLMUsage(input_tokens=1200, output_tokens=40),
+        )
+
+    monkeypatch.setattr(ClaudeLLM, "generate", pretend)
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "llm",
+        "check",
+        "--model",
+        "claude-haiku-5-5",
+        UNSHELVE_DATABASE_URL=private_database_url,
+    )
+
+    assert result.exit_code == 0, result.output
+    lines = _plain(result.output).splitlines()
+    assert "claude-haiku-5-5 answered: Job queues in Postgres" in lines
+    # 1,200 x $0.10 and 40 x $0.50 for one million tokens.
+    assert "1200 input and 40 output tokens, $0.00014" in lines
+    assert asyncio.run(_count_llm_calls(private_database_url)) == 1  # the ledger keeps it
+
+
+def test_llm_check_says_why_there_is_no_answer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    async def refused(self: ClaudeLLM, **question: Any) -> LLMResult[Any]:
+        raise ProviderError("401 authentication_error: a person must fix it", retryable=True)
+
+    monkeypatch.setattr(ClaudeLLM, "generate", refused)
+
+    result = _run(monkeypatch, tmp_path, "llm", "check", UNSHELVE_DATABASE_URL=private_database_url)
+
+    assert result.exit_code == 1
+    assert "No answer: 401 authentication_error: a person must fix it." in _plain(result.output)
+
+
+async def _count_llm_calls(database_url: str) -> int:
+    engine = create_engine(database_url)
+    try:
+        async with create_session_factory(engine)() as db:
+            return (await db.execute(sa.select(sa.func.count()).select_from(LLMCall))).scalar_one()
+    finally:
+        await engine.dispose()
+
+
+def test_llm_costs_prints_today_and_the_last_30_days(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    async def spend() -> None:
+        engine = create_engine(private_database_url)
+        now = datetime.now(UTC)
+        try:
+            async with create_session_factory(engine)() as db:
+                for key, model, cost, at in (
+                    ("today", "claude-opus-5-5", "0.03", now),
+                    ("ten days ago", "claude-opus-5-5", "0.02", now - timedelta(days=10)),
+                    ("forty days ago", "claude-haiku-5-5", "0.001", now - timedelta(days=40)),
+                ):
+                    db.add(
+                        LLMCall(
+                            cache_key=key,
+                            task="enrich_item",
+                            model=model,
+                            prompt_version="enrich-1",
+                            request={},
+                            response={},
+                            input_tokens=1000,
+                            output_tokens=100,
+                            cost_usd=Decimal(cost),
+                            created_at=at,
+                        )
+                    )
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(spend())
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "llm",
+        "costs",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        UNSHELVE_TIMEZONE="UTC",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _plain(result.output).splitlines() == [
+        "Today (UTC), budget $1.00: $0.0300, 1 call",
+        "  claude-opus-5-5: $0.0300, 1 call, 1000 in, 100 out",
+        "Last 30 days: $0.0500, 2 calls",
+        "  claude-opus-5-5: $0.0500, 2 calls, 2000 in, 200 out",
+    ]
 
 
 def test_fetch_prints_what_came_back(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

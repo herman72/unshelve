@@ -3,7 +3,8 @@
 import asyncio
 import json
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -12,6 +13,7 @@ import sqlalchemy as sa
 import structlog
 import typer
 import uvicorn
+from pydantic import BaseModel
 
 from unshelve import __version__
 from unshelve.api.app import create_app
@@ -19,18 +21,20 @@ from unshelve.auth import store as auth_store
 from unshelve.bot import cards
 from unshelve.bot.runner import run_bot
 from unshelve.config import Settings, get_settings
-from unshelve.contracts.dto import Extracted, FetchResult, SourceRef
-from unshelve.contracts.errors import ExtractError, FetchError
+from unshelve.contracts.dto import Extracted, FetchResult, LLMResult, SourceRef, TextPart
+from unshelve.contracts.errors import ExtractError, FetchError, ProviderError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
-from unshelve.db.models import Digest, Item
+from unshelve.db.models import Digest, Item, LLMCall
 from unshelve.extract.article import ArticleExtractor
 from unshelve.ingest import importer, resolve
 from unshelve.ingest.export_html import ExportFormatError, read_export
 from unshelve.log import configure_logging
 from unshelve.net.fetcher import LiveFetcher
 from unshelve.net.guard import BlockedAddressError
+from unshelve.providers.claude import ClaudeLLM
+from unshelve.providers.ledger import CachedLLM, cost_usd
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
 from unshelve.resurface import digest, weekly
@@ -41,8 +45,10 @@ from unshelve.testing.fakes import FakeLLM, InMemoryBlobStore
 app = typer.Typer(no_args_is_help=True, add_completion=False, help="Unshelve service commands.")
 auth_app = typer.Typer(no_args_is_help=True, help="Sign-in helpers.")
 digest_app = typer.Typer(no_args_is_help=True, help="The digest that the bot sends each week.")
+llm_app = typer.Typer(no_args_is_help=True, help="The model: a test call, and what the calls cost.")
 app.add_typer(auth_app, name="auth")
 app.add_typer(digest_app, name="digest")
+app.add_typer(llm_app, name="llm")
 
 
 def _setup_logging() -> structlog.stdlib.BoundLogger:
@@ -446,3 +452,110 @@ def digest_send() -> None:
         raise _stop("UNSHELVE_TELEGRAM_BOT_TOKEN is not set. Without a bot, nothing can be sent.")
     _, items = asyncio.run(_digest(settings, send=True))
     typer.echo(f"Sent a digest with {items} items." if items else "Nothing to send: no items.")
+
+
+class _Title(BaseModel):
+    title: str
+
+
+@llm_app.command("check")
+def llm_check(
+    model: Annotated[
+        str | None, typer.Option(help="A model other than UNSHELVE_LLM_MODEL.")
+    ] = None,
+) -> None:
+    """Ask the model one short question, and print the answer and its price.
+
+    It needs ANTHROPIC_API_KEY. It costs a fraction of a cent, and the ledger keeps it.
+    """
+    settings = get_settings()
+    try:
+        result = asyncio.run(_llm_check(settings, model or settings.llm_model))
+    except ProviderError as error:
+        typer.echo(f"No answer: {error}.")
+        raise typer.Exit(1) from None
+    price = cost_usd(result.model, result.usage)
+    typer.echo(f"{result.model} answered: {result.value.title}")
+    typer.echo(
+        f"{result.usage.input_tokens} input and {result.usage.output_tokens} output tokens, "
+        f"${price if price is not None else '?'}"
+    )
+
+
+async def _llm_check(settings: Settings, model: str) -> LLMResult[_Title]:
+    engine = create_engine(settings.database_url)
+    llm = CachedLLM(
+        ClaudeLLM(model=model, effort="low"),
+        create_session_factory(engine),
+        model=model,
+        budget_usd=settings.llm_daily_budget_usd,
+        timezone=settings.timezone,
+    )
+    try:
+        return await llm.generate(
+            task="llm_check",
+            # A new version each time: a check is always a real call, never a stored answer.
+            prompt_version=f"check-{datetime.now(UTC).isoformat()}",
+            system="Give the text a short title.",
+            parts=[TextPart(text="Postgres can be a job queue: SKIP LOCKED lets workers share.")],
+            schema=_Title,
+            max_output_tokens=100,
+        )
+    finally:
+        await llm.aclose()
+        await engine.dispose()
+
+
+@llm_app.command("costs")
+def llm_costs() -> None:
+    """Print what the calls of the model cost today and in the last 30 days."""
+    settings = get_settings()
+    today, month = asyncio.run(_llm_costs(settings))
+    budget = settings.llm_daily_budget_usd
+    for label, rows in (
+        (f"Today ({settings.timezone}), budget ${budget}", today),
+        ("Last 30 days", month),
+    ):
+        calls = sum(row[1] for row in rows)
+        total = sum((row[4] for row in rows), Decimal(0))
+        typer.echo(f"{label}: ${total:.4f}, {_calls(calls)}")
+        for model, count, tokens_in, tokens_out, cost in rows:
+            typer.echo(f"  {model}: ${cost:.4f}, {_calls(count)}, {tokens_in} in, {tokens_out} out")
+
+
+def _calls(count: int) -> str:
+    return "1 call" if count == 1 else f"{count} calls"
+
+
+type _CostRow = tuple[str, int, int, int, Decimal]
+
+
+async def _llm_costs(settings: Settings) -> tuple[list[_CostRow], list[_CostRow]]:
+    zone = ZoneInfo(settings.timezone)
+    midnight = datetime.now(zone).replace(hour=0, minute=0, second=0, microsecond=0)
+    engine = create_engine(settings.database_url)
+    try:
+        async with create_session_factory(engine)() as session:
+            found: list[list[_CostRow]] = []
+            for since in (midnight, midnight - timedelta(days=30)):
+                rows = await session.execute(
+                    sa.select(
+                        LLMCall.model,
+                        sa.func.count(),
+                        sa.func.sum(LLMCall.input_tokens),
+                        sa.func.sum(LLMCall.output_tokens),
+                        sa.func.sum(LLMCall.cost_usd),
+                    )
+                    .where(LLMCall.created_at >= since)
+                    .group_by(LLMCall.model)
+                    .order_by(LLMCall.model)
+                )
+                found.append(
+                    [
+                        (model, count, int(tokens_in), int(tokens_out), Decimal(cost))
+                        for model, count, tokens_in, tokens_out, cost in rows.all()
+                    ]
+                )
+            return found[0], found[1]
+    finally:
+        await engine.dispose()
