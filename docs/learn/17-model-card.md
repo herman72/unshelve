@@ -1,6 +1,6 @@
 # 17. Asking the model: a card, a cache and a budget
 
-> Pull request: [#71](https://github.com/herman72/unshelve/pull/71) · Decision record: [ADR 0011](../adr/0011-claude-for-the-cards.md) · Code: [`providers/claude.py`](../../apps/api/src/unshelve/providers/claude.py), [`providers/ledger.py`](../../apps/api/src/unshelve/providers/ledger.py), [`enrich/card.py`](../../apps/api/src/unshelve/enrich/card.py), [`pipeline/items.py`](../../apps/api/src/unshelve/pipeline/items.py) (`enrich_item`) · Tests: [`tests/providers/`](../../apps/api/tests/providers/), [`tests/enrich/`](../../apps/api/tests/enrich/), [`tests/pipeline/test_enrich.py`](../../apps/api/tests/pipeline/test_enrich.py)
+> Pull requests: [#71](https://github.com/herman72/unshelve/pull/71), [#84](https://github.com/herman72/unshelve/pull/84) (the prompt `enrich-2`) · Decision record: [ADR 0011](../adr/0011-claude-for-the-cards.md) · Code: [`providers/claude.py`](../../apps/api/src/unshelve/providers/claude.py), [`providers/ledger.py`](../../apps/api/src/unshelve/providers/ledger.py), [`enrich/card.py`](../../apps/api/src/unshelve/enrich/card.py), [`pipeline/items.py`](../../apps/api/src/unshelve/pipeline/items.py) (`enrich_item`) · Tests: [`tests/providers/`](../../apps/api/tests/providers/), [`tests/enrich/`](../../apps/api/tests/enrich/), [`tests/pipeline/test_enrich.py`](../../apps/api/tests/pipeline/test_enrich.py)
 
 ## In one minute
 
@@ -134,6 +134,31 @@ These are estimates from the prices. The ledger gives the real numbers after the
 
 The default stays Claude Opus 5.5, as in the plan. A fair way to choose: the same 20 saved items, with two models, and the cards side by side. That costs about $1.
 
+## 7. A second version of the prompt
+
+The comparison of 15 October 2026 put Haiku 5.5 and Opus 5.5 on the same 16 items. With the prompt `enrich-1`, Haiku made two kinds of mistakes:
+
+- For a bare link, it wrote the link itself as the title: `https://openai.com/index/scaling-storage-one-billion-users-part-one/`.
+- Some tags were not topics: `unread` (a state), `video link` (a form), `openai`, `youtube`, `wikipedia` (a source).
+
+The prompt `enrich-2` adds two rules. The title is words, never a link: for a bare link, a few words from the link. A tag names a topic, never a source, a form or a state.
+
+A prompt only asks. So the code also checks: a title that starts like a web address (`https:`, `http:`, `www.`) does not reach the item (`title_of` in `enrich/card.py`). The item then keeps its own title, or has none. "HTTP/2 explained" is still a title: it has no colon after the letters.
+
+The live check of 16 October 2026, Haiku 5.5 on the same 3 bare links, cost $0.000550:
+
+| The saved link | `enrich-1` | `enrich-2` |
+|---|---|---|
+| `openai.com/index/scaling-storage-one-billion-users-part-one/` | the link itself | Scaling storage to one billion users, part one |
+| `youtube.com/live/J7-uvBSG7ho` | YouTube live stream link (J7-uvBSG7ho) | A YouTube live video |
+| `youtube.com/watch?v=UPtmKh1vMN8` | YouTube video link (UPtmKh1vMN8) | A YouTube video |
+
+The tags `openai`, `youtube`, `unread` and `video link` are gone. One fault stays: a YouTube link without words still gets the tag `video`, a form. Since the YouTube extractor ([note 19](19-youtube-video.md)), such a link reaches the model with the title and the description of the video, so it is rarely bare.
+
+A card that `enrich-1` made stays as it is. "Process again" on the page of the item ([note 26](26-item-page.md)) makes a new one: the cache key has the version, so the model is asked again, for about $0.0002 for a bare link and $0.001 for a long article with Haiku.
+
+**A comparison from daily life:** a form that says "write your name, not your address". Most people follow it, so the clerk who reads the form still checks the box.
+
 ## A choice that we made
 
 Where does the cache go?
@@ -153,6 +178,7 @@ Where does the cache go?
 - **What happens when the model fails?** Three groups, and the last attempt goes on without a card. A test for each group.
 - **Is the adapter tested without the real API?** Yes. The tests use the real SDK against a pretend API: the SDK builds the request, and the test reads it. One test checks each status code of the API.
 - **Can the tests fail?** I broke the new code in 40 places, one at a time. The tests found each of the 40.
+- **Does the code trust each field of the model?** No. A title that is a link does not reach the item (part 7), and a tag without a Latin letter or a digit is dropped. A test for each.
 - **A mistake that the review found.** On the night when the clocks go back, the wait until midnight was one hour too short. Python ignores a change of the clocks when it subtracts two times of the same time zone. A test for 25 October 2026 in Helsinki found it, and the difference is now taken in UTC.
 - **What is not done:**
   - No real call was made yet. It needs a yes from the owner, because it costs money.
