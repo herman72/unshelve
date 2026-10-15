@@ -233,4 +233,4 @@ The lesson: a test that checks only the result cannot see a cost. Count the call
 - [Structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs), Claude Platform Docs. It shows `output_config` with a JSON schema, as in part 1.
 - [LLM01:2025 Prompt Injection](https://genai.owasp.org/llmrisk/llm01-prompt-injection/), OWASP Gen AI Security Project. Read the part about indirect prompt injection: instructions that come in a web page. That is the case of part 2.
 
-Previous: [16. The fetch step](16-fetch-step.md) · Back to the [list of notes](README.md)
+Previous: [16. The fetch step](16-fetch-step.md) · Next: [18. Vectors for search](18-vectors-for-search.md) · Back to the [list of notes](README.md)
