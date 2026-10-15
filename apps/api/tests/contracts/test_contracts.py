@@ -75,10 +75,19 @@ def test_failure_signals_carry_their_reason() -> None:
         (FetchError("blocked_address", "u"), False),
         (FetchError("too_large", "u"), False),
         (FetchError("unsupported", "u"), False),
+        # A name without an address is a dead link. Asking again in a minute does not help.
+        (FetchError("no_such_host", "u"), False),
     ],
 )
 def test_only_transient_fetch_failures_are_retryable(error: FetchError, retryable: bool) -> None:
     assert error.retryable is retryable
+
+
+def test_a_fetch_error_keeps_the_wait_that_the_server_asked_for() -> None:
+    error = FetchError("http_error", "u", status=429, retry_after=120.0)
+
+    assert (error.status, error.retry_after, error.retryable) == (429, 120.0, True)
+    assert FetchError("timeout", "u").retry_after is None
 
 
 @pytest.mark.parametrize(
