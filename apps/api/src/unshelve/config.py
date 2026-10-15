@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     digest_hour: int = Field(default=9, ge=0, le=23)
 
     # "fake" and "fixtures" keep every model and network call local and deterministic.
-    # "live" asks Claude with ANTHROPIC_API_KEY; the embedder stays fake until milestone M2-5.
+    # "live" asks Claude with ANTHROPIC_API_KEY.
     providers: Literal["fake", "live"] = "fake"
     fetcher: Literal["fixtures", "live"] = "fixtures"
     llm_model: str = "claude-opus-5-5"
@@ -47,6 +47,14 @@ class Settings(BaseSettings):
     llm_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
     # No new call on a day when the calls have cost this many dollars. A stored answer is free.
     llm_daily_budget_usd: Decimal = Field(default=Decimal("1.00"), ge=0)
+
+    # The embedder makes the vectors for search (ADR 0012). "fake" is local and free. "voyage"
+    # asks Voyage AI with VOYAGE_API_KEY, with this model and this length of vector.
+    embedder: Literal["fake", "voyage"] = "fake"
+    embed_model: str = "voyage-4-large"
+    embed_dim: Literal[256, 512, 1024, 2048] = 1024
+    # The usual name of the key, without the UNSHELVE_ prefix.
+    voyage_api_key: SecretStr | None = Field(default=None, validation_alias="VOYAGE_API_KEY")
 
     # The fetcher opens saved links (net/fetcher.py). The time is for one whole fetch, with its
     # redirects. The interval is the pause between two requests to the same host.
