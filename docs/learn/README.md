@@ -44,6 +44,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 30 | [The reading status](30-reading-status.md) | How an item moves from the inbox to done, why each move and its event are one transaction, and how a lock keeps the queue at 5 slots | |
 | 31 | [Goals](31-goals.md) | How a goal gets a slug that never changes, why only a new meaning gives a new version, and how one focus and 10 active goals are kept | |
 | 32 | [Scores against your goals](32-scores-against-goals.md) | How a free vector prefilter saves questions, why one question scores all goals, and why a score with a label stays | |
+| 33 | [Your verdicts, and the golden set](33-labels-and-golden-set.md) | How a verdict holds only for the score that you saw, which score the chat asks about next, and how the golden set stays reproducible | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 
