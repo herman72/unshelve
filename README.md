@@ -78,6 +78,8 @@ To save your first item and see the worker finish it, follow "Try it yourself" i
 
 On the page of an item, a button for each allowed move changes its reading status: into the queue, to reading, done, or archived. The reading queue has 5 slots, and the page "Queue" shows them. The section "History" shows each move. [The reading status note](docs/learn/30-reading-status.md) explains the rules.
 
+The page "Goals" holds what you work on now: add, change, archive and focus a goal there. Each saved item will get a score for each goal. [The goals note](docs/learn/31-goals.md) explains slugs, versions and the focus.
+
 To capture from a Telegram channel, put the token of your bot into `.env`, make the bot an administrator of the channel, and add the id of the channel to `UNSHELVE_CAPTURE_CHAT_IDS`. [The bot note](docs/learn/10-bot-capture.md) explains each step and how to find the id.
 
 The bot gets only new posts. To bring in the old posts of a channel, export the chat in Telegram ("Export chat history"), move the folder of the export into `exports/`, and import it. Give the time zone of the computer that made the export:
