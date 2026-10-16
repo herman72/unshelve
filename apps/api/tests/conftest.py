@@ -11,7 +11,7 @@ from unshelve.api.app import create_app
 from unshelve.config import Settings
 from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
-from unshelve.testing.db import create_database, drop_database, unique_name
+from unshelve.testing.db import NO_DATABASE_URL, create_database, drop_database, unique_name
 
 # Any database on the server; test databases are created next to it. `make db` starts it.
 TEST_SERVER_URL = os.environ.get(
@@ -23,6 +23,15 @@ ClientFactory = Callable[[Settings], AbstractAsyncContextManager[httpx.AsyncClie
 # A test never reads a .env file: the settings of a test are in the test. Without this line,
 # the .env of a developer (a live fetcher, a real key) changes results, or reaches a service.
 Settings.model_config["env_file"] = None
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _no_database() -> Generator[None]:
+    """Settings without a database of their own get one that does not exist, never the database
+    of the instance that the default names. A test gives its own: ``private_database_url``."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("UNSHELVE_DATABASE_URL", NO_DATABASE_URL)
+        yield
 
 
 @pytest.fixture(scope="session", autouse=True)
