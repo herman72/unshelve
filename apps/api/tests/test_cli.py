@@ -1395,7 +1395,7 @@ def test_goals_rescore_shows_the_price_and_starts_nothing_after_a_no(
     lines = _plain(result.output).splitlines()
     assert lines[0] == "1 active goal: 2 items to score."
     assert lines[1] == (
-        "- 2 questions to claude-haiku-5-5: about $0.0002 for about 1419 input and 90 output "
+        "- 2 questions to claude-haiku-5-5: about $0.0002 for about 1775 input and 120 output "
         "tokens."
     )
     assert lines[2:] == ["Score them? [y/N]: n", "Nothing was started."]

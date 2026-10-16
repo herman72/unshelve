@@ -34,10 +34,11 @@ from unshelve.relevance.prompt import (
 )
 from unshelve.relevance.vectors import best_similarities, ensure_goal_vectors
 
-# As for the cards (pipeline.batches): one token for each 2.5 characters of the request. A
-# score with its reason is about 45 tokens of the answer.
-_CHARACTERS_PER_TOKEN = 2.5
-_OUTPUT_TOKENS_PER_GOAL = 45
+# Measured with Claude Haiku 5.5 on 16 October 2026 (note 32): a question of the score had one
+# input token for each 2.1 characters of its system prompt, schema and question, and each goal
+# took 48 to 59 tokens of the answer. 2.0 and 60 keep the estimate a little above the price.
+_CHARACTERS_PER_TOKEN = 2.0
+_OUTPUT_TOKENS_PER_GOAL = 60
 
 
 @dataclass(frozen=True, slots=True)
