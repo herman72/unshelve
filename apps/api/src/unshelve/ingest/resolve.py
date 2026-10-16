@@ -22,8 +22,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from unshelve.contracts.dto import CaptureEnvelope
 from unshelve.contracts.enums import EnrichState, JobKind
 from unshelve.contracts.jobs import FetchItemPayload, IngestAlbumPayload, IngestCapturePayload
-from unshelve.db.models import Capture, Item, ItemKey
-from unshelve.ingest.keys import keys_of, primary_url
+from unshelve.db.models import Capture, Item, ItemContent, ItemKey
+from unshelve.ingest.keys import final_address_key, keys_of, primary_url
 from unshelve.ingest.versions import latest_versions, source
 from unshelve.queue import store as queue
 
@@ -393,12 +393,38 @@ async def resolve_album(
     return await _give_item(session, owner_id, parts)
 
 
+async def add_final_address(
+    session: AsyncSession, owner_id: int, item_id: int, saved: str | None, final: str
+) -> int:
+    """Give an item the key of the address where its link ended after the redirects of the
+    fetch step. Returns the item that stays: another one when this item became a duplicate.
+
+    When another item has that key, the two are one thing: a short link and the full address
+    of one page. They are joined as for a save, under the same lock for each key, so two
+    workers that read two links of one page at the same moment give one item.
+    """
+    key = final_address_key(saved, final)
+    if key is None:
+        return item_id
+    await _wait_for_keys(session, owner_id, [key])
+    found = await _items_with(session, owner_id, [key])
+    await session.execute(
+        postgresql.insert(ItemKey)
+        .values(owner_id=owner_id, key=key, item_id=item_id)
+        # A key that an item has already stays with that item: the join links the two.
+        .on_conflict_do_nothing()
+    )
+    await _join_as_one(session, found | {await _root(session, item_id)})
+    return await _root(session, item_id)
+
+
 async def rekey_item(session: AsyncSession, item_id: int) -> int:
     """Give an item the keys of its saves again. Returns the number of keys that are new.
 
     For an item that was made before the keys existed, and for all items after a change of
     the rules for an address (``canonical.VERSION``). The stored messages are the source: the
-    keys can always be made again from them.
+    keys can always be made again from them. The address where the link ended after its
+    redirects is stored with the text of the item, and it is a key too.
 
     When a key belongs to a different item already, the two items are one thing, and they
     are joined. Safe to call again.
@@ -415,7 +441,19 @@ async def rekey_item(session: AsyncSession, item_id: int) -> int:
     for capture in captures:
         album = capture.media_group_id
         saves.setdefault((capture.chat_id, album or capture.id), []).append(capture)
-    keys = sorted({key for save in saves.values() for key in keys_of(save)})
+    found_keys = {key for save in saves.values() for key in keys_of(save)}
+    item = (
+        await session.execute(
+            sa.select(Item.canonical_url, ItemContent.final_url)
+            .outerjoin(ItemContent, ItemContent.item_id == Item.id)
+            .where(Item.id == item_id)
+        )
+    ).one()
+    if item.final_url:
+        final = final_address_key(item.canonical_url, item.final_url)
+        if final is not None:
+            found_keys.add(final)
+    keys = sorted(found_keys)
     if not keys:
         return 0
 
