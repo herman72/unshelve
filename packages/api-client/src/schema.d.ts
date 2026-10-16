@@ -291,6 +291,8 @@ export interface paths {
         /**
          * Set Goal Label
          * @description Confirm or reject the score of one goal for this item. A null label removes the verdict.
+         *
+         *     With ``score``, the score that you saw: when the score changed since, the answer is a 409.
          */
         put: operations["set_goal_label"];
         post?: never;
@@ -1001,6 +1003,11 @@ export interface components {
         LabelRequest: {
             /** @description Null removes the label. */
             label: components["schemas"]["GoalLabel"] | null;
+            /**
+             * Score
+             * @description The score that you saw. When the score changed since, the answer is a 409: a verdict is about the score that was shown.
+             */
+            score?: number | null;
         };
         /** MagicConsumeRequest */
         MagicConsumeRequest: {
@@ -1991,6 +1998,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

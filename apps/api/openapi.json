@@ -1373,6 +1373,20 @@
               }
             ],
             "description": "Null removes the label."
+          },
+          "score": {
+            "anyOf": [
+              {
+                "maximum": 3.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The score that you saw. When the score changed since, the answer is a 409: a verdict is about the score that was shown.",
+            "title": "Score"
           }
         },
         "required": [
@@ -3305,7 +3319,7 @@
     },
     "/api/v1/items/{item_id}/goals/{goal_id}/label": {
       "put": {
-        "description": "Confirm or reject the score of one goal for this item. A null label removes the verdict.",
+        "description": "Confirm or reject the score of one goal for this item. A null label removes the verdict.\n\nWith ``score``, the score that you saw: when the score changed since, the answer is a 409.",
         "operationId": "set_goal_label",
         "parameters": [
           {
@@ -3369,6 +3383,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {

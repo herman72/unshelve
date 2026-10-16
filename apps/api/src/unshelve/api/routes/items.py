@@ -134,7 +134,14 @@ async def list_similar_items(
     raise NotImplementedYetError
 
 
-@router.put("/items/{item_id}/goals/{goal_id}/label", responses=problems(401, 404, 422))
-async def set_goal_label(item_id: ItemId, goal_id: GoalId, body: LabelRequest) -> GoalScore:
-    """Confirm or reject the score of one goal for this item. A null label removes the verdict."""
-    raise NotImplementedYetError
+@router.put("/items/{item_id}/goals/{goal_id}/label", responses=problems(401, 404, 409, 422))
+async def set_goal_label(
+    item_id: ItemId, goal_id: GoalId, body: LabelRequest, user: CurrentUserDep, db: DbDep
+) -> GoalScore:
+    """Confirm or reject the score of one goal for this item. A null label removes the verdict.
+
+    With ``score``, the score that you saw: when the score changed since, the answer is a 409.
+    """
+    score = await item_views.set_goal_label(db, user.id, item_id, goal_id, body)
+    await db.commit()
+    return score
