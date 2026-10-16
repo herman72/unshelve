@@ -53,6 +53,7 @@ from unshelve.providers.ledger import CachedLLM, cost_usd
 from unshelve.providers.voyage import VoyageEmbedder
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
+from unshelve.relevance import rescore
 from unshelve.resurface import digest, weekly
 from unshelve.runtime import shutdown_event, wait_for_shutdown
 from unshelve.services import (
@@ -81,6 +82,8 @@ app.add_typer(digest_app, name="digest")
 app.add_typer(llm_app, name="llm")
 llm_app.add_typer(batch_app, name="batch")
 app.add_typer(embeddings_app, name="embeddings")
+goals_app = typer.Typer(no_args_is_help=True, help="Your goals, and the scores of the items.")
+app.add_typer(goals_app, name="goals")
 
 
 def _setup_logging() -> structlog.stdlib.BoundLogger:
@@ -949,3 +952,97 @@ async def _embeddings_check(settings: Settings) -> tuple[float, float, int]:
 def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b, strict=True))
     return dot / (math.sqrt(sum(x * x for x in a)) * math.sqrt(sum(y * y for y in b)))
+
+
+# --- Scores against the goals ------------------------------------------------------------
+
+
+def _scoring_model(settings: Settings) -> str:
+    """The model that the worker asks for the scores."""
+    return settings.llm_model if settings.providers == "live" else FakeLLM.model
+
+
+@goals_app.command("rescore")
+def goals_rescore(
+    yes: Annotated[bool, typer.Option("--yes", help="Start without the question.")] = False,
+    every_item: Annotated[
+        bool,
+        typer.Option(
+            "--every-item",
+            help="Score each ready item again, also with scores of the current goals: after a "
+            "change of the model, for example.",
+        ),
+    ] = False,
+) -> None:
+    """Score the items again against your goals, after you add a goal or change its meaning. It
+    shows the price first.
+
+    The worker scores each new item by itself. An item with scores keeps them when a goal
+    changes, because a new score can cost a question to the model. A score with a label stays.
+    """
+    settings = get_settings()
+    if settings.owner_telegram_id is None:
+        raise _stop("No owner: set UNSHELVE_OWNER_TELEGRAM_ID.")
+    asyncio.run(
+        _goals_rescore(settings, settings.owner_telegram_id, yes=yes, every_item=every_item)
+    )
+
+
+async def _goals_rescore(
+    settings: Settings, telegram_user_id: int, *, yes: bool, every_item: bool
+) -> None:
+    engine = create_engine(settings.database_url)
+    embedder = build_embedder(settings)
+    model = _scoring_model(settings)
+    try:
+        sessions = create_session_factory(engine)
+        async with sessions() as session:
+            owner_id = await auth_store.ensure_owner(session, telegram_user_id)
+            await session.commit()
+        try:
+            found = await rescore.plan(
+                sessions,
+                embedder,
+                owner_id,
+                model=model,
+                prefilter=settings.score_prefilter,
+                every_item=every_item,
+            )
+        except ProviderError as error:
+            raise _stop(f"The goals got no vectors: {str(error).rstrip('.')}.") from None
+        if not found.goals:
+            typer.echo("No active goal. Add your goals on the page Goals first.")
+            return
+        if not found.items:
+            typer.echo(f"Each item has scores of the {_count(found.goals, 'active goal')}.")
+            return
+        typer.echo(
+            f"{_count(found.goals, 'active goal')}: {_count(len(found.items), 'item')} to score."
+        )
+        if found.far:
+            typer.echo(
+                f"- {found.far} far from each goal get 0 without a question "
+                f"(UNSHELVE_SCORE_PREFILTER={settings.score_prefilter})."
+            )
+        if found.stored:
+            typer.echo(f"- {found.stored} have their answer in the ledger already: no cost.")
+        price = "an unknown price" if found.cost_usd is None else f"about ${found.cost_usd:.4f}"
+        typer.echo(
+            f"- {_count(found.questions, 'question')} to {model}: {price} for about "
+            f"{found.input_tokens} input and {found.output_tokens} output tokens."
+        )
+        if found.cost_usd is not None and found.cost_usd > settings.llm_daily_budget_usd:
+            typer.echo(
+                f"The price is more than the daily budget of ${settings.llm_daily_budget_usd}: "
+                "the worker asks until the budget of the day is used, and the rest waits for the "
+                "next day."
+            )
+        if not yes and not typer.confirm("Score them?"):
+            typer.echo("Nothing was started.")
+            return
+        started = await rescore.start(sessions, owner_id, found.items)
+        typer.echo(f"The worker scores {_count(started, 'item')} now.")
+    finally:
+        if isinstance(embedder, VoyageEmbedder):
+            await embedder.aclose()
+        await engine.dispose()
