@@ -53,7 +53,10 @@ def backoff(attempts: int, *, base: timedelta, cap: timedelta) -> timedelta:
 
     A service that is down needs time to come back. Trying again at once only adds load.
     """
-    return min(base * 2 ** max(attempts - 1, 0), cap)
+    # In seconds, as a float: a timedelta cannot hold 2 ** 300 times 10 seconds, and a job can
+    # have 300 tries (the collection of a batch).
+    seconds = base.total_seconds() * 2.0 ** min(max(attempts - 1, 0), 1000)
+    return min(timedelta(seconds=min(seconds, cap.total_seconds())), cap)
 
 
 @dataclass(frozen=True, slots=True)
