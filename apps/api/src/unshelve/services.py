@@ -1,4 +1,5 @@
-"""Build the things that job handlers use: fetcher, model provider, embedder, blob store."""
+"""Build the things that job handlers use: fetcher, model provider, batches, embedder, blob
+store."""
 
 import os
 
@@ -10,13 +11,15 @@ from unshelve.blobs import FileBlobStore
 from unshelve.config import Settings
 from unshelve.contracts.dto import EmbeddingSpec
 from unshelve.contracts.jobs import Services
-from unshelve.contracts.protocols import Embedder, Fetcher
+from unshelve.contracts.protocols import BatchProvider, Embedder, Fetcher
+from unshelve.enrich.card import TASK as CARD_TASK
 from unshelve.net.fetcher import LiveFetcher
 from unshelve.net.telegram_files import TelegramFiles
+from unshelve.providers.batches import ClaudeBatches
 from unshelve.providers.claude import ClaudeLLM
 from unshelve.providers.ledger import CachedLLM
 from unshelve.providers.voyage import VoyageEmbedder, voyage_spec
-from unshelve.testing.fakes import FakeEmbedder, FakeFetcher, FakeLLM
+from unshelve.testing.fakes import FakeBatches, FakeEmbedder, FakeFetcher, FakeLLM
 
 log = structlog.get_logger()
 
@@ -48,11 +51,14 @@ def build_services(settings: Settings, sessions: async_sessionmaker[AsyncSession
             if settings.telegram_bot_token is not None
             else None
         ),
+        batches=build_batches(settings),
     )
 
 
 def build_model(settings: Settings, sessions: async_sessionmaker[AsyncSession]) -> CachedLLM:
-    """The model, behind its cache and cost ledger (``llm_calls``)."""
+    """The model, behind its cache and cost ledger (``llm_calls``). In batch mode the card
+    waits for a batch (``UNSHELVE_CARDS=batch``)."""
+    batch_tasks = {CARD_TASK} if settings.cards == "batch" else set[str]()
     if settings.providers == "live":
         if not os.environ.get("ANTHROPIC_API_KEY"):
             # The client starts without a key; each call then fails with a 401, and waits.
@@ -64,8 +70,16 @@ def build_model(settings: Settings, sessions: async_sessionmaker[AsyncSession]) 
             model=settings.llm_model,
             budget_usd=settings.llm_daily_budget_usd,
             timezone=settings.timezone,
+            batch_tasks=batch_tasks,
         )
-    return CachedLLM(FakeLLM(), sessions, model=FakeLLM.model)
+    return CachedLLM(FakeLLM(), sessions, model=FakeLLM.model, batch_tasks=batch_tasks)
+
+
+def build_batches(settings: Settings) -> BatchProvider:
+    """The batches of the same model as ``build_model``: their answers fit the same cache."""
+    if settings.providers == "live":
+        return ClaudeBatches(model=settings.llm_model, effort=settings.llm_effort)
+    return FakeBatches(model=FakeLLM.model)
 
 
 def build_embedder(settings: Settings) -> Embedder:
@@ -98,3 +112,5 @@ async def close_services(services: Services) -> None:
         await services.bot.session.close()
     if isinstance(services.files, TelegramFiles):
         await services.files.aclose()
+    if isinstance(services.batches, ClaudeBatches):
+        await services.batches.aclose()
