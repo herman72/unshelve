@@ -355,7 +355,15 @@ async def test_run_forever_works_until_it_is_told_to_stop(committed_db: Sessions
 
 @pytest.mark.parametrize(
     ("attempts", "expected"),
-    [(1, 10 * SECOND), (2, 20 * SECOND), (3, 40 * SECOND), (4, 60 * SECOND), (10, 60 * SECOND)],
+    [
+        (1, 10 * SECOND),
+        (2, 20 * SECOND),
+        (3, 40 * SECOND),
+        (4, 60 * SECOND),
+        (10, 60 * SECOND),
+        # A job of 300 tries (the collection of a batch): 2 ** 299 x 10 s fits no timedelta.
+        (300, 60 * SECOND),
+    ],
 )
 def test_backoff_doubles_and_stops_at_the_cap(attempts: int, expected: timedelta) -> None:
     assert backoff(attempts, base=10 * SECOND, cap=60 * SECOND) == expected
