@@ -78,9 +78,15 @@ async def update_item(item_id: ItemId, body: ItemUpdate) -> ItemDetail:
 
 
 @router.post("/items/{item_id}/transition", responses=problems(401, 404, 409, 422))
-async def transition_item(item_id: ItemId, body: TransitionRequest) -> ItemDetail:
-    """Move the item to another reading status. A move the state machine forbids is a 409."""
-    raise NotImplementedYetError
+async def transition_item(
+    item_id: ItemId, body: TransitionRequest, user: CurrentUserDep, db: DbDep
+) -> ItemDetail:
+    """Move the item to another reading status. A move the state machine forbids is a 409, and
+    so is a move into a full reading queue. The status that the item has already is no error."""
+    await item_views.transition_item(db, user.id, item_id, body.to)
+    # The status and its event are saved together.
+    await db.commit()
+    return await item_views.get_item(db, user.id, item_id)
 
 
 @router.get("/items/{item_id}/public-preview", responses=problems(401, 404, 422))
@@ -111,11 +117,13 @@ async def reprocess_item(item_id: ItemId, user: CurrentUserDep, db: DbDep) -> It
 @router.get("/items/{item_id}/events", responses=problems(401, 404, 422))
 async def list_item_events(
     item_id: ItemId,
+    user: CurrentUserDep,
+    db: DbDep,
     limit: Annotated[int, Query(ge=1, le=100)] = 30,
     cursor: str | None = None,
 ) -> EventPage:
-    """A page of the item's history."""
-    raise NotImplementedYetError
+    """A page of the item's history, newest first."""
+    return await item_views.list_events(db, user.id, item_id, limit=limit, cursor=cursor)
 
 
 @router.get("/items/{item_id}/similar", responses=problems(401, 404, 422))

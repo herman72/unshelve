@@ -20,17 +20,25 @@ from unshelve.api.errors import (
     NotImplementedYetError,
 )
 from unshelve.api.schemas import (
+    EventOut,
+    EventPage,
     GoalScore,
     ItemDetail,
     ItemListQuery,
     ItemPage,
     ItemSummary,
+    Queue,
     TagRef,
 )
 from unshelve.contracts.enums import Actor, EnrichState, ItemStatus
-from unshelve.contracts.states import STATUS_TRANSITIONS, check_enrich_change
-from unshelve.db.models import Event, Goal, Item, ItemGoal, ItemTag, Tag
+from unshelve.contracts.states import (
+    STATUS_TRANSITIONS,
+    IllegalTransitionError,
+    check_enrich_change,
+)
+from unshelve.db.models import Event, Goal, Item, ItemGoal, ItemTag, Tag, User
 from unshelve.ingest import resolve
+from unshelve.track import status
 
 # --- Paging ------------------------------------------------------------------------------
 #
@@ -178,7 +186,10 @@ async def get_item(db: AsyncSession, owner_id: int, item_id: int) -> ItemDetail:
         raise NotFoundError("no such item")
     tags = (await _tags_of(db, [item.id])).get(item.id, [])
     goals = (await _goals_of(db, [item.id])).get(item.id, [])
-    allowed = STATUS_TRANSITIONS[item.status]
+    # A merged copy does not move: its moves belong to the item that it is a copy of.
+    allowed = (
+        STATUS_TRANSITIONS[item.status] if item.duplicate_of_id is None else frozenset[ItemStatus]()
+    )
     return ItemDetail(
         **_summary_fields(item, tags, goals),
         key_points=item.key_points,
@@ -191,6 +202,120 @@ async def get_item(db: AsyncSession, owner_id: int, item_id: int) -> ItemDetail:
         allowed_transitions=[status for status in ItemStatus if status in allowed],
     )
 
+
+# --- The reading status -----------------------------------------------------------------
+
+
+async def transition_item(
+    db: AsyncSession, owner_id: int, item_id: int, target: ItemStatus
+) -> None:
+    """Move an item to ``target`` through the one write path. The caller commits.
+
+    The same status again is no error: a second click finds the item moved already.
+    """
+    change = await status.change_status(db, owner_id, item_id, target, actor=Actor.USER, via="api")
+    match change.outcome:
+        case status.Outcome.NOT_FOUND:
+            raise NotFoundError("no such item")
+        case status.Outcome.NOT_ALLOWED:
+            raise IllegalTransitionError(str(change.status), target)
+        case status.Outcome.QUEUE_FULL:
+            raise ConflictError(
+                f"the reading queue is full: all {change.limit} slots are used; move an item out "
+                "of it first"
+            )
+        case status.Outcome.DUPLICATE:
+            raise ConflictError(
+                f"the item is the same thing as item {change.duplicate_of}: change that one"
+            )
+        case status.Outcome.CHANGED | status.Outcome.ALREADY:
+            return
+
+
+async def get_queue(db: AsyncSession, owner_id: int) -> Queue:
+    """The reading queue: the items that are being read first, then the items that wait.
+
+    In each group, the item that took its slot first comes first. That moment is the newest
+    status event of the item: the log knows when each item moved. An item without a move in the
+    log (its status was written before the log) counts as the oldest.
+    """
+    limit = (await db.execute(sa.select(User.queue_limit).where(User.id == owner_id))).scalar_one()
+    moved = (
+        sa.select(sa.func.max(Event.id))
+        .where(Event.item_id == Item.id, Event.type == "status")
+        .scalar_subquery()
+    )
+    items = (
+        await db.scalars(
+            sa.select(Item)
+            .where(status.in_queue(owner_id))
+            .order_by(
+                (Item.status == ItemStatus.READING).desc(), moved.asc().nulls_first(), Item.id
+            )
+        )
+    ).all()
+    ids = [item.id for item in items]
+    tags, goals = await _tags_of(db, ids), await _goals_of(db, ids)
+    return Queue(
+        limit=limit,
+        used=len(items),
+        items=[
+            ItemSummary(**_summary_fields(item, tags.get(item.id, []), goals.get(item.id, [])))
+            for item in items
+        ],
+    )
+
+
+# A page of events ends at one event, and the next page starts after it: newest first, by id.
+
+
+def _encode_event_cursor(event_id: int) -> str:
+    return base64.urlsafe_b64encode(json.dumps(["events", event_id]).encode()).decode()
+
+
+def _decode_event_cursor(cursor: str) -> int:
+    try:
+        kind, event_id = json.loads(base64.urlsafe_b64decode(cursor))
+        position = int(event_id)
+    except (ValueError, TypeError) as error:
+        raise InvalidInputError("the cursor is not valid") from error
+    if kind != "events":
+        raise InvalidInputError("the cursor is not valid")
+    return position
+
+
+async def list_events(
+    db: AsyncSession, owner_id: int, item_id: int, *, limit: int, cursor: str | None
+) -> EventPage:
+    """The history of an item, newest first: its moves, and what the workers did with it."""
+    exists = await db.scalar(
+        sa.select(Item.id).where(Item.id == item_id, Item.owner_id == owner_id)
+    )
+    if exists is None:
+        raise NotFoundError("no such item")
+    statement = sa.select(Event).where(Event.item_id == item_id, Event.owner_id == owner_id)
+    if cursor:
+        statement = statement.where(Event.id < _decode_event_cursor(cursor))
+    found = (await db.scalars(statement.order_by(Event.id.desc()).limit(limit + 1))).all()
+    events = found[:limit]
+    return EventPage(
+        items=[
+            EventOut(
+                id=event.id,
+                actor=event.actor,
+                type=event.type,
+                from_status=event.from_status,
+                to_status=event.to_status,
+                payload=event.payload,
+                created_at=event.created_at,
+            )
+            for event in events
+        ],
+        next_cursor=_encode_event_cursor(events[-1].id) if len(found) > limit else None,
+    )
+
+
+# --- Processing again ----------------------------------------------------------------------
 
 # An item in these states has no step running, so it can start again. In the other states a
 # step is at work, and a second start would only race with it.

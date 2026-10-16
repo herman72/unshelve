@@ -265,7 +265,7 @@ export interface paths {
         };
         /**
          * List Item Events
-         * @description A page of the item's history.
+         * @description A page of the item's history, newest first.
          */
         get: operations["list_item_events"];
         put?: never;
@@ -370,7 +370,8 @@ export interface paths {
         put?: never;
         /**
          * Transition Item
-         * @description Move the item to another reading status. A move the state machine forbids is a 409.
+         * @description Move the item to another reading status. A move the state machine forbids is a 409, and
+         *     so is a move into a full reading queue. The status that the item has already is no error.
          */
         post: operations["transition_item"];
         delete?: never;

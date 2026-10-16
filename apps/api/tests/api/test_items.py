@@ -1,6 +1,8 @@
 """Saving, listing and reading items over HTTP. Each test name is one rule."""
 
 import asyncio
+import base64
+import json
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -479,3 +481,257 @@ async def test_an_item_that_is_not_yours_cannot_be_sent_back(
     problem_body(await client.post(f"{ITEMS}/{theirs}/reprocess"), 404)
     problem_body(await client.post(f"{ITEMS}/999/reprocess"), 404)
     assert await _waiting_fetch_jobs(committed_db, theirs) == 0
+
+
+# --- The reading status ------------------------------------------------------------------
+
+
+async def _move(client: httpx.AsyncClient, item_id: int, target: str) -> httpx.Response:
+    return await client.post(f"{ITEMS}/{item_id}/transition", json={"to": target})
+
+
+async def test_a_move_answers_with_the_item_in_its_new_status(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    item_id = await _saved(committed_db, await _owner(committed_db))
+
+    response = await _move(client, item_id, "queued")
+
+    assert response.status_code == 200
+    item = response.json()
+    assert (item["id"], item["status"]) == (item_id, "queued")
+    # The buttons of the page come from here: the moves of the table, in the order of the enum.
+    assert item["allowed_transitions"] == ["inbox", "reading", "done", "archived"]
+    [event] = await _events(committed_db, item_id)
+    assert (event.actor, event.type, event.from_status, event.to_status, event.payload) == (
+        Actor.USER,
+        "status",
+        "inbox",
+        "queued",
+        {"via": "api"},
+    )
+
+
+async def test_the_status_that_the_item_has_already_is_no_error(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    # A double click, or a second tab: the item is where the request wants it.
+    item_id = await _saved(committed_db, await _owner(committed_db))
+
+    first = await _move(client, item_id, "done")
+    second = await _move(client, item_id, "done")
+
+    assert (first.status_code, second.status_code) == (200, 200)
+    assert second.json()["status"] == "done"
+    assert len(await _events(committed_db, item_id)) == 1
+
+
+async def test_two_moves_at_the_same_moment_write_one_event(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    # The second request waits for the lock on the row of the item, then finds it done.
+    item_id = await _saved(committed_db, await _owner(committed_db))
+
+    answers = await asyncio.gather(_move(client, item_id, "done"), _move(client, item_id, "done"))
+
+    assert [answer.status_code for answer in answers] == [200, 200]
+    assert len(await _events(committed_db, item_id)) == 1
+
+
+async def test_a_move_that_the_table_does_not_have_is_a_409_with_both_statuses(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    item_id = await _saved(committed_db, await _owner(committed_db), status="archived")
+
+    response = await _move(client, item_id, "done")
+
+    assert problem_body(response, 409)["detail"] == "cannot move from 'archived' to 'done'"
+    assert await _events(committed_db, item_id) == []
+
+
+async def test_a_move_into_a_full_queue_is_a_409_that_says_how_full_it_is(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    owner_id = await _owner(committed_db)
+    for minutes in range(5):
+        await _saved(committed_db, owner_id, minutes, status="queued")
+    item_id = await _saved(committed_db, owner_id, 10)
+
+    response = await _move(client, item_id, "reading")
+
+    assert problem_body(response, 409)["detail"] == (
+        "the reading queue is full: all 5 slots are used; move an item out of it first"
+    )
+    assert (await client.get(f"{ITEMS}/{item_id}")).json()["status"] == "inbox"
+
+
+async def test_a_merged_copy_cannot_move_and_the_answer_names_the_item_to_move(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    owner_id = await _owner(committed_db)
+    older = await _saved(committed_db, owner_id)
+    copy = await _saved(committed_db, owner_id, 1, duplicate_of_id=older)
+
+    response = await _move(client, copy, "queued")
+
+    assert problem_body(response, 409)["detail"] == (
+        f"the item is the same thing as item {older}: change that one"
+    )
+
+
+async def test_a_merged_copy_offers_no_moves(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    # The page shows a button for each allowed move, so a merged copy shows none.
+    owner_id = await _owner(committed_db)
+    older = await _saved(committed_db, owner_id)
+    copy = await _saved(committed_db, owner_id, 1, duplicate_of_id=older)
+
+    assert (await client.get(f"{ITEMS}/{copy}")).json()["allowed_transitions"] == []
+    assert (await client.get(f"{ITEMS}/{older}")).json()["allowed_transitions"] == [
+        "queued",
+        "reading",
+        "done",
+        "archived",
+    ]
+
+
+async def test_a_status_that_does_not_exist_is_a_422(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    item_id = await _saved(committed_db, await _owner(committed_db))
+
+    problem_body(await _move(client, item_id, "later"), 422)
+    problem_body(await client.post(f"{ITEMS}/{item_id}/transition", json={}), 422)
+
+
+async def test_an_item_that_is_not_yours_cannot_move(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    theirs = await _saved(committed_db, await _owner(committed_db, telegram_user_id=999))
+
+    problem_body(await _move(client, theirs, "done"), 404)
+    problem_body(await _move(client, 999_999, "done"), 404)
+    assert await _events(committed_db, theirs) == []
+
+
+# --- The history of an item --------------------------------------------------------------
+
+
+async def test_the_history_of_an_item_is_newest_first(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    item_id = await _saved(committed_db, await _owner(committed_db))
+    for target in ("queued", "reading", "done"):
+        assert (await _move(client, item_id, target)).status_code == 200
+
+    response = await client.get(f"{ITEMS}/{item_id}/events")
+
+    assert response.status_code == 200
+    page = response.json()
+    assert page["next_cursor"] is None
+    assert [(event["from_status"], event["to_status"]) for event in page["items"]] == [
+        ("reading", "done"),
+        ("queued", "reading"),
+        ("inbox", "queued"),
+    ]
+    newest = page["items"][0]
+    assert (newest["actor"], newest["type"], newest["payload"]) == (
+        "user",
+        "status",
+        {"via": "api"},
+    )
+    assert datetime.fromisoformat(newest["created_at"]).tzinfo is not None
+
+
+async def test_the_history_comes_in_pages(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    item_id = await _saved(committed_db, await _owner(committed_db))
+    for target in ("queued", "reading", "done"):
+        await _move(client, item_id, target)
+
+    first = (await client.get(f"{ITEMS}/{item_id}/events", params={"limit": 2})).json()
+    rest = (
+        await client.get(
+            f"{ITEMS}/{item_id}/events", params={"limit": 2, "cursor": first["next_cursor"]}
+        )
+    ).json()
+
+    assert [event["to_status"] for event in first["items"]] == ["done", "reading"]
+    assert [event["to_status"] for event in rest["items"]] == ["queued"]
+    assert rest["next_cursor"] is None
+
+
+async def test_a_cursor_of_the_history_that_is_broken_or_from_the_list_is_refused(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    owner_id = await _owner(committed_db)
+    item_id = await _saved(committed_db, owner_id)
+    await _saved(committed_db, owner_id, 1)
+    list_cursor = (await client.get(ITEMS, params={"limit": 1})).json()["next_cursor"]
+    # The form of a cursor of the history, with another kind: a cursor of a later page type.
+    other_kind = base64.urlsafe_b64encode(json.dumps(["digests", 1]).encode()).decode()
+
+    for cursor in ("not-a-cursor", list_cursor, other_kind):
+        response = await client.get(f"{ITEMS}/{item_id}/events", params={"cursor": cursor})
+        assert problem_body(response, 422)["detail"] == "the cursor is not valid"
+
+
+async def test_the_history_of_an_item_that_is_not_yours_is_a_404(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    theirs = await _saved(committed_db, await _owner(committed_db, telegram_user_id=999))
+    async with committed_db() as db:
+        db.add(
+            Event(
+                owner_id=await _owner(committed_db, 999),
+                item_id=theirs,
+                actor=Actor.USER,
+                type="status",
+                from_status="inbox",
+                to_status="done",
+                payload={},
+            )
+        )
+        await db.commit()
+
+    problem_body(await client.get(f"{ITEMS}/{theirs}/events"), 404)
+    problem_body(await client.get(f"{ITEMS}/999999/events"), 404)
+
+
+# --- The reading queue -------------------------------------------------------------------
+
+QUEUE = "/api/v1/queue"
+
+
+async def test_an_empty_queue_has_all_its_slots_free(client: httpx.AsyncClient) -> None:
+    response = await client.get(QUEUE)
+
+    assert response.status_code == 200
+    assert response.json() == {"limit": 5, "used": 0, "items": []}
+
+
+async def test_the_queue_lists_the_items_being_read_then_the_items_that_wait_longest(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    owner_id = await _owner(committed_db)
+    first, second, third, finished = [await _saved(committed_db, owner_id, m) for m in range(4)]
+    # The order of the moves, not the order of saving, is the order of the queue.
+    for item_id, target in ((second, "queued"), (first, "queued"), (third, "reading")):
+        assert (await _move(client, item_id, target)).status_code == 200
+    assert (await _move(client, finished, "done")).status_code == 200
+    # Queued before the log existed: no move in the log, so it counts as the oldest.
+    old = await _saved(committed_db, owner_id, 5, status="queued")
+    await _saved(committed_db, owner_id, 9, status="queued", duplicate_of_id=first)
+    await _saved(committed_db, await _owner(committed_db, telegram_user_id=999), status="queued")
+
+    queue = (await client.get(QUEUE)).json()
+
+    assert (queue["limit"], queue["used"]) == (5, 4)
+    assert [(item["id"], item["status"]) for item in queue["items"]] == [
+        (third, "reading"),
+        (old, "queued"),
+        (second, "queued"),
+        (first, "queued"),
+    ]
