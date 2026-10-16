@@ -144,7 +144,7 @@ How many questions for one item?
 - **Can the tests fail?** I broke the new code in 43 places, one at a time: 41 in Python and 2 in the web app. The tests found each of the 43. Before that run, the list of the mistakes showed about ten rules without a test, and I wrote those tests first. An example is the rule of the exercise: the step left out the labels that it read, so no test saw the rule of the write.
 - **What is not done:**
   - The digest does not use the scores yet (M3-4).
-  - You cannot confirm or reject a score yet (M3-3).
+  - You cannot confirm or reject a score yet: that is [note 33](33-labels-and-golden-set.md).
   - Scores are not asked in a batch.
 
 ## Try it yourself
@@ -211,4 +211,4 @@ The step read the scores before it asked the model, and then there was no label.
 - [Text embeddings](https://docs.voyageai.com/docs/embeddings), Voyage AI. Read the part about `input_type`: why a query and a document get different vectors.
 - [Structured outputs](https://platform.claude.com/docs/en/build-with-claude/structured-outputs), Claude Platform Docs. Read how a JSON schema constrains the answer: it is why the model cannot leave a goal out.
 
-Previous: [31. Goals](31-goals.md) · Back to the [list of notes](README.md)
+Previous: [31. Goals](31-goals.md) · Next: [33. Your verdicts, and the golden set](33-labels-and-golden-set.md) · Back to the [list of notes](README.md)
