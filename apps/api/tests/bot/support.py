@@ -11,6 +11,7 @@ from aiogram.client.session.base import BaseSession
 from aiogram.methods import (
     AnswerCallbackQuery,
     EditMessageReplyMarkup,
+    EditMessageText,
     SendMessage,
     TelegramMethod,
 )
@@ -59,7 +60,7 @@ class PretendTelegram(BaseSession):
                 chat=Chat(id=int(method.chat_id), type="private"),
             )
             return cast(T, answer)
-        if isinstance(method, AnswerCallbackQuery | EditMessageReplyMarkup):
+        if isinstance(method, AnswerCallbackQuery | EditMessageReplyMarkup | EditMessageText):
             self.calls.append(method)
             return cast(T, True)
         msg = f"the pretend Telegram does not know {type(method).__name__}"

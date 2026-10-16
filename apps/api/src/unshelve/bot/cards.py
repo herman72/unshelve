@@ -23,6 +23,8 @@ MAX_MESSAGE = 4096
 MAX_TITLE = 200
 MAX_SUMMARY = 220
 DONE = "done"  # the start of the data of the button "Done"
+LABEL = "label"  # the start of the data of the buttons of a verdict on a score
+MAX_REASON = 300
 
 
 def _short(text: str, limit: int) -> str:
@@ -135,3 +137,81 @@ def digest_message(
 
 
 NOTHING_YET = "Nothing to show yet. Post a link in your channel, and ask me again with /digest."
+
+
+# --- Your verdicts on the scores ---------------------------------------------------------
+
+# The scale of the model that scores an item against a goal (unshelve.relevance.prompt).
+SCORE_WORDS = ("No link", "Touches the goal", "Helps the goal", "Directly useful")
+VERDICTS = {
+    "right": "You said: the score is right.",
+    "wrong": "You said: the score is wrong.",
+    "skip": "Skipped.",
+}
+NOTHING_TO_LABEL = (
+    "No score waits for your verdict now. Each new item gets scores against your goals: ask me "
+    "again later with /label."
+)
+
+
+def label_question(item: Item, goal_title: str, score: int, reason: str) -> str:
+    """The question about one score. The title, the goal and the reason each stand alone on a
+    line: each can be Persian, and each is escaped."""
+    lines = [
+        "<b>Is this score right?</b>",
+        "",
+        f"<b>{html.escape(title_of(item), quote=False)}</b>",
+    ]
+    if item.site:
+        lines.append(html.escape(item.site, quote=False))
+    if item.summary:
+        lines.append(html.escape(_short(item.summary, MAX_SUMMARY), quote=False))
+    lines += [
+        "",
+        "Goal:",
+        f"<b>{html.escape(_short(goal_title, MAX_TITLE), quote=False)}</b>",
+        f"Score: {SCORE_WORDS[score]} ({score} of 3)",
+        html.escape(_short(reason, MAX_REASON), quote=False),
+    ]
+    return "\n".join(lines)
+
+
+def label_buttons(item: Item, goal_id: int, score: int) -> InlineKeyboardMarkup:
+    """ "Right", "Wrong" and "Skip", each with the score that the question shows; and "Open"."""
+    data = f"{LABEL}:{item.id}:{goal_id}:{score}"
+    rows = [
+        [
+            InlineKeyboardButton(text="Right", callback_data=f"{data}:right"),
+            InlineKeyboardButton(text="Wrong", callback_data=f"{data}:wrong"),
+            InlineKeyboardButton(text="Skip", callback_data=f"{data}:skip"),
+        ]
+    ]
+    if address := _web_address(item.canonical_url):
+        rows.append([InlineKeyboardButton(text="Open", url=address)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def parse_label(data: str) -> tuple[int, int, int, str] | None:
+    """The item, the goal, the shown score and the verdict of a button, or None for data that a
+    button of this version never has."""
+    parts = data.split(":")
+    if len(parts) != 5 or parts[0] != LABEL:
+        return None
+    _, item, goal, score, verdict = parts
+    if not (item.isdigit() and goal.isdigit()) or score not in {"0", "1", "2", "3"}:
+        return None
+    if verdict not in VERDICTS:
+        return None
+    return int(item), int(goal), int(score), verdict
+
+
+def links_only(markup: InlineKeyboardMarkup | None) -> InlineKeyboardMarkup | None:
+    """The buttons without the buttons of a verdict: an answered question keeps "Open"."""
+    if markup is None:
+        return None
+    rows = [
+        [button for button in row if not (button.callback_data or "").startswith(f"{LABEL}:")]
+        for row in markup.inline_keyboard
+    ]
+    rows = [row for row in rows if row]
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
