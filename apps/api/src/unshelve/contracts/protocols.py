@@ -1,13 +1,15 @@
 """The seams of the system. Each has a fake in ``unshelve.testing.fakes`` and a conformance
 suite in ``unshelve.testing.conformance`` that every implementation must pass."""
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from typing import ClassVar, Protocol
 
 from pydantic import BaseModel
 
 from unshelve.contracts.dto import (
+    BatchAnswer,
+    BatchQuestion,
     EmbeddingSpec,
     Extracted,
     FetchResult,
@@ -68,6 +70,28 @@ class LLMProvider(Protocol):
         schema: type[T],
         max_output_tokens: int,
     ) -> LLMResult[T]: ...
+
+
+class BatchProvider(Protocol):
+    """Many questions to a model in one batch, at a lower price, answered later.
+
+    Each question has its own ``custom_id``, and its answer comes back with it, in any order.
+    All questions of a batch share one schema. The batch ends within hours: ``ended`` says when.
+    """
+
+    model: str
+
+    async def send(self, questions: Sequence[BatchQuestion], schema: type[BaseModel]) -> str:
+        """Send the questions. Returns the id of the batch at the provider."""
+        ...
+
+    async def ended(self, batch_id: str) -> bool: ...
+
+    def answers[T: BaseModel](
+        self, batch_id: str, schema: type[T]
+    ) -> AsyncIterator[BatchAnswer[T]]:
+        """The answer to each question of an ended batch."""
+        ...
 
 
 class Embedder(Protocol):

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Mapped, MappedColumn, mapped_column
 
 from unshelve.contracts.enums import (
     Actor,
+    BatchState,
     CaptureSource,
     ChunkKind,
     Distance,
@@ -533,6 +534,54 @@ class LLMCall(Base):
     cost_usd: Mapped[Decimal] = mapped_column(sa.Numeric(12, 6), server_default="0")
     duration_ms: Mapped[int | None] = mapped_column(sa.Integer)
     created_at: Mapped[datetime] = _created_at()
+    # The batch that answered: its price was shown and accepted by hand, so it does not use
+    # the daily budget. None for a call now.
+    batch_id: Mapped[int | None] = mapped_column(
+        sa.BigInteger, sa.ForeignKey("llm_batches.id", ondelete="RESTRICT")
+    )
+
+
+class LLMBatch(Base):
+    """A batch of questions to the model (``UNSHELVE_CARDS=batch``), at half the price.
+    ``unshelve llm batch send`` sends it, and the worker collects its answers."""
+
+    __tablename__ = "llm_batches"
+    __table_args__ = (enum_check("state", BatchState),)
+
+    id: Mapped[int] = _pk()
+    # The id at the provider, after it took the batch.
+    provider_batch_id: Mapped[str | None] = mapped_column(sa.Text, unique=True)
+    model: Mapped[str] = mapped_column(sa.Text)
+    task: Mapped[str] = mapped_column(sa.Text)
+    prompt_version: Mapped[str] = mapped_column(sa.Text)
+    state: Mapped[BatchState] = mapped_column(StrEnumType(BatchState), server_default="sending")
+    questions: Mapped[int] = mapped_column(sa.Integer)
+    answered: Mapped[int] = mapped_column(sa.Integer, server_default="0")
+    not_answered: Mapped[int] = mapped_column(sa.Integer, server_default="0")
+    estimated_cost_usd: Mapped[Decimal] = mapped_column(sa.Numeric(12, 6))
+    cost_usd: Mapped[Decimal] = mapped_column(sa.Numeric(12, 6), server_default="0")
+    error: Mapped[str | None] = mapped_column(sa.Text)
+    created_at: Mapped[datetime] = _created_at()
+    collected_at: Mapped[datetime | None] = mapped_column(TIMESTAMP)
+
+
+class LLMBatchItem(Base):
+    """An item whose question is in a batch. Two items with the same text have one question,
+    so the batch sends each ``custom_id`` one time."""
+
+    __tablename__ = "llm_batch_items"
+    __table_args__ = (sa.Index("ix_llm_batch_items_custom_id", "custom_id"),)
+
+    batch_id: Mapped[int] = mapped_column(
+        sa.BigInteger, sa.ForeignKey("llm_batches.id", ondelete="RESTRICT"), primary_key=True
+    )
+    item_id: Mapped[int] = _item_fk(primary_key=True)
+    # The cache key of the question: the answer is stored in the ledger under it.
+    custom_id: Mapped[str] = mapped_column(sa.Text)
+    # The question as the ledger keeps it (``llm_calls.request``).
+    request: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    # None until the batch is collected; then "answered", or why not.
+    outcome: Mapped[str | None] = mapped_column(sa.Text)
 
 
 class Digest(Base):

@@ -1217,7 +1217,8 @@
           "score_item",
           "send_digest",
           "stale_sweep",
-          "publish_feed"
+          "publish_feed",
+          "collect_batch"
         ],
         "title": "JobKind",
         "type": "string"

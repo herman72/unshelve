@@ -54,6 +54,15 @@ class JobState(StrEnum):
     DEAD = "dead"
 
 
+class BatchState(StrEnum):
+    """The life of a batch of questions to the model."""
+
+    SENDING = "sending"  # stored, before the provider has it: its items wait
+    SENT = "sent"  # the provider answers it within 24 hours
+    COLLECTED = "collected"  # its answers are in the ledger
+    FAILED = "failed"  # the provider refused it: its items wait for the next batch
+
+
 class JobKind(StrEnum):
     INGEST_CAPTURE = "ingest_capture"
     INGEST_ALBUM = "ingest_album"
@@ -64,6 +73,8 @@ class JobKind(StrEnum):
     SEND_DIGEST = "send_digest"
     STALE_SWEEP = "stale_sweep"
     PUBLISH_FEED = "publish_feed"
+    # Reads the answers of a batch of questions to the model when the batch has ended.
+    COLLECT_BATCH = "collect_batch"
 
 
 class GoalLabel(StrEnum):

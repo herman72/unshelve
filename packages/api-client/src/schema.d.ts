@@ -943,7 +943,7 @@ export interface components {
          * JobKind
          * @enum {string}
          */
-        JobKind: "ingest_capture" | "ingest_album" | "fetch_item" | "enrich_item" | "embed_item" | "score_item" | "send_digest" | "stale_sweep" | "publish_feed";
+        JobKind: "ingest_capture" | "ingest_album" | "fetch_item" | "enrich_item" | "embed_item" | "score_item" | "send_digest" | "stale_sweep" | "publish_feed" | "collect_batch";
         /** JobOut */
         JobOut: {
             /** Attempts */

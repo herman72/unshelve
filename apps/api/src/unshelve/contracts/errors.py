@@ -21,6 +21,15 @@ class UnshelveError(Exception):
     """Base class for errors raised by this package."""
 
 
+class WaitsForBatch(UnshelveError):  # noqa: N818 - a control-flow signal, as Retry is
+    """The answer to this question comes from a batch, not from a call now
+    (``UNSHELVE_CARDS=batch``). The step that asked ends, and the batch starts it again."""
+
+    def __init__(self, key: str) -> None:
+        super().__init__(f"the question {key[:12]} waits for a batch")
+        self.key = key
+
+
 class FetchError(UnshelveError):
     def __init__(
         self,
