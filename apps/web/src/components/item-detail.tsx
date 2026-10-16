@@ -2,6 +2,7 @@ import type { components } from "@unshelve/api-client";
 import Link from "next/link";
 import { Badge, displayTitle } from "@/components/item-card";
 import { type EventPage, ItemHistory } from "@/components/item-history";
+import { LabelButtons } from "@/components/label-buttons";
 import { ReprocessButton } from "@/components/reprocess-button";
 import { StatusButtons } from "@/components/status-buttons";
 import type { ApiState } from "@/lib/api-state";
@@ -120,6 +121,12 @@ export function ItemView({ item, history }: { item: ItemDetail; history: ApiStat
                     {goal.reason}
                   </p>
                 )}
+                <LabelButtons
+                  itemId={item.id}
+                  goalId={goal.goal_id}
+                  score={goal.score}
+                  label={goal.label}
+                />
               </li>
             ))}
           </ul>

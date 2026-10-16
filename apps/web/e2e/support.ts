@@ -39,3 +39,11 @@ export async function changeGoal(
 ): Promise<void> {
   await request.post(`${API_URL}/__goals/${id}`, { data: fields });
 }
+
+type Verdict = { item: number; goal: number; label: string | null };
+
+/** The verdicts on scores that the pretend API was given, in order. */
+export async function verdicts(request: APIRequestContext): Promise<Verdict[]> {
+  const answer = await request.get(`${API_URL}/__calls`);
+  return ((await answer.json()) as { verdicts: Verdict[] }).verdicts;
+}

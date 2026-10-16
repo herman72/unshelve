@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { changeItem, reprocessed, resetApi } from "./support";
+import { changeItem, reprocessed, resetApi, verdicts } from "./support";
 
 // The made-up items of e2e/fixture-api.mjs: 1 is ready (a PDF with each field), 2 is Persian,
 // 3 is in the pipeline, 4 failed, 5 has an address that is no web address. 1000 is done, so it
@@ -172,4 +172,53 @@ test("an item without scores has no section of goals", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Reading" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Goals" })).toHaveCount(0);
+});
+
+// --- Your verdicts on the scores ---------------------------------------------------------
+
+test("a verdict on a score shows on the page, and Undo takes it back", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/items/1");
+  const first = page.getByRole("list", { name: "Scores" }).getByRole("listitem").nth(0);
+
+  await first.getByRole("button", { name: "Right" }).click();
+
+  await expect(first).toContainText("You said: right.");
+  await first.getByRole("button", { name: "Undo" }).click();
+  await expect(first.getByRole("button", { name: "Wrong" })).toBeVisible();
+  expect(await verdicts(request)).toEqual([
+    { item: 1, goal: 1, label: "confirmed" },
+    { item: 1, goal: 1, label: null },
+  ]);
+});
+
+test("a verdict on a score that changed since the page showed it is refused", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/items/1");
+  // A new score for the goal while the page is open: 1, not the 3 that the page shows.
+  await changeItem(request, 1, {
+    goals: [
+      {
+        goal_id: 1,
+        goal_slug: "database-internals",
+        goal_title: "Database internals",
+        score: 1,
+        reason: "It touches the goal.",
+        label: null,
+      },
+    ],
+  });
+  const first = page.getByRole("list", { name: "Scores" }).getByRole("listitem").nth(0);
+
+  await first.getByRole("button", { name: "Wrong" }).click();
+
+  await expect(page.getByRole("status").filter({ hasText: "Not saved" })).toHaveText(
+    "Not saved: the score changed since you saw it: it is 1 now; look at it again.",
+  );
+  await expect(first).toContainText("Touches the goal (1 of 3)");
+  expect(await verdicts(request)).toEqual([]);
 });
