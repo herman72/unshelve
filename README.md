@@ -76,6 +76,8 @@ Open the link that it prints. It works once, for 5 minutes. When a bot is connec
 
 To save your first item and see the worker finish it, follow "Try it yourself" in [the walking skeleton note](docs/learn/09-walking-skeleton.md#try-it-yourself).
 
+On the page of an item, a button for each allowed move changes its reading status: into the queue, to reading, done, or archived. The reading queue has 5 slots, and the page "Queue" shows them. The section "History" shows each move. [The reading status note](docs/learn/30-reading-status.md) explains the rules.
+
 To capture from a Telegram channel, put the token of your bot into `.env`, make the bot an administrator of the channel, and add the id of the channel to `UNSHELVE_CAPTURE_CHAT_IDS`. [The bot note](docs/learn/10-bot-capture.md) explains each step and how to find the id.
 
 The bot gets only new posts. To bring in the old posts of a channel, export the chat in Telegram ("Export chat history"), move the folder of the export into `exports/`, and import it. Give the time zone of the computer that made the export:

@@ -107,6 +107,9 @@ Three cases are not errors:
 | You press "Done" a second time | Nothing. The item is done already, and no second event is written. |
 | You press two times very fast | The row of the item is locked. The second press waits, then it sees "done". One event. |
 | The item was archived in the web app | Nothing. An archived item goes back to the inbox first: that is the table of moves. |
+| The worker merged the item into an older item after the digest | The bot moves the older item: you read the thing, so the thing is done. |
+
+[Note 30](30-reading-status.md) shows the whole table of moves, the buttons of the web app, and the limit of the reading queue.
 
 ## 6. Who may press
 
