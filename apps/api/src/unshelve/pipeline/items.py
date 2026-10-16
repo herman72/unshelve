@@ -62,7 +62,7 @@ from unshelve.enrich.card import (
     title_of,
 )
 from unshelve.extract.registry import FALLBACK, choose
-from unshelve.ingest import versions
+from unshelve.ingest import resolve, versions
 from unshelve.pipeline.files import StoredFiles
 from unshelve.queue import store as queue
 from unshelve.queue.registry import registry
@@ -230,6 +230,18 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
     if extracted is None:
         extractor = FALLBACK
         extracted = await FALLBACK.extract(source, context)
+    if extracted.final_url:
+        # The address where the link ended is a key of the item too (docs/adr/0003): a short
+        # link and the full address of one page become one item. Its own transaction, before
+        # the state moves: a join then takes its locks in the order of each other join, and a
+        # run that stops after it only adds the same key again.
+        async with services.sessions() as session:
+            stays = await resolve.add_final_address(
+                session, item.owner_id, item.id, item.canonical_url, extracted.final_url
+            )
+            await session.commit()
+        if stays != item.id:
+            log.info("fetch.same_as_older_item", item_id=item.id, stays=stays)
     found = {
         "title": extracted.title[:MAX_TITLE_LENGTH] if extracted.title else None,
         "author": extracted.author,

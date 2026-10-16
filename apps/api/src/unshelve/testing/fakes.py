@@ -48,10 +48,18 @@ class FakeFetcher:
         self.pages: dict[str, FetchResult | FetchError] = dict(pages or {})
         self.requested: list[str] = []
 
-    def add(self, url: str, body: bytes | str, content_type: str = "text/html") -> None:
+    def add(
+        self,
+        url: str,
+        body: bytes | str,
+        content_type: str = "text/html",
+        *,
+        final_url: str | None = None,
+    ) -> None:
+        """A page at ``url``. ``final_url``: where its redirects end, when it has some."""
         data = body.encode() if isinstance(body, str) else body
         self.pages[url] = FetchResult(
-            url=url, final_url=url, status=200, content_type=content_type, body=data
+            url=url, final_url=final_url or url, status=200, content_type=content_type, body=data
         )
 
     async def get(self, url: str, *, max_bytes: int, accept: Sequence[str]) -> FetchResult:
