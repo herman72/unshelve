@@ -65,6 +65,8 @@ def test_an_illegal_status_change_raises_with_both_states() -> None:
     with pytest.raises(IllegalTransitionError) as caught:
         check_status_change(S.ARCHIVED, S.DONE)
     assert (caught.value.current, caught.value.target) == ("archived", "done")
+    # The plain values, not the repr of the enum: this text is the detail of a 409.
+    assert str(caught.value) == "cannot move from 'archived' to 'done'"
     check_status_change(S.INBOX, S.QUEUED)  # a legal move raises nothing
 
 

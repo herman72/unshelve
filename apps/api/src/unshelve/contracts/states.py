@@ -44,6 +44,9 @@ class IllegalTransitionError(ValueError):
     """The requested move is not in the transition table. The API maps this to 409."""
 
     def __init__(self, current: str, target: str) -> None:
+        # str() of a state is its plain value. The repr of a state is "<ItemStatus.DONE: 'done'>",
+        # and the message must say "cannot move from 'archived' to 'done'".
+        current, target = str(current), str(target)
         super().__init__(f"cannot move from {current!r} to {target!r}")
         self.current = current
         self.target = target
