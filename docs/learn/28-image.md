@@ -75,16 +75,18 @@ The model sees an image in squares of 28 × 28 pixels, and each square is one vi
 
 The answer adds about 100 to 1,000 output tokens: at most $0.0005 with Haiku. These are estimates from the prices and the rule of the docs; the ledger keeps the real numbers.
 
-The live check of 16 October sent the two screenshots of note 26 to Claude Haiku 5.5, through the ledger of the instance:
+The live check of 16 October sent the two screenshots of note 26 to Claude Haiku 5.5, through the ledger of the instance. It ran two prompts:
 
-| Screenshot | Input tokens | Output tokens | Price | Time |
-|---|---|---|---|---|
-| English, 1100 × 956 | 1,858 = 1,400 of the image + about 460 | 389 | $0.00038 | 5.2 s |
-| Persian, 390 × 844 | 892 = 434 of the image + about 460 | 305 | $0.00024 | 3.0 s |
+| Prompt | Screenshot | Input tokens | Output tokens | Price | The text that came back |
+|---|---|---|---|---|---|
+| `image-1` | English, 1100 × 956 | 1,858 | 389 | $0.00038 | each word, but as one line |
+| `image-1` | Persian, 390 × 844 | 892 | 305 | $0.00024 | its lines; a full stop added after «هر کار یک اجاره دارد» |
+| `image-2` | English | 1,921 | 400 | $0.00039 | 25 lines, as on the page |
+| `image-2` | Persian | 955 | 297 | $0.00024 | its lines, with the dot of the list and no added sign |
 
-The rule of the docs gave the tokens of each image exactly. The other 460 tokens are the same for each question: the system prompt and the JSON schema of the answer. So one small image costs more for its prompt than for its pixels.
+The first prompt asked for the text "word for word". The model kept the words, but not the lines, and it added a sign. So `image-2` says each rule in its own sentence: "Put each line of the images on a line of its own. Copy the signs as they are: add no full stop or other sign that the images do not show." The description of the field `text` in the schema says it again.
 
-What the model read was right: each word of the two pages, and the Persian in Persian, in the order of reading. Two small faults: the model added a full stop after «هر کار یک اجاره دارد», and it wrote the English page as one line, without its line breaks.
+The rule of the docs gave the tokens of each image exactly: 1,400 and 434. The rest of each input is the same for each question: the system prompt and the JSON schema of the answer, about 460 tokens with `image-1` and 520 with `image-2`. So one small image costs more for its prompt than for its pixels.
 
 A question is paid one time. The cache key holds the SHA-256 of each image ([note 17](17-model-card.md), part 3), so "Process again" on the page of the item costs nothing for the same photo. A test runs the item two times and counts one question.
 
@@ -117,10 +119,10 @@ Where does the model read the image?
 - **Can text in an image take control?** The same three limits as for a page ([note 17](17-model-card.md), part 2): the system prompt says that the images are data, the answer must fit a schema, and the call has no tools.
 - **Does the model get a type that it cannot read?** No. The type comes from the bytes, and a test sends the bytes of a JPEG under the name `shot.png`.
 - **Does a photo leave the computer?** With `UNSHELVE_PROVIDERS=live`, yes: it goes to the Anthropic API, as the text of each item does. The Vision docs say that Anthropic does not use uploaded images to train models. With the pretend model, nothing leaves.
-- **Is the estimate checked against a real call?** Yes. The tokens of each image were exactly as the docs say; the prompt and the schema add about 460 to each question.
+- **Is the estimate checked against a real call?** Yes. The tokens of each image were exactly as the docs say; the prompt and the schema add about 520 to each question.
+- **Is a change of the prompt measured, not guessed?** Yes: the same two screenshots with `image-1` and with `image-2`, as for the card in [note 17](17-model-card.md), part 7.
 - **Can the tests fail?** I broke the new code in 42 places, one at a time. The tests found 41. The one that they missed was a weak check of a PNG: it read 4 bytes of the 8 of the mark, so a PNG whose line ends a transfer changed still passed. A new test sends such bytes, and now the tests find each of the 42.
 - **What is not done:**
-  - The text of an image can lose its line breaks (the English page of the live check). A prompt `image-2` that asks for each line of the image on its own line would need a new paid check.
   - The image is not made smaller before it is sent: the API does that. A smaller image would cost less, but it needs an image library.
   - Videos, animations and stickers are not read.
   - Claude does not name the people in a photo.
