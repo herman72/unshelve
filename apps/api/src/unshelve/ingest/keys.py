@@ -2,7 +2,8 @@
 
 A *save* is one message, or the messages of one album. Its keys say what it is:
 
-* ``url:`` the canonical address of its first link
+* ``url:`` the canonical address of its first link, and the address where that link ended after
+  its redirects (``final_address_key``, after the fetch step)
 * ``tg_fwd:`` the post that it was forwarded from
 * ``tg_file:`` a file in it
 * ``tg_album:`` the album
@@ -15,6 +16,7 @@ This module is pure: it reads stored messages and gives texts.
 
 import hashlib
 from collections.abc import Sequence
+from urllib.parse import urlsplit
 
 from unshelve.db.models import Capture
 from unshelve.ingest.canonical import canonicalize
@@ -37,6 +39,25 @@ def primary_url(captures: Sequence[Capture]) -> str | None:
         if capture.urls:
             return canonicalize(capture.urls[0])
     return None
+
+
+def _front_page(address: str) -> bool:
+    """A canonical address of the front page of a site: no path and no query."""
+    parts = urlsplit(address)
+    return parts.path in ("", "/") and not parts.query
+
+
+def final_address_key(saved: str | None, final: str) -> str | None:
+    """The key of the address where a link ended after its redirects, or None.
+
+    ``saved``: the canonical address of the saved link. A link that ends at the front page of a
+    site gives no key, unless it was a front page itself: a dead link often ends there, and two
+    dead links of one site are not one thing.
+    """
+    address = canonicalize(final)
+    if _front_page(address) and not (saved is not None and _front_page(canonicalize(saved))):
+        return None
+    return _bounded("url", address)
 
 
 def text_key(text: str) -> str | None:

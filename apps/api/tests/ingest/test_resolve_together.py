@@ -180,3 +180,50 @@ async def test_rekey_waits_for_a_worker_that_works_on_the_same_key(committed_db:
         await worker.commit()
 
     assert await waiting == 1
+
+
+async def test_two_short_links_that_end_at_one_page_at_the_same_moment_make_one_item(
+    committed_db: Sessions, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Two short links of one page, read at the same moment. No item has the address of the
+    # page yet, so each worker looks for it, and finds nothing (#68).
+    short, other_short = "https://t.co/AbCdEf1234", "https://bit.ly/3madeUp"
+    captures = await _stored(committed_db, short, other_short)
+    first, second = [await _resolved(committed_db, capture) for capture in captures]
+    async with committed_db() as db:
+        owner_id = (await db.get_one(Item, first)).owner_id
+    look = resolve._items_with  # pyright: ignore[reportPrivateUsage]
+    the_first_worker_looked = asyncio.Event()
+    looks = 0
+
+    async def look_and_then_be_slow(
+        session: AsyncSession, owner_id: int, keys: Sequence[str]
+    ) -> set[int]:
+        nonlocal looks
+        looks += 1
+        slow = looks == 1
+        found = await look(session, owner_id, keys)
+        if slow:
+            # The first worker found no item with the address. Now it is slow, before it adds
+            # the key. The second worker gets all this time to look too, if nothing makes it wait.
+            the_first_worker_looked.set()
+            await asyncio.sleep(0.3)
+        return found
+
+    monkeypatch.setattr(resolve, "_items_with", look_and_then_be_slow)
+
+    async def fetched(item_id: int, saved: str) -> int:
+        async with committed_db() as db:
+            stays = await resolve.add_final_address(db, owner_id, item_id, saved, URL)
+            await db.commit()
+        return stays
+
+    async def the_second_worker() -> int:
+        await the_first_worker_looked.wait()
+        return await fetched(second, other_short)
+
+    one, other = await asyncio.gather(fetched(first, short), the_second_worker())
+
+    assert one == other == first
+    items = await _items(committed_db)
+    assert [item.duplicate_of_id for item in items] == [None, first]

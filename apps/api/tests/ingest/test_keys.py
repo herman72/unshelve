@@ -3,10 +3,12 @@
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
+
 from unshelve.contracts.enums import CaptureSource
 from unshelve.db.models import Capture
 from unshelve.ingest import keys
-from unshelve.ingest.keys import keys_of, primary_url, text_key
+from unshelve.ingest.keys import final_address_key, keys_of, primary_url, text_key
 
 NOON = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
 CHAT = -1001234567890
@@ -169,3 +171,44 @@ def test_a_very_long_address_gets_a_short_key() -> None:
     assert len(key.encode()) <= keys.MAX_KEY_BYTES
     assert keys_of([_capture(8, urls=[long_address + "&utm_source=x"])]) == [key]
     assert keys_of([_capture(9, urls=[long_address + "b"])]) != [key]
+
+
+# --- The address where a link ended, after its redirects (#68) -------------------------------
+
+
+def test_the_final_address_of_a_link_is_a_key_in_its_canonical_form() -> None:
+    key = final_address_key(
+        "https://t.co/AbCdEf1234", "https://www.example.com/2026/queues?utm_source=twitter"
+    )
+
+    assert key == "url:https://example.com/2026/queues"
+
+
+@pytest.mark.parametrize(
+    "front_page", ["https://example.com/", "https://www.example.com", "http://example.com/#top"]
+)
+def test_a_link_that_ends_at_the_front_page_of_a_site_gives_no_key(front_page: str) -> None:
+    # A dead link often ends there: two dead links of one site are not one thing.
+    assert final_address_key("https://example.com/2019/old-post", front_page) is None
+
+
+def test_a_front_page_that_was_saved_as_a_front_page_is_a_key() -> None:
+    assert final_address_key("https://example.com", "https://www.example.com/") == (
+        "url:https://example.com/"
+    )
+
+
+def test_an_address_of_the_front_page_with_a_query_is_a_page() -> None:
+    # WordPress names a post so: example.com/?p=123.
+    assert final_address_key("https://t.co/AbCdEf1234", "https://example.com/?p=123") == (
+        "url:https://example.com/?p=123"
+    )
+
+
+def test_a_very_long_final_address_gets_a_short_key_too() -> None:
+    long = "https://example.com/" + "a" * 1_000
+
+    key = final_address_key("https://t.co/AbCdEf1234", long)
+
+    assert key is not None
+    assert key.startswith("url:sha256:")
