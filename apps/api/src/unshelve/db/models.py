@@ -389,6 +389,32 @@ class Goal(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class GoalVector(Base):
+    """The vector of the text of a goal, for the prefilter of the scores (``unshelve.relevance``).
+
+    One for each goal and embedding set. ``goal_version`` says which text of the goal it holds:
+    a new version of the goal needs a new vector. It is derived data, so it goes with its goal.
+    """
+
+    __tablename__ = "goal_vectors"
+    __table_args__ = (
+        sa.CheckConstraint("vector_dims(embedding) = dim", name="dim_matches_vector"),
+    )
+
+    goal_id: Mapped[int] = mapped_column(
+        sa.BigInteger, sa.ForeignKey("goals.id", ondelete="CASCADE"), primary_key=True
+    )
+    embedding_set_id: Mapped[int] = mapped_column(
+        sa.BigInteger, sa.ForeignKey("embedding_sets.id", ondelete="RESTRICT"), primary_key=True
+    )
+    owner_id: Mapped[int] = _owner()
+    goal_version: Mapped[int] = mapped_column(sa.Integer)
+    text: Mapped[str] = mapped_column(sa.Text)
+    dim: Mapped[int] = mapped_column(sa.Integer)
+    embedding: Mapped[Any] = mapped_column(Vector())
+    created_at: Mapped[datetime] = _created_at()
+
+
 class ItemGoal(Base):
     """How relevant an item is to a goal, and what the user said about that score."""
 
