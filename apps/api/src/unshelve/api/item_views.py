@@ -80,7 +80,8 @@ async def _tags_of(db: AsyncSession, item_ids: Sequence[int]) -> dict[int, list[
 
 
 async def _goals_of(db: AsyncSession, item_ids: Sequence[int]) -> dict[int, list[GoalScore]]:
-    """The scores of each item, the highest score first."""
+    """The scores of each item against the active goals, the highest score first. A score of an
+    archived goal stays in the database, but you do not work on that goal now."""
     rows = await db.execute(
         sa.select(
             ItemGoal.item_id,
@@ -92,7 +93,7 @@ async def _goals_of(db: AsyncSession, item_ids: Sequence[int]) -> dict[int, list
             ItemGoal.label,
         )
         .join(Goal, Goal.id == ItemGoal.goal_id)
-        .where(ItemGoal.item_id.in_(item_ids))
+        .where(ItemGoal.item_id.in_(item_ids), Goal.archived_at.is_(None))
         .order_by(ItemGoal.score.desc(), ItemGoal.goal_id)
     )
     goals: dict[int, list[GoalScore]] = {}
@@ -126,7 +127,8 @@ def _summary_fields(item: Item, tags: list[TagRef], goals: list[GoalScore]) -> d
         "summary": item.summary,
         "est_minutes": item.est_minutes,
         "tags": tags,
-        "top_goal": goals[0] if goals else None,
+        # An item with only scores of 0 has no top goal: no goal is served by it.
+        "top_goal": goals[0] if goals and goals[0].score > 0 else None,
         "capture_count": item.capture_count,
         "first_captured_at": item.first_captured_at,
         "last_captured_at": item.last_captured_at,

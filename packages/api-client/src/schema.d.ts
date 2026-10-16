@@ -846,7 +846,7 @@ export interface components {
             tags: components["schemas"]["TagRef"][];
             /** Title */
             title: string | null;
-            /** @description The goal with the highest score, if any. */
+            /** @description The active goal with the highest score, if a score is above 0. */
             top_goal: components["schemas"]["GoalScore"] | null;
             /** Url */
             url: string | null;
@@ -921,7 +921,7 @@ export interface components {
             tags: components["schemas"]["TagRef"][];
             /** Title */
             title: string | null;
-            /** @description The goal with the highest score, if any. */
+            /** @description The active goal with the highest score, if a score is above 0. */
             top_goal: components["schemas"]["GoalScore"] | null;
             /** Url */
             url: string | null;

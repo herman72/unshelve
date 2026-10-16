@@ -375,6 +375,39 @@ async def test_tags_and_goal_scores_are_part_of_an_item(
     assert detail["goals"][0]["label"] is None
 
 
+async def test_an_item_with_only_scores_of_0_has_no_top_goal_and_archived_goals_are_left_out(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    owner_id = await _owner(committed_db)
+    item_id = await _saved(committed_db, owner_id)
+    async with committed_db() as db:
+        goals = [
+            Goal(owner_id=owner_id, slug="rag", title="Build a RAG system"),
+            Goal(owner_id=owner_id, slug="old", title="An old goal", archived_at=NOON),
+        ]
+        db.add_all(goals)
+        await db.flush()
+        for goal, score in zip(goals, (0, 3), strict=True):
+            db.add(
+                ItemGoal(
+                    item_id=item_id,
+                    goal_id=goal.id,
+                    owner_id=owner_id,
+                    score=score,
+                    reason="far" if score == 0 else "close",
+                    scorer_version="score-1:prefilter",
+                    goal_version=1,
+                )
+            )
+        await db.commit()
+
+    listed = (await client.get(ITEMS)).json()["items"][0]
+    detail = (await client.get(f"{ITEMS}/{item_id}")).json()
+
+    assert listed["top_goal"] is None
+    assert [(goal["goal_slug"], goal["score"]) for goal in detail["goals"]] == [("rag", 0)]
+
+
 # --- Starting the pipeline again ---------------------------------------------------------
 
 

@@ -121,7 +121,9 @@ class ItemSummary(Response):
     summary: str | None
     est_minutes: int | None
     tags: list[TagRef]
-    top_goal: GoalScore | None = Field(description="The goal with the highest score, if any.")
+    top_goal: GoalScore | None = Field(
+        description="The active goal with the highest score, if a score is above 0."
+    )
     capture_count: int = Field(description="How many times this was saved.")
     first_captured_at: AwareDatetime
     last_captured_at: AwareDatetime
