@@ -3,7 +3,9 @@
 import asyncio
 import json
 import math
+import sys
 import time
+from collections import Counter
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -53,7 +55,7 @@ from unshelve.providers.ledger import CachedLLM, cost_usd
 from unshelve.providers.voyage import VoyageEmbedder
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
-from unshelve.relevance import rescore
+from unshelve.relevance import golden, rescore
 from unshelve.resurface import digest, weekly
 from unshelve.runtime import shutdown_event, wait_for_shutdown
 from unshelve.services import (
@@ -84,6 +86,10 @@ llm_app.add_typer(batch_app, name="batch")
 app.add_typer(embeddings_app, name="embeddings")
 goals_app = typer.Typer(no_args_is_help=True, help="Your goals, and the scores of the items.")
 app.add_typer(goals_app, name="goals")
+labels_app = typer.Typer(
+    no_args_is_help=True, help="Your verdicts on the scores, as an evaluation set."
+)
+app.add_typer(labels_app, name="labels")
 
 
 def _setup_logging() -> structlog.stdlib.BoundLogger:
@@ -1045,4 +1051,48 @@ async def _goals_rescore(
     finally:
         if isinstance(embedder, VoyageEmbedder):
             await embedder.aclose()
+        await engine.dispose()
+
+
+# --- The golden set ----------------------------------------------------------------------
+
+
+@labels_app.command("export")
+def labels_export() -> None:
+    """Write your verdicts on the scores as an evaluation set: one JSON line for each.
+
+    The lines go to the standard output, and a summary to the standard error. So a redirect
+    gives a clean file, for example:
+
+        docker compose exec -T api unshelve labels export > exports/golden-set.jsonl
+
+    The same database gives the same file. The file holds your goals and your items: keep it out
+    of git (the folder exports/ is ignored).
+    """
+    settings = get_settings()
+    if settings.owner_telegram_id is None:
+        raise _stop("No owner: set UNSHELVE_OWNER_TELEGRAM_ID.")
+    lines = asyncio.run(_labels_export(settings, settings.owner_telegram_id))
+    sys.stdout.write(golden.to_jsonl(lines))
+    sys.stdout.flush()
+    confirmed = sum(line["label"] == "confirmed" for line in lines)
+    sources = Counter(str(line["label_source"]) for line in lines)
+    typer.echo(
+        f"{_count(len(lines), 'verdict')}: {confirmed} confirmed, {len(lines) - confirmed} "
+        f"rejected; {sum(bool(line['relevant']) for line in lines)} relevant. Sources: "
+        + (", ".join(f"{source} {count}" for source, count in sorted(sources.items())) or "none")
+        + ".",
+        err=True,
+    )
+
+
+async def _labels_export(settings: Settings, telegram_user_id: int) -> list[dict[str, object]]:
+    engine = create_engine(settings.database_url)
+    try:
+        async with create_session_factory(engine)() as session:
+            owner_id = await auth_store.ensure_owner(session, telegram_user_id)
+            lines = await golden.golden_set(session, owner_id)
+            await session.commit()
+            return lines
+    finally:
         await engine.dispose()
