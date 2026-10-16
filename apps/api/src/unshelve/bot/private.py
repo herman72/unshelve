@@ -146,6 +146,17 @@ async def on_done(
             change = await status.change_status(
                 session, owner_id, int(number), ItemStatus.DONE, actor=Actor.USER, via="telegram"
             )
+            if change.duplicate_of is not None:
+                # The card shows an item that was merged into an older item later. The owner
+                # read the thing, so the older item, which the lists show, is done.
+                change = await status.change_status(
+                    session,
+                    owner_id,
+                    change.duplicate_of,
+                    ItemStatus.DONE,
+                    actor=Actor.USER,
+                    via="telegram",
+                )
             await session.commit()
     except DATABASE_IS_DOWN as error:
         # The button stays. The owner can press it again.
