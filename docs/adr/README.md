@@ -16,6 +16,8 @@ Each record states one decision, why it was made, and what it costs. A record is
 | [0010](0010-one-guarded-way-to-the-internet.md) | One guarded way to the internet | Accepted |
 | [0011](0011-claude-for-the-cards.md) | Claude for the cards: structured output, a cache in front, a daily budget | Accepted |
 | [0012](0012-voyage-vectors-through-a-client-for-fixed-services.md) | Voyage for the vectors, through a client for fixed services | Accepted |
+| [0013](0013-cards-in-a-batch.md) | Cards in a batch: the card waits, and a person sends the batch | Accepted |
+| [0014](0014-scores-a-vector-prefilter-then-one-question-for-all-goals.md) | Scores: a vector prefilter, then one question to the model for all goals | Accepted |
 
 ## Template
 

@@ -88,7 +88,7 @@ Does the slug follow the title?
 - **Does a field that the request leaves out stay?** Yes. The API reads which fields the request sent (`model_fields_set`). A null date removes the date, and a null title is a 422.
 - **Can the tests fail?** I broke the new code in 26 places, one at a time: 22 in Python and 4 in the web app. The tests found each of the 26.
 - **What is not done:**
-  - The items get no scores yet: that is the next pull request.
+  - The items get no scores yet: that is the next pull request ([note 32](32-scores-against-goals.md)).
   - A change of a goal writes no event.
   - The archive has no "Are you sure?" question. "Restore" undoes it.
 
@@ -150,4 +150,4 @@ The archived goal kept the focus. Then the digest would bring back items for a g
 - [Partial Indexes](https://www.postgresql.org/docs/current/indexes-partial.html), PostgreSQL documentation. Read "Setting up a Partial Unique Index": it is the rule of one focus.
 - [PATCH](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods/PATCH), MDN. Read what PATCH changes and what it leaves: it is the rule of part 2 for a field that the request leaves out.
 
-Previous: [30. The reading status](30-reading-status.md) · Back to the [list of notes](README.md)
+Previous: [30. The reading status](30-reading-status.md) · Next: [32. Scores against your goals](32-scores-against-goals.md) · Back to the [list of notes](README.md)
