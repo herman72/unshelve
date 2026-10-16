@@ -2490,7 +2490,7 @@
     },
     "/api/v1/goals": {
       "get": {
-        "description": "All goals. Archived goals are left out unless the query asks for them.",
+        "description": "All goals, the active ones first. Archived goals are left out unless the query asks for\nthem.",
         "operationId": "list_goals",
         "parameters": [
           {
@@ -2547,7 +2547,7 @@
         ]
       },
       "post": {
-        "description": "Add a goal. A goal that clashes with an existing one is a 409.",
+        "description": "Add a goal. A title that gives the slug of an existing goal is a 409, and so is an\neleventh active goal.",
         "operationId": "create_goal",
         "requestBody": {
           "content": {
@@ -2614,7 +2614,7 @@
     },
     "/api/v1/goals/{goal_id}": {
       "patch": {
-        "description": "Change a goal or archive it. Fields that are left out stay as they are.",
+        "description": "Change a goal, archive it or restore it. Fields that are left out stay as they are. A\nnew title, description or keywords give the goal a new version.",
         "operationId": "update_goal",
         "parameters": [
           {
@@ -2669,6 +2669,16 @@
             },
             "description": "Not Found"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -2693,7 +2703,7 @@
     },
     "/api/v1/goals/{goal_id}/focus": {
       "post": {
-        "description": "Make this the focus goal. There is at most one focus goal.",
+        "description": "Make this the focus goal. There is at most one focus goal. An archived goal cannot be\nthe focus: 409.",
         "operationId": "focus_goal",
         "parameters": [
           {
@@ -2737,6 +2747,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {
