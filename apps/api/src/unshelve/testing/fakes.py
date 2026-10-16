@@ -4,7 +4,7 @@ import hashlib
 import math
 import re
 import types
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
@@ -13,6 +13,8 @@ from typing import Any, ClassVar, Literal, Union, get_args, get_origin
 from pydantic import BaseModel
 
 from unshelve.contracts.dto import (
+    BatchAnswer,
+    BatchQuestion,
     EmbeddingSpec,
     Extracted,
     FetchResult,
@@ -242,6 +244,51 @@ class FakeLLM:
             output_tokens=min(len(_words(value.model_dump_json())), max_output_tokens),
         )
         return LLMResult[schema](value=value, model=self.model, usage=usage)
+
+
+# --- Batches of questions ----------------------------------------------------------------
+
+
+@dataclass
+class FakeBatches:
+    """A pretend batch API. A batch ends when ``ended`` is asked one time more than ``polls``.
+    Each question gets the answer that ``FakeLLM`` gives, unless ``errors`` names it."""
+
+    polls: int = 0
+    errors: dict[str, str] = field(default_factory=dict[str, str])
+    sent: dict[str, list[BatchQuestion]] = field(default_factory=dict[str, list[BatchQuestion]])
+    model: str = "fake-llm"
+    asked: dict[str, int] = field(default_factory=dict[str, int])
+
+    async def send(self, questions: Sequence[BatchQuestion], schema: type[BaseModel]) -> str:
+        batch_id = f"msgbatch_fake_{len(self.sent) + 1}"
+        self.sent[batch_id] = list(questions)
+        self.asked[batch_id] = 0
+        return batch_id
+
+    async def ended(self, batch_id: str) -> bool:
+        self.asked[batch_id] += 1
+        return self.asked[batch_id] > self.polls
+
+    async def answers[T: BaseModel](
+        self, batch_id: str, schema: type[T]
+    ) -> AsyncIterator[BatchAnswer[T]]:
+        for question in self.sent[batch_id]:
+            error = self.errors.get(question.custom_id)
+            if error is not None:
+                yield BatchAnswer[schema](custom_id=question.custom_id, error=error)
+                continue
+            text = "\n".join(part.text for part in question.parts if isinstance(part, TextPart))
+            value = synthesize(schema, _PROMPT_TAG.sub(" ", text))
+            usage = LLMUsage(
+                input_tokens=len(_words(question.system)) + len(_words(text)),
+                output_tokens=len(_words(value.model_dump_json())),
+            )
+            result = LLMResult[schema](value=value, model=self.model, usage=usage)
+            yield BatchAnswer[schema](custom_id=question.custom_id, result=result)
+
+    async def aclose(self) -> None:
+        return None
 
 
 # --- Extractor ---------------------------------------------------------------------------

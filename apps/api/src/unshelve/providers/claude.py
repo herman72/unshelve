@@ -25,8 +25,8 @@ from unshelve.contracts.errors import ProviderError
 THINKING_ROOM = 4_000
 # On these models the API can run a refused request again on a different model, in the
 # same call. Claude Haiku 5.5 has no such fallback.
-_FALLBACK_MODELS = frozenset({"claude-opus-5-5", "claude-sonnet-5-5"})
-_FALLBACK_BETA = "server-side-fallback-2026-07-01"
+FALLBACK_MODELS = frozenset({"claude-opus-5-5", "claude-sonnet-5-5"})
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
 # A second try can help: the API is busy, or the network failed.
 _CAN_PASS = (
     anthropic.RateLimitError,
@@ -82,8 +82,8 @@ class ClaudeLLM:
         schema: type[T],
         max_output_tokens: int,
     ) -> LLMResult[T]:
-        fallback = self.model in _FALLBACK_MODELS
-        content = [_block(part) for part in parts]
+        fallback = self.model in FALLBACK_MODELS
+        content = content_of(parts)
         config: BetaOutputConfigParam = {"effort": self._effort}
         try:
             message = await self._client.beta.messages.parse(
@@ -93,16 +93,11 @@ class ClaudeLLM:
                 messages=[{"role": "user", "content": content}],
                 output_format=schema,
                 output_config=config,
-                betas=[_FALLBACK_BETA] if fallback else anthropic.omit,
+                betas=[FALLBACK_BETA] if fallback else anthropic.omit,
                 fallbacks="default" if fallback else anthropic.omit,
             )
-        except _CAN_PASS as error:
-            raise ProviderError(_name(error), retryable=True, retry_after=_wait(error)) from error
-        except _FIX_BY_HAND as error:
-            raise ProviderError(f"{_name(error)}: a person must fix it", retryable=True) from error
-        except anthropic.APIStatusError as error:
-            retryable = error.status_code == _NO_CREDIT
-            raise ProviderError(_name(error), retryable=retryable) from error
+        except anthropic.APIError as error:
+            raise provider_error(error) from error
         except (ValidationError, ValueError) as error:
             # The answer is no JSON, or it does not fit the schema (also a cut answer).
             raise ProviderError(
@@ -123,6 +118,23 @@ class ClaudeLLM:
                 cache_read_tokens=usage.cache_read_input_tokens or 0,
             ),
         )
+
+
+def provider_error(error: anthropic.APIError) -> ProviderError:
+    """The error of the API as a ``ProviderError`` that says if a second try can help."""
+    if isinstance(error, _CAN_PASS):
+        return ProviderError(_name(error), retryable=True, retry_after=_wait(error))
+    if isinstance(error, _FIX_BY_HAND):
+        return ProviderError(f"{_name(error)}: a person must fix it", retryable=True)
+    retryable = isinstance(error, anthropic.APIStatusError) and error.status_code == _NO_CREDIT
+    return ProviderError(_name(error), retryable=retryable)
+
+
+def content_of(
+    parts: Sequence[TextPart | ImagePart],
+) -> list[BetaTextBlockParam | BetaImageBlockParam]:
+    """The content of the user message: the parts in their order."""
+    return [_block(part) for part in parts]
 
 
 def _block(part: TextPart | ImagePart) -> BetaTextBlockParam | BetaImageBlockParam:

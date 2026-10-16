@@ -18,9 +18,10 @@ from dataclasses import dataclass
 import pytest
 from pydantic import BaseModel
 
-from unshelve.contracts.dto import Extracted, ImagePart, SourceRef, TextPart
+from unshelve.contracts.dto import BatchQuestion, Extracted, ImagePart, SourceRef, TextPart
 from unshelve.contracts.errors import FetchError
 from unshelve.contracts.protocols import (
+    BatchProvider,
     BlobStore,
     Embedder,
     ExtractContext,
@@ -219,6 +220,39 @@ class LLMProviderConformance:
             max_output_tokens=300,
         )
         assert isinstance(result.value, _Card)
+
+
+# --- Batches of questions ------------------------------------------------------------------
+
+
+class BatchProviderConformance:
+    @pytest.fixture
+    def batches(self) -> BatchProvider:
+        raise NotImplementedError
+
+    async def test_answers_each_question_by_its_id(self, batches: BatchProvider) -> None:
+        questions = [
+            BatchQuestion(
+                custom_id=name,
+                system="Describe the text as a card.",
+                parts=[TextPart(text=text)],
+                max_output_tokens=300,
+            )
+            for name, text in (
+                ("q1", "Postgres can be a job queue with SKIP LOCKED."),
+                ("q2", "A lease ends when its worker stops."),
+            )
+        ]
+        batch_id = await batches.send(questions, _Card)
+        assert await batches.ended(batch_id)
+
+        answers = {answer.custom_id: answer async for answer in batches.answers(batch_id, _Card)}
+
+        assert set(answers) == {"q1", "q2"}
+        for answer in answers.values():
+            assert answer.result is not None
+            assert isinstance(answer.result.value, _Card)
+            assert answer.result.model
 
 
 # --- Extractor ---------------------------------------------------------------------------

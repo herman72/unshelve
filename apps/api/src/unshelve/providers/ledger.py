@@ -6,13 +6,17 @@ task, the prompt version, the system prompt, the parts and the schema; a differe
 is a different question, but the ledger keeps only its hash.
 
 The same table gives the cost of each day, so a daily budget can stop new calls before
-they cost more. A stored answer needs no budget.
+they cost more. A stored answer needs no budget, and neither does the answer of a batch: you
+accepted its price by hand (``pipeline.batches``).
+
+In batch mode (``UNSHELVE_CARDS=batch``) a question of a batch task is never asked now: without
+a stored answer it raises ``WaitsForBatch``, and a batch answers it later at half the price.
 """
 
 import hashlib
 import json
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -25,7 +29,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from unshelve.contracts.dto import ImagePart, LLMResult, LLMUsage, TextPart
-from unshelve.contracts.errors import ProviderError
+from unshelve.contracts.errors import ProviderError, WaitsForBatch
 from unshelve.contracts.protocols import LLMProvider
 from unshelve.db.models import LLMCall
 
@@ -45,8 +49,11 @@ _HAIKU_LONG_PROMPT = 100_000
 _HAIKU_LONG_PRICES = (Decimal("0.50"), Decimal("2.50"), Decimal("0.05"))
 
 
-def cost_usd(model: str, usage: LLMUsage) -> Decimal | None:
-    """The price of one call in dollars, or None for a model without a known price."""
+def cost_usd(model: str, usage: LLMUsage, *, batch: bool = False) -> Decimal | None:
+    """The price of one call in dollars, or None for a model without a known price.
+
+    ``batch``: the answer came in a batch, which costs half of each price.
+    """
     prices = PRICES.get(model)
     if prices is None:
         return None
@@ -58,6 +65,8 @@ def cost_usd(model: str, usage: LLMUsage) -> Decimal | None:
         + usage.output_tokens * per_output
         + usage.cache_read_tokens * per_cache_read
     )
+    if batch:
+        total /= 2
     return (total / _MILLION).normalize() if total else Decimal(0)
 
 
@@ -87,6 +96,55 @@ def cache_key(
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def request_of(
+    system: str,
+    parts: Sequence[TextPart | ImagePart],
+    schema: type[BaseModel],
+    max_output_tokens: int,
+) -> dict[str, Any]:
+    """The question as the ledger keeps it: an image only by its hash."""
+    return {
+        "system": system,
+        "parts": [_part(part) for part in parts],
+        "schema": schema.__name__,
+        "max_output_tokens": max_output_tokens,
+    }
+
+
+async def store_answer(
+    session: AsyncSession,
+    *,
+    key: str,
+    task: str,
+    prompt_version: str,
+    request: dict[str, Any],
+    result: LLMResult[Any],
+    cost: Decimal,
+    duration_ms: int | None,
+    batch_id: int | None = None,
+) -> None:
+    """Keep an answer under the key of its question. The caller commits."""
+    await session.execute(
+        postgresql.insert(LLMCall)
+        .values(
+            cache_key=key,
+            task=task,
+            model=result.model,
+            prompt_version=prompt_version,
+            request=request,
+            response={"value": result.value.model_dump(mode="json")},
+            input_tokens=result.usage.input_tokens,
+            output_tokens=result.usage.output_tokens,
+            cache_read_tokens=result.usage.cache_read_tokens,
+            cost_usd=cost,
+            duration_ms=duration_ms,
+            batch_id=batch_id,
+        )
+        # Two workers can ask the same question at the same moment. One row is enough.
+        .on_conflict_do_nothing(index_elements=[LLMCall.cache_key])
+    )
+
+
 class CachedLLM:
     """An ``LLMProvider`` that asks ``inner`` only for a question that it has not stored."""
 
@@ -99,10 +157,13 @@ class CachedLLM:
         budget_usd: Decimal | None = None,
         timezone: str = "UTC",
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        batch_tasks: Collection[str] = (),
     ) -> None:
+        """``batch_tasks``: the tasks whose questions wait for a batch (batch mode)."""
         self.inner = inner
         self._sessions = sessions
-        self._model = model
+        self.model = model
+        self.batch_tasks = frozenset(batch_tasks)
         self.budget_usd = budget_usd
         self._zone = ZoneInfo(timezone)
         self._clock = clock
@@ -122,9 +183,11 @@ class CachedLLM:
         schema: type[T],
         max_output_tokens: int,
     ) -> LLMResult[T]:
-        key = cache_key(self._model, task, prompt_version, system, parts, schema)
+        key = cache_key(self.model, task, prompt_version, system, parts, schema)
         async with self._sessions() as session:
             stored = await session.scalar(sa.select(LLMCall).where(LLMCall.cache_key == key))
+            if stored is None and task in self.batch_tasks:
+                raise WaitsForBatch(key)
             if stored is None:
                 await self._check_budget(session)
         if stored is not None:
@@ -153,28 +216,15 @@ class CachedLLM:
         if cost is None:
             log.warning("llm.no_price", model=result.model)
         async with self._sessions() as session:
-            await session.execute(
-                postgresql.insert(LLMCall)
-                .values(
-                    cache_key=key,
-                    task=task,
-                    model=result.model,
-                    prompt_version=prompt_version,
-                    request={
-                        "system": system,
-                        "parts": [_part(part) for part in parts],
-                        "schema": schema.__name__,
-                        "max_output_tokens": max_output_tokens,
-                    },
-                    response={"value": result.value.model_dump(mode="json")},
-                    input_tokens=result.usage.input_tokens,
-                    output_tokens=result.usage.output_tokens,
-                    cache_read_tokens=result.usage.cache_read_tokens,
-                    cost_usd=cost or Decimal(0),
-                    duration_ms=milliseconds,
-                )
-                # Two workers can ask the same question at the same moment. One row is enough.
-                .on_conflict_do_nothing(index_elements=[LLMCall.cache_key])
+            await store_answer(
+                session,
+                key=key,
+                task=task,
+                prompt_version=prompt_version,
+                request=request_of(system, parts, schema, max_output_tokens),
+                result=result,
+                cost=cost or Decimal(0),
+                duration_ms=milliseconds,
             )
             await session.commit()
         log.info(
@@ -195,7 +245,9 @@ class CachedLLM:
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         spent = await session.scalar(
             sa.select(sa.func.coalesce(sa.func.sum(LLMCall.cost_usd), 0)).where(
-                LLMCall.created_at >= today
+                LLMCall.created_at >= today,
+                # A batch was accepted by hand, with its price: it does not use the budget.
+                LLMCall.batch_id.is_(None),
             )
         )
         if Decimal(spent or 0) >= self.budget_usd:
