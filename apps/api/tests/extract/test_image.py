@@ -338,6 +338,14 @@ def test_the_prompt_says_that_the_images_are_data() -> None:
     assert "word for word, in its own language" in SYSTEM_PROMPT
 
 
+def test_the_prompt_keeps_the_lines_and_the_signs_of_the_image() -> None:
+    # image-1 wrote a page of 30 lines as one line, and added a full stop to a Persian line.
+    assert "Put each line of the images on a line of its own." in SYSTEM_PROMPT
+    assert "add no full stop or other sign that the images do not show" in SYSTEM_PROMPT
+    text = ImageReading.model_json_schema()["properties"]["text"]["description"]
+    assert "each line of the images on a line of its own" in text
+
+
 async def test_the_pretend_model_gets_the_task_and_the_version_of_the_prompt() -> None:
     model = FakeLLM()
     context = ExtractContext(
@@ -350,5 +358,5 @@ async def test_the_pretend_model_gets_the_task_and_the_version_of_the_prompt() -
     await _extract(SourceRef(media=[_photo()]), context)
 
     [call] = model.calls
-    assert (call.task, call.prompt_version, call.images) == ("read_image", "image-1", 1)
+    assert (call.task, call.prompt_version, call.images) == ("read_image", "image-2", 1)
     assert isinstance(call, FakeLLMCall)
