@@ -1,6 +1,7 @@
 """The fetch step: the best extractor reads the source. A link that cannot be read keeps the
 saved text, and a passing failure is tried again later. A pretend web: no network."""
 
+import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -16,7 +17,7 @@ from unshelve.contracts.dto import CaptureEnvelope, MediaRef
 from unshelve.contracts.enums import Actor, CaptureSource, EnrichState, ItemKind, JobKind, JobState
 from unshelve.contracts.errors import FetchError, ProviderError
 from unshelve.contracts.jobs import Services
-from unshelve.db.models import Asset, Event, Item, ItemContent, Job
+from unshelve.db.models import Asset, Event, Item, ItemContent, ItemKey, Job
 from unshelve.extract import pdf
 from unshelve.extract.image import ImageReading
 from unshelve.ingest import resolve, versions
@@ -283,6 +284,141 @@ async def test_a_pdf_of_an_export_is_read_from_its_copy(services: Services) -> N
         ItemKind.PDF,
         "Leases for Job Queues in Postgres",
     )
+
+
+# --- The address where a link ended is a key of the item (#68) ------------------------------
+
+SHORT = "https://t.co/AbCdEf1234"
+OTHER_SHORT = "https://bit.ly/3madeUp"
+HTML = "text/html; charset=utf-8"
+
+
+def _redirect(services: Services, link: str, final: str = URL) -> None:
+    """A link whose redirects end at ``final``, with the article there."""
+    _web(services).add(link, ARTICLE, content_type=HTML, final_url=final)
+
+
+async def _keys(sessions: Sessions, item_id: int) -> list[str]:
+    async with sessions() as db:
+        found = await db.scalars(
+            sa.select(ItemKey.key).where(ItemKey.item_id == item_id).order_by(ItemKey.key)
+        )
+        return list(found.all())
+
+
+async def test_a_short_link_that_ends_at_a_saved_page_joins_its_item(services: Services) -> None:
+    _web(services).add(URL, ARTICLE, content_type=HTML)
+    page = await _save(services.sessions, text=URL, url=URL)
+    await _run_all(services)
+    _redirect(services, SHORT)
+    short = await _save(services.sessions, text=SHORT, url=SHORT)
+
+    await _run_all(services)
+
+    assert (await _item(services.sessions, short)).duplicate_of_id == page
+    assert (await _item(services.sessions, page)).capture_count == 2
+
+
+async def test_a_page_saved_before_its_short_link_was_read_joins_the_older_item(
+    services: Services,
+) -> None:
+    # The short link was saved first, and its fetch had not run yet: it is the item that stays.
+    _redirect(services, SHORT)
+    _web(services).add(URL, ARTICLE, content_type=HTML)
+    short = await _save(services.sessions, text=SHORT, url=SHORT)
+    page = await _save(services.sessions, text=URL, url=URL)
+
+    await _run_all(services)
+
+    assert (await _item(services.sessions, page)).duplicate_of_id == short
+    assert (await _item(services.sessions, short)).capture_count == 2
+
+
+async def test_a_second_fetch_adds_no_second_key(services: Services) -> None:
+    _redirect(services, SHORT)
+    short = await _save(services.sessions, text=SHORT, url=SHORT)
+    await _run_all(services)
+    async with services.sessions() as db:
+        await resolve.restart_item(db, (await db.get_one(Item, short)).owner_id, short)
+        await db.commit()
+
+    await _run_all(services)
+
+    assert await _keys(services.sessions, short) == [f"url:{URL}", f"url:{SHORT}"]
+
+
+async def test_two_short_links_of_one_page_read_at_the_same_moment_give_one_item(
+    services: Services,
+) -> None:
+    # No item has the address of the page yet, and two workers read the two links at once. The
+    # lock for each key is proved in tests/ingest/test_resolve_together.py: there the first
+    # worker is made slow, so that the second one surely looks at the same moment.
+    _redirect(services, SHORT)
+    _redirect(services, OTHER_SHORT)
+    first = await _save(services.sessions, text=SHORT, url=SHORT)
+    second = await _save(services.sessions, text=OTHER_SHORT, url=OTHER_SHORT)
+    discover()
+    one = Worker(services, registry, WorkerConfig(worker_id="w1"))
+    two = Worker(services, registry, WorkerConfig(worker_id="w2"))
+
+    await asyncio.gather(one.run_one(), two.run_one())  # the two fetch jobs at the same moment
+
+    assert (await _item(services.sessions, second)).duplicate_of_id == first
+
+
+async def test_two_dead_links_that_end_at_the_front_page_stay_two_items(
+    services: Services,
+) -> None:
+    dead = ["https://blog.example.com/2019/old-one", "https://blog.example.com/2019/old-two"]
+    for link in dead:
+        _redirect(services, link, final="https://blog.example.com/")
+    items = [await _save(services.sessions, text=link, url=link) for link in dead]
+
+    await _run_all(services)
+    async with services.sessions() as db:  # and the same rule for ``unshelve rekey``
+        for item in items:
+            await resolve.rekey_item(db, item)
+        await db.commit()
+
+    assert [(await _item(services.sessions, item)).duplicate_of_id for item in items] == [
+        None,
+        None,
+    ]
+
+
+async def test_a_saved_front_page_gives_the_front_page_where_it_ends(services: Services) -> None:
+    # A site that moved: its old name sends each visitor to the front page of the new name.
+    old, new = "https://queue-notes.example/", "https://queues.example/"
+    _redirect(services, old, final=new)
+    first = await _save(services.sessions, text=old, url=old)
+    await _run_all(services)
+
+    again = await _save(services.sessions, text=new, url=new)
+
+    assert again == first
+    assert (await _item(services.sessions, first)).capture_count == 2
+
+
+async def test_rekey_joins_a_short_link_read_before_the_keys_of_final_addresses(
+    services: Services,
+) -> None:
+    # A short link read before #68 has no key for the address where it ended. Its page, saved
+    # later, became a second item. ``unshelve rekey`` joins them.
+    _redirect(services, SHORT)
+    short = await _save(services.sessions, text=SHORT, url=SHORT)
+    await _run_all(services)
+    async with services.sessions() as db:
+        await db.execute(sa.delete(ItemKey).where(ItemKey.key == f"url:{URL}"))
+        await db.commit()
+    _web(services).add(URL, ARTICLE, content_type=HTML)
+    page = await _save(services.sessions, text=URL, url=URL)
+    assert (await _item(services.sessions, page)).duplicate_of_id is None
+
+    async with services.sessions() as db:
+        await resolve.rekey_item(db, short)
+        await db.commit()
+
+    assert (await _item(services.sessions, page)).duplicate_of_id == short
 
 
 # --- A photo or a screenshot: the model reads it ---------------------------------------------
