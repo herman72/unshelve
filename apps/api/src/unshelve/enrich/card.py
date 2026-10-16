@@ -13,6 +13,8 @@ import re
 
 from pydantic import BaseModel, Field
 
+from unshelve.contracts.dto import TextPart
+
 TASK = "enrich_item"
 # enrich-2: a title is words, never a link; a tag is a topic, never a source, a form or a
 # state. The comparison of Haiku 5.5 and Opus 5.5 found both faults with enrich-1 (#72).
@@ -71,6 +73,12 @@ class Card(BaseModel):
     language: str = Field(
         description="The ISO 639-1 code of the language of the text, such as 'en' or 'fa'."
     )
+
+
+def card_parts(text: str) -> list[TextPart]:
+    """The question for the card of ``text``. A call now and a batch send the same parts, so
+    that their answer has one cache key."""
+    return [TextPart(text=prompt_text(text))]
 
 
 def prompt_text(text: str) -> str:

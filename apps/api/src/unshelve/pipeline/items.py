@@ -32,10 +32,9 @@ from unshelve.contracts.dto import (
     ForwardOrigin,
     MediaRef,
     SourceRef,
-    TextPart,
 )
 from unshelve.contracts.enums import Actor, ChunkKind, EnrichState, JobKind, TagSource
-from unshelve.contracts.errors import ExtractError, FetchError, ProviderError
+from unshelve.contracts.errors import ExtractError, FetchError, ProviderError, WaitsForBatch
 from unshelve.contracts.jobs import (
     EmbedItemPayload,
     EnrichItemPayload,
@@ -55,9 +54,9 @@ from unshelve.enrich.card import (
     SYSTEM_PROMPT,
     TASK,
     Card,
+    card_parts,
     key_points_of,
     language_of,
-    prompt_text,
     tags_of,
     title_of,
 )
@@ -378,11 +377,16 @@ async def enrich_item(ctx: JobContext, payload: EnrichItemPayload) -> None:
                 task=TASK,
                 prompt_version=PROMPT_VERSION,
                 system=SYSTEM_PROMPT,
-                parts=[TextPart(text=prompt_text(text))],
+                parts=card_parts(text),
                 schema=Card,
                 max_output_tokens=MAX_OUTPUT_TOKENS,
             )
             card = result.value
+        except WaitsForBatch:
+            # Batch mode: the card comes from a batch (`unshelve llm batch send`), at half the
+            # price. The item stays fetched, and the batch starts this step again.
+            log.info("enrich.waits_for_a_batch", item_id=item.id)
+            return
         except ProviderError as error:
             if error.retryable and ctx.job.attempts < ctx.job.max_attempts:
                 raise Retry(

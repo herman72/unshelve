@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     llm_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
     # No new call on a day when the calls have cost this many dollars. A stored answer is free.
     llm_daily_budget_usd: Decimal = Field(default=Decimal("1.00"), ge=0)
+    # How an item gets its card. "live" asks the model at once. "batch" lets the card wait,
+    # and `unshelve llm batch send` asks for all waiting cards in one batch, at half the price.
+    cards: Literal["live", "batch"] = "live"
 
     # The embedder makes the vectors for search (ADR 0012). "fake" is local and free. "voyage"
     # asks Voyage AI with VOYAGE_API_KEY, with this model and this length of vector.
