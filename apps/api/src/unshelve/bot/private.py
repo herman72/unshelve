@@ -23,7 +23,7 @@ from unshelve.auth import store as auth_store
 from unshelve.bot import cards
 from unshelve.bot.capture import DATABASE_IS_DOWN
 from unshelve.config import Settings
-from unshelve.contracts.enums import Actor
+from unshelve.contracts.enums import Actor, ItemStatus
 from unshelve.resurface import digest
 from unshelve.track import status
 
@@ -143,8 +143,8 @@ async def on_done(
     try:
         async with sessions() as session:
             owner_id = await auth_store.ensure_owner(session, settings.owner_telegram_id)
-            change = await status.mark_done(
-                session, owner_id, int(number), actor=Actor.USER, via="telegram"
+            change = await status.change_status(
+                session, owner_id, int(number), ItemStatus.DONE, actor=Actor.USER, via="telegram"
             )
             await session.commit()
     except DATABASE_IS_DOWN as error:
