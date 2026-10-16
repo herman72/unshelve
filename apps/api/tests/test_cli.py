@@ -1,5 +1,6 @@
 import asyncio
 import dataclasses
+import json
 import re
 import shutil
 from collections.abc import Sequence
@@ -27,11 +28,29 @@ from unshelve.contracts.dto import (
     LLMUsage,
     SourceRef,
 )
-from unshelve.contracts.enums import CaptureSource, EnrichState, ItemKind, JobKind, JobState
+from unshelve.contracts.enums import (
+    CaptureSource,
+    EnrichState,
+    GoalLabel,
+    ItemKind,
+    JobKind,
+    JobState,
+    LabelSource,
+)
 from unshelve.contracts.errors import ExtractError, ProviderError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.db.engine import create_engine, create_session_factory
-from unshelve.db.models import Capture, Goal, Item, ItemContent, ItemKey, Job, LLMBatch, LLMCall
+from unshelve.db.models import (
+    Capture,
+    Goal,
+    Item,
+    ItemContent,
+    ItemGoal,
+    ItemKey,
+    Job,
+    LLMBatch,
+    LLMCall,
+)
 from unshelve.extract import image as image_extractor
 from unshelve.extract.article import ArticleExtractor
 from unshelve.extract.youtube import YouTubeExtractor
@@ -1503,3 +1522,84 @@ def test_goals_rescore_says_when_the_price_is_more_than_the_daily_budget(
         "The price is more than the daily budget of $0.00001: the worker asks until the budget "
         "of the day is used, and the rest waits for the next day."
     ) in _plain(result.output).replace("\n", " ")
+
+
+# --- The golden set ----------------------------------------------------------------------
+
+
+def _verdicts(database_url: str) -> None:
+    """Three scores of the owner 4242: one confirmed in the chat, one rejected on the web, and
+    one without a verdict."""
+
+    async def store() -> None:
+        engine = create_engine(database_url)
+        try:
+            async with create_session_factory(engine)() as db:
+                owner_id = await auth_store.ensure_owner(db, 4242)
+                goal = Goal(owner_id=owner_id, slug="rust", title="Rust", version=1)
+                db.add(goal)
+                for number, (score, label) in enumerate(
+                    [(3, GoalLabel.CONFIRMED), (2, GoalLabel.REJECTED), (1, None)], start=1
+                ):
+                    item = Item(
+                        owner_id=owner_id,
+                        title=f"Item {number}",
+                        enrich_state=EnrichState.READY,
+                        first_captured_at=datetime(2026, 10, 17, tzinfo=UTC),
+                        last_captured_at=datetime(2026, 10, 17, tzinfo=UTC),
+                    )
+                    db.add(item)
+                    await db.flush()
+                    source = LabelSource.DM if number == 1 else LabelSource.WEB
+                    db.add(
+                        ItemGoal(
+                            item_id=item.id,
+                            goal_id=goal.id,
+                            owner_id=owner_id,
+                            score=score,
+                            reason="A reason.",
+                            scorer_version="score-1:fake-llm",
+                            goal_version=1,
+                            label=label,
+                            label_source=source if label else None,
+                            labelled_at=datetime(2026, 10, 17, 12, tzinfo=UTC) if label else None,
+                        )
+                    )
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(store())
+
+
+def test_labels_export_needs_an_owner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    result = _run(monkeypatch, tmp_path, "labels", "export")
+
+    assert result.exit_code == 1
+    assert "No owner: set UNSHELVE_OWNER_TELEGRAM_ID." in _plain(result.output)
+
+
+def test_labels_export_writes_one_line_for_each_verdict_and_the_summary_apart(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _verdicts(private_database_url)
+    options = {
+        "UNSHELVE_DATABASE_URL": private_database_url,
+        "UNSHELVE_OWNER_TELEGRAM_ID": "4242",
+    }
+
+    first = _run(monkeypatch, tmp_path, "labels", "export", **options)
+    second = _run(monkeypatch, tmp_path, "labels", "export", **options)
+
+    assert first.exit_code == 0, first.output
+    lines = [json.loads(line) for line in first.stdout.splitlines()]
+    assert [(line["label"], line["label_source"], line["relevant"]) for line in lines] == [
+        ("confirmed", "dm", True),
+        ("rejected", "web", False),
+    ]
+    # The summary is on the standard error: a redirect of the standard output gets only lines.
+    assert (
+        first.stderr.strip()
+        == "2 verdicts: 1 confirmed, 1 rejected; 1 relevant. Sources: dm 1, web 1."
+    )
+    assert first.stdout == second.stdout  # the same database gives the same file
