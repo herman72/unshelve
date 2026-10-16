@@ -63,6 +63,19 @@ Two items with one text have one question, and the batch sends it one time.
 
 `unshelve llm batch send` collects the waiting questions. A question with a stored answer, or in a batch that runs, is not sent again. The command shows the estimated price and asks for your yes. The estimate counts about 900 input tokens for the prompt and the schema, one token for each 2.5 characters of text, and 400 output tokens for each card.
 
+The live check of 16 October sent one real batch to Claude Haiku 5.5: the three made-up notes of the tests.
+
+| The note | The title of the card | Tokens in / out | In the batch | As a call now |
+|---|---|---|---|---|
+| SKIP LOCKED lets many workers share one queue. | SKIP LOCKED for shared work queues | 945 / 157 | $0.000086 | $0.000173 |
+| A heartbeat moves the lease of a worker forward. | A heartbeat moves the lease of a worker forward | 944 / 194 | $0.000096 | $0.000191 |
+| Leases make a job queue on one Postgres table safe. | Leases make a Postgres job queue safe | 944 / 161 | $0.000087 | $0.000175 |
+
+- The batch ended after 2.7 minutes, and it cost $0.000270: half of the price of the same calls now.
+- The API took each request as it was: the JSON schema, the effort, and the room to think. Each answer fit the schema of the card.
+- The answers came back in another order than the questions. Each answer names its question by its `custom_id`, so the order does not matter.
+- The estimate of the command was $0.0004. Its input was right within 3%, but a card of these short notes needed 157 to 194 output tokens, not 400. So the estimate is high on purpose: you never pay more than it says for the output.
+
 Then the job `collect_batch` looks at the batch every 5 minutes, at most 300 times: 25 hours. When the batch has ended:
 
 | The answer | What happens |
@@ -93,14 +106,13 @@ How does a card come to wait for a batch?
 
 ## What a senior engineer checks here
 
-- **Is the answer of a batch the answer of the same question?** Yes: a test compares the request in a batch with the request of a call now.
+- **Is the answer of a batch the answer of the same question?** Yes: a test compares the request in a batch with the request of a call now, and the live check sent such a request to the real API.
 - **Can a card be paid two times?** The command refuses in live mode, and a question in a batch that runs is not sent again. A test sends two times and counts the questions.
 - **Does a job spin while it waits?** No: a waiting card has no job. A test counts the pending jobs.
 - **Is a failure of the batch a dead end?** No: a question without an answer, and a batch that failed, leave their items waiting for the next batch. Tests for each case.
 - **Can the tests fail?** I broke the new code in 34 places, one at a time. The tests found 31. The three that they missed showed weak tests: a card step that failed looked like a card step that waited, a test sent the second batch too late to see an answered question, and no test looked at the estimate of the tokens. Now the tests find each of the 34. During the run, the ledger of your instance kept its 38 rows: no test reached it.
 - **What is not done:**
   - The images of an import are read at once, at the normal price, in the fetch step ([note 28](28-image.md)).
-  - No batch was sent to the real API yet. The pull request asks for your yes.
   - A batch cannot be canceled from Unshelve.
 
 ## Try it yourself
