@@ -43,28 +43,31 @@ const MOVES = {
 const QUEUE_LIMIT = 5;
 
 /**
- * The scores of item 1 against the made-up goals (freshGoals), the highest first.
+ * The scores of item 1 against the made-up goals (freshGoals), the highest first. New objects
+ * for each reset: a verdict of one test must not reach the next one.
  *
- * @type {GoalScore[]}
+ * @returns {GoalScore[]}
  */
-const SCORES_OF_ITEM_ONE = [
-  {
-    goal_id: 1,
-    goal_slug: "database-internals",
-    goal_title: "Database internals",
-    score: 3,
-    reason: "It shows how one Postgres table holds a job queue with leases.",
-    label: null,
-  },
-  {
-    goal_id: 2,
-    goal_slug: "learn-finnish",
-    goal_title: "Learn Finnish",
-    score: 0,
-    reason: "It has nothing to do with Finnish.",
-    label: null,
-  },
-];
+function scoresOfItemOne() {
+  return [
+    {
+      goal_id: 1,
+      goal_slug: "database-internals",
+      goal_title: "Database internals",
+      score: 3,
+      reason: "It shows how one Postgres table holds a job queue with leases.",
+      label: null,
+    },
+    {
+      goal_id: 2,
+      goal_slug: "learn-finnish",
+      goal_title: "Learn Finnish",
+      score: 0,
+      reason: "It has nothing to do with Finnish.",
+      label: null,
+    },
+  ];
+}
 
 /**
  * The made-up items, as GET /api/v1/items/{id} gives them. Each one is a case for the pages.
@@ -72,6 +75,7 @@ const SCORES_OF_ITEM_ONE = [
  * @returns {ItemDetail[]}
  */
 function freshItems() {
+  const scores = scoresOfItemOne();
   /** @type {Omit<ItemDetail, "id" | "kind" | "enrich_state" | "partial" | "title" | "url" | "site" | "summary">} */
   const base = {
     status: "inbox",
@@ -111,8 +115,8 @@ function freshItems() {
       est_minutes: 14,
       tags: [{ slug: "queues", name: "queues", is_public: false }],
       key_points: ["A lease ends when its worker stops", "A heartbeat moves the lease forward"],
-      goals: SCORES_OF_ITEM_ONE,
-      top_goal: SCORES_OF_ITEM_ONE[0],
+      goals: scores,
+      top_goal: scores[0],
       // The API gives only web links. The page must not trust that: the second one is no link.
       extra_links: ["https://example.org/queue-data", "javascript:alert(1)"],
       note: "Read before the design review.",
@@ -300,6 +304,8 @@ let items = freshItems();
 let goals = freshGoals();
 /** @type {number[]} */
 let reprocessed = [];
+/** @type {{ item: number, goal: number, label: string | null }[]} each verdict, in order */
+let verdicts = [];
 /** @type {{ id: number, to: string }[]} */
 let moves = [];
 /** @type {{ itemId: number, event: EventOut }[]} the moves, oldest first */
@@ -353,13 +359,14 @@ const server = createServer(async (request, response) => {
     items = freshItems();
     goals = freshGoals();
     reprocessed = [];
+    verdicts = [];
     moves = [];
     events = [];
     lastMove = new Map();
     return send(response, 200, {});
   }
   if (request.method === "GET" && path === "/__calls") {
-    return send(response, 200, { reprocessed, moves });
+    return send(response, 200, { reprocessed, moves, verdicts });
   }
   let match = /^\/__items\/(\d+)$/.exec(path);
   if (request.method === "POST" && match) {
@@ -444,6 +451,27 @@ const server = createServer(async (request, response) => {
     item.status = target;
     if (target === "done") item.read_at = now;
     return send(response, 200, detailOf(item));
+  }
+
+  match = /^\/api\/v1\/items\/(\d+)\/goals\/(\d+)\/label$/.exec(path);
+  if (request.method === "PUT" && match) {
+    const item = items.find((candidate) => candidate.id === Number(match?.[1]));
+    const score = item?.goals.find((candidate) => candidate.goal_id === Number(match?.[2]));
+    if (!score) {
+      return problem(response, 404, "Not Found", "the item has no score for this goal");
+    }
+    const body = await jsonBody(request);
+    if (!["confirmed", "rejected", null].includes(/** @type {any} */ (body.label))) {
+      return problem(response, 422, "Unprocessable Content", "the body is not valid");
+    }
+    if (typeof body.score === "number" && body.score !== score.score) {
+      const detail =
+        `the score changed since you saw it: it is ${score.score} now; ` + "look at it again";
+      return problem(response, 409, "Conflict", detail);
+    }
+    score.label = /** @type {GoalScore["label"]} */ (body.label);
+    verdicts.push({ item: Number(match[1]), goal: Number(match[2]), label: score.label });
+    return send(response, 200, score);
   }
 
   match = /^\/api\/v1\/items\/(\d+)\/events$/.exec(path);
