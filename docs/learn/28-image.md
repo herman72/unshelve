@@ -197,4 +197,4 @@ In a channel, a post with a link and a photo mostly shows the cover of the page.
 - [Vision](https://platform.claude.com/docs/en/build-with-claude/vision), Claude Platform Docs. Read "Supported formats" and "Resolution and token cost": the four types of part 3 and the rule of part 4.
 - [List of file signatures](https://en.wikipedia.org/wiki/List_of_file_signatures), Wikipedia. Read the rows of JPEG, PNG, GIF and WebP: they are the bytes of part 3.
 
-Previous: [27. The files of an export](27-export-files.md) · Back to the [list of notes](README.md)
+Previous: [27. The files of an export](27-export-files.md) · Next: [29. Cards in a batch](29-cards-in-a-batch.md) · Back to the [list of notes](README.md)
