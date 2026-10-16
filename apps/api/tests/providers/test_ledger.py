@@ -11,9 +11,9 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from unshelve.contracts.dto import ImagePart, LLMResult, LLMUsage, TextPart
-from unshelve.contracts.errors import ProviderError
-from unshelve.db.models import LLMCall
-from unshelve.providers.ledger import CachedLLM, cost_usd
+from unshelve.contracts.errors import ProviderError, WaitsForBatch
+from unshelve.db.models import LLMBatch, LLMCall
+from unshelve.providers.ledger import CachedLLM, cache_key, cost_usd
 from unshelve.testing.conformance import TINY_PNG
 from unshelve.testing.fakes import synthesize
 
@@ -260,3 +260,83 @@ def test_the_cost_comes_from_the_price_of_the_model(
 
 def test_a_model_without_a_price_has_no_cost() -> None:
     assert cost_usd("claude-unknown-9", LLMUsage(input_tokens=10)) is None
+
+
+# --- Batches (UNSHELVE_CARDS=batch) ------------------------------------------------------------
+
+
+def test_a_batch_costs_half_of_the_price() -> None:
+    usage = LLMUsage(input_tokens=1_000_000, output_tokens=100_000)
+
+    assert cost_usd("claude-opus-5-5", usage) == Decimal("6")
+    assert cost_usd("claude-opus-5-5", usage, batch=True) == Decimal("3")
+
+
+async def test_the_answers_of_a_batch_do_not_use_the_daily_budget(committed_db: Sessions) -> None:
+    # You accepted the price of the batch by hand: the calls of the day still have $1.
+    async with committed_db() as db:
+        batch = LLMBatch(
+            model="claude-opus-5-5",
+            task="test",
+            prompt_version="v1",
+            questions=1,
+            estimated_cost_usd=Decimal("5.00"),
+        )
+        db.add(batch)
+        await db.flush()
+        db.add(
+            LLMCall(
+                cache_key="answered-in-a-batch",
+                task="test",
+                model="claude-opus-5-5",
+                prompt_version="v1",
+                request={},
+                response={},
+                cost_usd=Decimal("5.00"),
+                created_at=LATE_EVENING - timedelta(hours=1),
+                batch_id=batch.id,
+            )
+        )
+        await db.commit()
+    inner = Counting()
+    llm = _ledger(committed_db, inner, budget_usd=Decimal("1.00"), timezone="Europe/Helsinki")
+
+    await _ask(llm)
+
+    assert inner.calls == 1
+
+
+async def test_a_question_of_a_batch_task_waits_for_a_batch(committed_db: Sessions) -> None:
+    inner = Counting()
+    llm = _ledger(committed_db, inner, batch_tasks={"test"})
+
+    with pytest.raises(WaitsForBatch) as caught:
+        await _ask(llm)
+
+    assert inner.calls == 0
+    assert caught.value.key == cache_key(
+        "claude-opus-5-5",
+        "test",
+        "v1",
+        "Describe the text.",
+        [TextPart(text="A note about queues.")],
+        Note,
+    )
+    assert await _rows(committed_db) == []
+
+
+async def test_a_stored_answer_is_given_also_in_batch_mode(committed_db: Sessions) -> None:
+    inner = Counting()
+    first = await _ask(_ledger(committed_db, inner))
+
+    again = await _ask(_ledger(committed_db, inner, batch_tasks={"test"}))
+
+    assert (inner.calls, again.cached, again.value) == (1, True, first.value)
+
+
+async def test_a_task_that_waits_for_no_batch_is_asked_now(committed_db: Sessions) -> None:
+    inner = Counting()
+
+    await _ask(_ledger(committed_db, inner, batch_tasks={"enrich_item"}))
+
+    assert inner.calls == 1
