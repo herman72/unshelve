@@ -27,10 +27,13 @@ async function ItemDetails({ params }: Pick<PageProps<"/items/[id]">, "params">)
   const { id } = await params;
   if (!ITEM_ID.test(id)) notFound();
   const api = await sessionApi();
-  const state = await toApiState(
-    api.GET("/api/v1/items/{item_id}", { params: { path: { item_id: Number(id) } } }),
-  );
+  const path = { item_id: Number(id) };
+  // The two requests start at once: the history does not wait for the item.
+  const [state, history] = await Promise.all([
+    toApiState(api.GET("/api/v1/items/{item_id}", { params: { path } })),
+    toApiState(api.GET("/api/v1/items/{item_id}/events", { params: { path } })),
+  ]);
   if (state.kind === "error" && state.status === 404) notFound();
   if (state.kind !== "data") return <EmptyState state={state} />;
-  return <ItemView item={state.data} />;
+  return <ItemView item={state.data} history={history} />;
 }

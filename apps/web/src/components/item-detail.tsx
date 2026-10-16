@@ -1,9 +1,13 @@
 import type { components } from "@unshelve/api-client";
 import Link from "next/link";
 import { Badge, displayTitle } from "@/components/item-card";
+import { type EventPage, ItemHistory } from "@/components/item-history";
 import { ReprocessButton } from "@/components/reprocess-button";
+import { StatusButtons } from "@/components/status-buttons";
+import type { ApiState } from "@/lib/api-state";
 import { enrichLabel, inPipeline } from "@/lib/enrich-state";
 import { webAddress } from "@/lib/links";
+import { statusSentence } from "@/lib/reading-status";
 
 export type ItemDetail = components["schemas"]["ItemDetail"];
 
@@ -29,7 +33,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 /** One item in full. Each piece of saved content has dir="auto": see item-card.tsx. */
-export function ItemView({ item }: { item: ItemDetail }) {
+export function ItemView({ item, history }: { item: ItemDetail; history: ApiState<EventPage> }) {
   const source = webAddress(item.url);
 
   return (
@@ -66,6 +70,37 @@ export function ItemView({ item }: { item: ItemDetail }) {
           </a>
         </p>
       )}
+
+      <Section title="Reading">
+        {item.duplicate_of_id !== null ? (
+          // The API allows no move for a merged copy: its moves belong to the older item.
+          <p className="text-sm">
+            This is the same thing as{" "}
+            <Link href={`/items/${item.duplicate_of_id}`} className="text-accent hover:underline">
+              item {item.duplicate_of_id}
+            </Link>
+            . Move that item.
+          </p>
+        ) : (
+          <>
+            <p className="mb-2 text-sm">
+              {item.status === "done" && item.read_at ? (
+                <>
+                  Read on{" "}
+                  <time dateTime={item.read_at}>{SAVED_AT.format(new Date(item.read_at))}</time>.
+                </>
+              ) : (
+                statusSentence(item.status)
+              )}
+            </p>
+            <StatusButtons
+              itemId={item.id}
+              status={item.status}
+              allowed={item.allowed_transitions}
+            />
+          </>
+        )}
+      </Section>
 
       {item.partial && (
         <p className="mt-4 text-sm text-warning">
@@ -148,6 +183,10 @@ export function ItemView({ item }: { item: ItemDetail }) {
           </time>
           {item.capture_count > 1 && <span>, and {item.capture_count - 1} times after</span>}
         </p>
+      </Section>
+
+      <Section title="History">
+        <ItemHistory history={history} />
       </Section>
 
       <Section title="Processing">

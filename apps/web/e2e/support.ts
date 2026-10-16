@@ -24,3 +24,9 @@ export async function reprocessed(request: APIRequestContext): Promise<number[]>
   const answer = await request.get(`${API_URL}/__calls`);
   return ((await answer.json()) as { reprocessed: number[] }).reprocessed;
 }
+
+/** The moves that the pretend API was asked for, in order: the id of the item and its target. */
+export async function moves(request: APIRequestContext): Promise<{ id: number; to: string }[]> {
+  const answer = await request.get(`${API_URL}/__calls`);
+  return ((await answer.json()) as { moves: { id: number; to: string }[] }).moves;
+}
