@@ -1,6 +1,5 @@
-import type { components } from "@unshelve/api-client";
-
-export type Goal = components["schemas"]["GoalOut"];
+import { GoalActions } from "@/components/goal-actions";
+import type { Goal } from "@/lib/goal-fields";
 
 /** The dates of a goal in words, or nothing when it has none. The API sends ISO dates. */
 function period(goal: Goal): string | null {
@@ -51,26 +50,53 @@ function GoalCard({ goal }: { goal: Goal }) {
         </ul>
       )}
 
-      {dates && <p className="mt-3 text-sm text-muted">{dates}</p>}
+      <p className="mt-3 text-sm text-muted">
+        {dates && <>{dates} · </>}
+        {/* The version goes up when the title, the description or the keywords change. */}
+        Version {goal.version}
+      </p>
+      <div className="mt-3">
+        <GoalActions goal={goal} />
+      </div>
     </article>
   );
 }
 
-export function GoalList({ goals }: { goals: readonly Goal[] }) {
-  if (goals.length === 0) {
-    return (
-      <p className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-muted">
-        You have no goals yet. A goal tells Unshelve what to look for in what you save.
-      </p>
-    );
-  }
+function Cards({ goals, label }: { goals: readonly Goal[]; label: string }) {
   return (
-    <ul role="list" className="flex flex-col gap-3">
+    <ul role="list" aria-label={label} className="flex flex-col gap-3">
       {goals.map((goal) => (
         <li key={goal.id}>
           <GoalCard goal={goal} />
         </li>
       ))}
     </ul>
+  );
+}
+
+/** The active goals, and under them the archived goals. The API sends them in this order. */
+export function GoalList({ goals }: { goals: readonly Goal[] }) {
+  const active = goals.filter((goal) => goal.archived_at === null);
+  const archived = goals.filter((goal) => goal.archived_at !== null);
+  return (
+    <>
+      {active.length === 0 ? (
+        <p className="rounded-lg border border-dashed border-border px-4 py-10 text-center text-muted">
+          You have no goals yet. A goal tells Unshelve what to look for in what you save.
+        </p>
+      ) : (
+        <Cards goals={active} label="Active goals" />
+      )}
+      {archived.length > 0 && (
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold tracking-wide text-muted uppercase">
+            Archived goals
+          </h2>
+          <div className="mt-3">
+            <Cards goals={archived} label="Archived goals" />
+          </div>
+        </section>
+      )}
+    </>
   );
 }

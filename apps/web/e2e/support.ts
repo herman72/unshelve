@@ -30,3 +30,12 @@ export async function moves(request: APIRequestContext): Promise<{ id: number; t
   const answer = await request.get(`${API_URL}/__calls`);
   return ((await answer.json()) as { moves: { id: number; to: string }[] }).moves;
 }
+
+/** Change a goal in the pretend API, as another tab would while a page is open. */
+export async function changeGoal(
+  request: APIRequestContext,
+  id: number,
+  fields: Record<string, unknown>,
+): Promise<void> {
+  await request.post(`${API_URL}/__goals/${id}`, { data: fields });
+}
