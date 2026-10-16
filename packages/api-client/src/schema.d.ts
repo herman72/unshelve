@@ -133,13 +133,15 @@ export interface paths {
         };
         /**
          * List Goals
-         * @description All goals. Archived goals are left out unless the query asks for them.
+         * @description All goals, the active ones first. Archived goals are left out unless the query asks for
+         *     them.
          */
         get: operations["list_goals"];
         put?: never;
         /**
          * Create Goal
-         * @description Add a goal. A goal that clashes with an existing one is a 409.
+         * @description Add a goal. A title that gives the slug of an existing goal is a 409, and so is an
+         *     eleventh active goal.
          */
         post: operations["create_goal"];
         delete?: never;
@@ -163,7 +165,8 @@ export interface paths {
         head?: never;
         /**
          * Update Goal
-         * @description Change a goal or archive it. Fields that are left out stay as they are.
+         * @description Change a goal, archive it or restore it. Fields that are left out stay as they are. A
+         *     new title, description or keywords give the goal a new version.
          */
         patch: operations["update_goal"];
         trace?: never;
@@ -179,7 +182,8 @@ export interface paths {
         put?: never;
         /**
          * Focus Goal
-         * @description Make this the focus goal. There is at most one focus goal.
+         * @description Make this the focus goal. There is at most one focus goal. An archived goal cannot be
+         *     the focus: 409.
          */
         post: operations["focus_goal"];
         delete?: never;
@@ -1608,6 +1612,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Unprocessable Content */
             422: {
                 headers: {
@@ -1650,6 +1663,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
