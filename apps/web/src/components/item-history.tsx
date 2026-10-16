@@ -38,6 +38,8 @@ function describe(event: ItemEvent): string {
       return `The card could not be made${because}`;
     case "embed_failed":
       return `The vectors could not be made${because}`;
+    case "score_failed":
+      return `The scores against the goals could not be made${because}`;
     default:
       return event.type; // a type that this page does not know yet
   }

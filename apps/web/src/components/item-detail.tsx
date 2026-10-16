@@ -8,6 +8,7 @@ import type { ApiState } from "@/lib/api-state";
 import { enrichLabel, inPipeline } from "@/lib/enrich-state";
 import { webAddress } from "@/lib/links";
 import { statusSentence } from "@/lib/reading-status";
+import { scoreWords } from "@/lib/scores";
 
 export type ItemDetail = components["schemas"]["ItemDetail"];
 
@@ -101,6 +102,29 @@ export function ItemView({ item, history }: { item: ItemDetail; history: ApiStat
           </>
         )}
       </Section>
+
+      {item.goals.length > 0 && (
+        <Section title="Goals">
+          {/* The model scored the item against each active goal: 0 to 3, and its reason. */}
+          <ul aria-label="Scores" className="space-y-3 text-sm">
+            {item.goals.map((goal) => (
+              <li key={goal.goal_id}>
+                <p>
+                  <span dir="auto" className="font-medium wrap-anywhere">
+                    {goal.goal_title}
+                  </span>
+                  : {scoreWords(goal.score)}
+                </p>
+                {goal.reason && (
+                  <p dir="auto" className="mt-0.5 text-muted wrap-anywhere">
+                    {goal.reason}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
 
       {item.partial && (
         <p className="mt-4 text-sm text-warning">

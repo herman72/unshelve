@@ -145,3 +145,31 @@ test("a click after the worker started shows the state that won", async ({ page,
   await expect(page.getByRole("article")).toContainText("Pipeline: Processing");
   expect(await reprocessed(request)).toEqual([]);
 });
+
+// --- Scores against the goals ------------------------------------------------------------
+
+test("the page of an item shows its score and the reason for each goal", async ({ page }) => {
+  await page.goto("/items/1");
+
+  const scores = page.getByRole("list", { name: "Scores" }).getByRole("listitem");
+  await expect(scores).toHaveCount(2);
+  await expect(scores.nth(0)).toContainText("Database internals: Directly useful (3 of 3)");
+  await expect(scores.nth(0)).toContainText("one Postgres table holds a job queue");
+  await expect(scores.nth(1)).toContainText("Learn Finnish: No link (0 of 3)");
+});
+
+test("the card of an item in the inbox names its top goal", async ({ page }) => {
+  await page.goto("/");
+
+  const card = page.getByRole("article").filter({ hasText: "Leases for Job Queues in Postgres" });
+  await expect(card).toContainText("Top goal: Database internals (3 of 3)");
+  // An item without a score has no top goal.
+  await expect(page.getByRole("article").filter({ hasText: "Top goal" })).toHaveCount(1);
+});
+
+test("an item without scores has no section of goals", async ({ page }) => {
+  await page.goto("/items/2");
+
+  await expect(page.getByRole("heading", { name: "Reading" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Goals" })).toHaveCount(0);
+});
