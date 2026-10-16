@@ -395,6 +395,24 @@ async def test_the_done_button_marks_the_item_and_then_goes_away(
     assert await _events(committed_db) == [(first, "done")]
 
 
+async def test_the_done_button_of_a_merged_copy_marks_the_item_that_it_is_a_copy_of(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    # The digest showed the item, and later the worker found that it is the same thing as an
+    # older item. The lists show only the older one, so that one must be done.
+    older, copy = await _saved(committed_db, "One", "One again")
+    async with committed_db() as db:
+        await db.execute(sa.update(Item).where(Item.id == copy).values(duplicate_of_id=older))
+        await db.commit()
+    markup = cards.buttons([await _item(committed_db, copy)])
+
+    await _arrive(dispatcher, telegram, _press(f"done:{copy}", markup=markup))
+
+    assert await _item_status(committed_db, older) is ItemStatus.DONE
+    assert await _item_status(committed_db, copy) is ItemStatus.INBOX
+    assert await _events(committed_db) == [(older, "done")]
+
+
 async def test_a_button_press_of_a_stranger_is_refused(
     dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
 ) -> None:
