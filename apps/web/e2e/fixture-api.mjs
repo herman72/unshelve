@@ -23,6 +23,7 @@ import { createServer } from "node:http";
 /** @typedef {import("@unshelve/api-client").components["schemas"]["ItemStatus"]} ItemStatus */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["EventOut"]} EventOut */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["GoalOut"]} GoalOut */
+/** @typedef {import("@unshelve/api-client").components["schemas"]["GoalScore"]} GoalScore */
 
 const port = Number(process.argv[2] ?? 3901);
 
@@ -40,6 +41,30 @@ const MOVES = {
   archived: ["inbox"],
 };
 const QUEUE_LIMIT = 5;
+
+/**
+ * The scores of item 1 against the made-up goals (freshGoals), the highest first.
+ *
+ * @type {GoalScore[]}
+ */
+const SCORES_OF_ITEM_ONE = [
+  {
+    goal_id: 1,
+    goal_slug: "database-internals",
+    goal_title: "Database internals",
+    score: 3,
+    reason: "It shows how one Postgres table holds a job queue with leases.",
+    label: null,
+  },
+  {
+    goal_id: 2,
+    goal_slug: "learn-finnish",
+    goal_title: "Learn Finnish",
+    score: 0,
+    reason: "It has nothing to do with Finnish.",
+    label: null,
+  },
+];
 
 /**
  * The made-up items, as GET /api/v1/items/{id} gives them. Each one is a case for the pages.
@@ -86,6 +111,8 @@ function freshItems() {
       est_minutes: 14,
       tags: [{ slug: "queues", name: "queues", is_public: false }],
       key_points: ["A lease ends when its worker stops", "A heartbeat moves the lease forward"],
+      goals: SCORES_OF_ITEM_ONE,
+      top_goal: SCORES_OF_ITEM_ONE[0],
       // The API gives only web links. The page must not trust that: the second one is no link.
       extra_links: ["https://example.org/queue-data", "javascript:alert(1)"],
       note: "Read before the design review.",
