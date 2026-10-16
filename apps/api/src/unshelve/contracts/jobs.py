@@ -20,7 +20,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from unshelve.config import Settings
 from unshelve.contracts.enums import JobKind
-from unshelve.contracts.protocols import BlobStore, Embedder, Fetcher, FileSource, LLMProvider
+from unshelve.contracts.protocols import (
+    BatchProvider,
+    BlobStore,
+    Embedder,
+    Fetcher,
+    FileSource,
+    LLMProvider,
+)
 
 # --- Payloads ----------------------------------------------------------------------------
 
@@ -72,6 +79,10 @@ class PublishFeedPayload(JobPayload):
     owner_id: int
 
 
+class CollectBatchPayload(JobPayload):
+    batch_id: int  # llm_batches.id
+
+
 PAYLOAD_TYPES: Mapping[JobKind, type[JobPayload]] = MappingProxyType(
     {
         JobKind.INGEST_CAPTURE: IngestCapturePayload,
@@ -83,6 +94,7 @@ PAYLOAD_TYPES: Mapping[JobKind, type[JobPayload]] = MappingProxyType(
         JobKind.SEND_DIGEST: SendDigestPayload,
         JobKind.STALE_SWEEP: StaleSweepPayload,
         JobKind.PUBLISH_FEED: PublishFeedPayload,
+        JobKind.COLLECT_BATCH: CollectBatchPayload,
     }
 )
 
@@ -136,6 +148,8 @@ class Services:
     bot: Bot | None = None
     # The files of saved messages, from the Bot API. None without a bot token.
     files: FileSource | None = None
+    # Questions to the model in one batch, at a lower price (UNSHELVE_CARDS=batch).
+    batches: BatchProvider | None = None
 
 
 @dataclass(frozen=True, slots=True)

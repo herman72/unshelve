@@ -129,6 +129,24 @@ class LLMResult[T: BaseModel](Dto):
     cached: bool = False  # served from llm_calls without a provider call
 
 
+class BatchQuestion(Dto):
+    """One question of a batch. ``custom_id`` names it in the answers: its cache key."""
+
+    custom_id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,64}$")
+    system: str
+    parts: list[TextPart | ImagePart]
+    max_output_tokens: int
+
+
+class BatchAnswer[T: BaseModel](Dto):
+    """The answer to one question of a batch, or why there is none."""
+
+    custom_id: str
+    result: LLMResult[T] | None = None
+    # errored, canceled, expired, or a refusal or an answer that does not fit the schema
+    error: str | None = None
+
+
 class EmbeddingSpec(Dto):
     """Identifies an embedding space. Vectors from different specs are never compared."""
 
