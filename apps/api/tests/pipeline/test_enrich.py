@@ -253,10 +253,13 @@ async def test_the_prompt_holds_no_goal_text(services: Services) -> None:
 
     await _run_all(services)
 
-    (call,) = model.calls
-    # The card does not depend on goals. Scoring against goals is a separate step (M3).
+    (call,) = [call for call in model.calls if call.task == "enrich_item"]
+    # The card does not depend on goals, so a summary cannot quote the owner's plan. Scoring
+    # against the goals is a separate step: only its question holds the goal text, and its
+    # answer stays in the private table item_goals.
     assert "SENTINEL" not in call.system
     assert "SENTINEL" not in call.text
+    assert all(call.task == "score_item" for call in model.calls if "SENTINEL" in call.text)
 
 
 async def test_a_page_cannot_close_the_tags_of_the_prompt(services: Services) -> None:

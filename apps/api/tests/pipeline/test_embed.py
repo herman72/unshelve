@@ -323,6 +323,12 @@ async def test_a_new_embedder_fills_its_own_set_and_the_old_set_stays_active(
     new = await _vectors(services.sessions, item_id, model="hashed-bow-32")
     assert [(c.kind, c.ord, c.dim) for c in new] == [(c.kind, c.ord, 32) for c in old]
     assert [c.id for c in await _vectors(services.sessions, item_id)] == [c.id for c in old]
+    # The item was ready before: its scores stay, and no score job starts (a paid question).
+    async with services.sessions() as db:
+        scores = await db.scalar(
+            sa.select(sa.func.count()).select_from(Job).where(Job.kind == JobKind.SCORE_ITEM)
+        )
+    assert scores == 1  # the one of the first pipeline run
 
 
 async def _new_card(sessions: Sessions, item_id: int) -> None:

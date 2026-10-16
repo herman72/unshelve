@@ -245,7 +245,7 @@ async def test_embed_stores_one_vector_and_the_item_is_ready(services: Services)
     item_id = await _save(services.sessions)
     worker = _worker(services)
 
-    for _ in range(3):
+    for _ in range(4):  # fetch, enrich, embed, and the score step (no goal: no score)
         assert await worker.run_one() is True
     assert await worker.run_one() is False  # nothing is left to do
 
@@ -271,6 +271,7 @@ async def test_embed_stores_one_vector_and_the_item_is_ready(services: Services)
         JobKind.FETCH_ITEM: [JobState.DONE],
         JobKind.ENRICH_ITEM: [JobState.DONE],
         JobKind.EMBED_ITEM: [JobState.DONE],
+        JobKind.SCORE_ITEM: [JobState.DONE],
     }
 
 

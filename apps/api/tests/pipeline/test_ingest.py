@@ -97,7 +97,7 @@ async def test_a_stored_message_becomes_a_finished_item(services: Services) -> N
 
     steps = await _run_all(_worker(services))
 
-    assert steps == 4  # ingest, fetch, enrich, embed
+    assert steps == 5  # ingest, fetch, enrich, embed, score
     (item,) = await _items(services.sessions)
     assert item.enrich_state is EnrichState.READY
     assert item.canonical_url == "https://example.com/a-talk"
@@ -118,8 +118,8 @@ async def test_two_posts_with_the_same_link_become_one_item(services: Services) 
 
     steps = await _run_all(_worker(services))
 
-    # Two ingest jobs, and then one fetch, one enrich and one embed for the one item.
-    assert steps == 5
+    # Two ingest jobs, and then one fetch, one enrich, one embed and one score for the one item.
+    assert steps == 6
     (item,) = await _items(services.sessions)
     assert item.enrich_state is EnrichState.READY
     assert item.capture_count == 2
@@ -138,7 +138,7 @@ async def test_an_album_waits_and_then_becomes_one_item(services: Services) -> N
     assert await worker.run_one() is False  # the job of the album does not start yet
 
     await _the_album_wait_is_over(services.sessions)
-    assert await _run_all(worker) == 4
+    assert await _run_all(worker) == 5
     (item,) = await _items(services.sessions)
     assert item.enrich_state is EnrichState.READY
     async with services.sessions() as db:
@@ -204,8 +204,8 @@ async def test_an_edit_replaces_the_text_of_the_item(services: Services) -> None
     await _arrive(services.sessions, _post(10, text="The corrected text", edit_seq=5))
     steps = await _run_all(_worker(services))
 
-    # The job of the edit, and then fetch, enrich and embed again.
-    assert steps == 4
+    # The job of the edit, and then fetch, enrich, embed and score again.
+    assert steps == 5
     (item,) = await _items(services.sessions)
     assert item.enrich_state is EnrichState.READY
     assert item.capture_count == 1  # an edit is no new save

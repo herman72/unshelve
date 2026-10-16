@@ -38,7 +38,7 @@ async def test_a_saved_link_becomes_a_finished_item_in_the_list(
         assert saved.json()["enrich_state"] == "pending"
         item_id = saved.json()["id"]
 
-        # 3. The worker runs the three steps: fetch, enrich, embed.
+        # 3. The worker runs the four steps: fetch, enrich, embed, and score (no goal yet).
         discover()
         worker = Worker(
             build_services(settings, committed_db), registry, WorkerConfig(worker_id="w1")
@@ -46,7 +46,7 @@ async def test_a_saved_link_becomes_a_finished_item_in_the_list(
         steps = 0
         while await worker.run_one():
             steps += 1
-        assert steps == 3
+        assert steps == 4
 
         # 4. The list shows the finished item.
         inbox = await client.get("/api/v1/items", params={"status": "inbox"})
