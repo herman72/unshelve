@@ -11,7 +11,13 @@ import pytest
 import sqlalchemy as sa
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods import AnswerCallbackQuery, EditMessageReplyMarkup, SendMessage, TelegramMethod
+from aiogram.methods import (
+    AnswerCallbackQuery,
+    EditMessageReplyMarkup,
+    EditMessageText,
+    SendMessage,
+    TelegramMethod,
+)
 from aiogram.types import InlineKeyboardMarkup, LinkPreviewOptions, Update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -28,8 +34,8 @@ from unshelve.auth import store as auth_store
 from unshelve.bot import cards, private
 from unshelve.bot.runner import build_dispatcher
 from unshelve.config import Settings
-from unshelve.contracts.enums import ItemStatus
-from unshelve.db.models import AuthToken, Capture, Event, Item
+from unshelve.contracts.enums import EnrichState, GoalLabel, ItemStatus, LabelSource
+from unshelve.db.models import AuthToken, Capture, Event, Goal, Item, ItemGoal
 
 Sessions = async_sessionmaker[AsyncSession]
 
@@ -519,3 +525,210 @@ async def test_a_change_of_buttons_that_telegram_refuses_is_logged_and_not_an_er
 
     assert await _item_status(committed_db, item_id) is ItemStatus.DONE
     assert [entry["event"] for entry in logs] == ["button.done", "button.not_changed"]
+
+
+# --- Your verdicts on the scores ---------------------------------------------------------------
+
+
+async def _scored(sessions: Sessions, *scores: tuple[str, int]) -> tuple[int, list[int]]:
+    """A goal "Rust", and one item for each (title, score). Returns the goal and the items."""
+    async with sessions() as db:
+        owner_id = await auth_store.ensure_owner(db, OWNER_TELEGRAM_ID)
+        goal = Goal(owner_id=owner_id, slug="rust", title="Rust", version=1)
+        db.add(goal)
+        await db.flush()
+        ids: list[int] = []
+        for number, (title, score) in enumerate(scores):
+            item = Item(
+                owner_id=owner_id,
+                title=title,
+                canonical_url=f"https://example.com/{number}",
+                enrich_state=EnrichState.READY,
+                first_captured_at=datetime(2026, 10, 17, tzinfo=UTC),
+                last_captured_at=datetime(2026, 10, 17, tzinfo=UTC),
+            )
+            db.add(item)
+            await db.flush()
+            db.add(
+                ItemGoal(
+                    item_id=item.id,
+                    goal_id=goal.id,
+                    owner_id=owner_id,
+                    score=score,
+                    reason=f"Reason of {title}.",
+                    scorer_version="score-1:fake-llm",
+                    goal_version=1,
+                )
+            )
+            ids.append(item.id)
+        await db.commit()
+    return goal.id, ids
+
+
+async def _verdicts(sessions: Sessions) -> list[tuple[int, GoalLabel | None, LabelSource | None]]:
+    async with sessions() as db:
+        rows = await db.execute(
+            sa.select(ItemGoal.item_id, ItemGoal.label, ItemGoal.label_source).order_by(
+                ItemGoal.item_id
+            )
+        )
+        return [(row.item_id, row.label, row.label_source) for row in rows]
+
+
+async def _question(
+    sessions: Sessions, item_id: int, goal_id: int, score: int
+) -> InlineKeyboardMarkup:
+    return cards.label_buttons(await _item(sessions, item_id), goal_id, score)
+
+
+async def test_label_asks_about_one_score_with_its_buttons(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    goal_id, (item_id,) = await _scored(committed_db, ("Lifetimes <in> Rust", 3))
+
+    await _arrive(dispatcher, telegram, _message("/label"))
+
+    (sent,) = telegram.sent
+    assert sent.parse_mode == "HTML"
+    assert sent.text == (
+        "<b>Is this score right?</b>\n\n<b>Lifetimes &lt;in&gt; Rust</b>\n\nGoal:\n<b>Rust</b>\n"
+        "Score: Directly useful (3 of 3)\nReason of Lifetimes &lt;in&gt; Rust."
+    )
+    assert isinstance(sent.reply_markup, InlineKeyboardMarkup)
+    data = [button.callback_data for button in sent.reply_markup.inline_keyboard[0]]
+    assert data == [
+        f"label:{item_id}:{goal_id}:3:{verdict}" for verdict in ("right", "wrong", "skip")
+    ]
+    assert sent.reply_markup.inline_keyboard[1][0].url == "https://example.com/0"
+
+
+@pytest.mark.parametrize(
+    ("verdict", "label"), [("right", GoalLabel.CONFIRMED), ("wrong", GoalLabel.REJECTED)]
+)
+async def test_a_verdict_is_kept_with_the_source_dm_and_the_next_question_comes(
+    dispatcher: Dispatcher,
+    telegram: PretendTelegram,
+    committed_db: Sessions,
+    verdict: str,
+    label: GoalLabel,
+) -> None:
+    goal_id, (first, second) = await _scored(committed_db, ("One", 3), ("Two", 0))
+    markup = await _question(committed_db, first, goal_id, 3)
+
+    await _arrive(
+        dispatcher, telegram, _press(f"label:{first}:{goal_id}:3:{verdict}", markup=markup)
+    )
+
+    assert await _verdicts(committed_db) == [(first, label, LabelSource.DM), (second, None, None)]
+    answer, edit, sent = telegram.calls
+    assert isinstance(answer, AnswerCallbackQuery)
+    assert isinstance(edit, EditMessageText)
+    assert (edit.text or "").endswith(f"\n\n<i>{cards.VERDICTS[verdict]}</i>")
+    # The answered question keeps "Open", without the buttons of a verdict.
+    assert isinstance(edit.reply_markup, InlineKeyboardMarkup)
+    assert [[b.text for b in row] for row in edit.reply_markup.inline_keyboard] == [["Open"]]
+    assert isinstance(sent, SendMessage)
+    assert "<b>Two</b>" in sent.text  # the next score that waits
+
+
+async def test_skip_keeps_no_verdict_and_asks_about_another_score(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    # Without the skip, the 3 would come first again: equal counts, the higher score first.
+    goal_id, (first, second) = await _scored(committed_db, ("One", 3), ("Two", 0))
+    markup = await _question(committed_db, first, goal_id, 3)
+
+    await _arrive(dispatcher, telegram, _press(f"label:{first}:{goal_id}:3:skip", markup=markup))
+
+    assert await _verdicts(committed_db) == [(first, None, None), (second, None, None)]
+    (sent,) = telegram.sent
+    assert "<b>Two</b>" in sent.text
+
+
+async def test_after_the_last_verdict_the_bot_says_that_no_score_waits(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    goal_id, (item_id,) = await _scored(committed_db, ("One", 2))
+    markup = await _question(committed_db, item_id, goal_id, 2)
+
+    await _arrive(dispatcher, telegram, _press(f"label:{item_id}:{goal_id}:2:right", markup=markup))
+
+    (sent,) = telegram.sent
+    assert sent.text == cards.NOTHING_TO_LABEL
+
+
+async def test_label_without_a_score_says_that_none_waits(
+    dispatcher: Dispatcher, telegram: PretendTelegram
+) -> None:
+    await _arrive(dispatcher, telegram, _message("/label"))
+
+    (sent,) = telegram.sent
+    assert sent.text == cards.NOTHING_TO_LABEL
+
+
+async def test_a_verdict_on_a_score_that_changed_since_the_question_is_refused(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    goal_id, (item_id,) = await _scored(committed_db, ("One", 2))
+    # The question showed a 3; the score is 2 now.
+    markup = await _question(committed_db, item_id, goal_id, 3)
+
+    await _arrive(dispatcher, telegram, _press(f"label:{item_id}:{goal_id}:3:right", markup=markup))
+
+    assert await _verdicts(committed_db) == [(item_id, None, None)]
+    edit = next(call for call in telegram.calls if isinstance(call, EditMessageText))
+    assert "The score changed to 2 since: I ask about it again." in (edit.text or "")
+    (sent,) = telegram.sent
+    assert "Score: Helps the goal (2 of 3)" in sent.text
+
+
+async def test_a_press_on_a_question_that_was_answered_changes_nothing(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    goal_id, (item_id,) = await _scored(committed_db, ("One", 3))
+    markup = await _question(committed_db, item_id, goal_id, 3)
+    await _arrive(dispatcher, telegram, _press(f"label:{item_id}:{goal_id}:3:right", markup=markup))
+
+    # The phone showed the old question, and the owner pressed "Wrong". The press brings the
+    # question as Telegram has it now: without the buttons of a verdict.
+    answered = cards.links_only(markup)
+    await _arrive(
+        dispatcher, telegram, _press(f"label:{item_id}:{goal_id}:3:wrong", markup=answered)
+    )
+
+    assert await _verdicts(committed_db) == [(item_id, GoalLabel.CONFIRMED, LabelSource.DM)]
+    kinds = [type(call).__name__ for call in telegram.calls]
+    assert kinds == ["AnswerCallbackQuery", "EditMessageText", "SendMessage", "AnswerCallbackQuery"]
+
+
+async def test_a_verdict_of_a_stranger_is_refused(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    goal_id, (item_id,) = await _scored(committed_db, ("One", 3))
+    markup = await _question(committed_db, item_id, goal_id, 3)
+
+    await _arrive(
+        dispatcher,
+        telegram,
+        _press(f"label:{item_id}:{goal_id}:3:right", sender=STRANGER, markup=markup),
+    )
+
+    assert await _verdicts(committed_db) == [(item_id, None, None)]
+    (answer,) = telegram.calls
+    assert isinstance(answer, AnswerCallbackQuery)
+
+
+def test_a_button_of_a_verdict_is_read_only_in_its_own_form() -> None:
+    assert cards.parse_label("label:12:3:2:right") == (12, 3, 2, "right")
+    for data in (
+        "label:12:3:2",
+        "label:12:3:4:right",
+        "label:x:3:2:right",
+        "label:12:3:2:maybe",
+        "done:12:3:2:right",
+    ):
+        assert cards.parse_label(data) is None
+
+
+def test_help_names_the_label_command() -> None:
+    assert "/label asks you about the scores against your goals" in private.HELP

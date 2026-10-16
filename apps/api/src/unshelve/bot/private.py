@@ -9,6 +9,7 @@ The bot writes only in a private chat, and only as an answer. It writes nothing 
 (docs/adr/0009).
 """
 
+import html
 from datetime import UTC, datetime
 
 import structlog
@@ -23,7 +24,8 @@ from unshelve.auth import store as auth_store
 from unshelve.bot import cards
 from unshelve.bot.capture import DATABASE_IS_DOWN
 from unshelve.config import Settings
-from unshelve.contracts.enums import Actor, ItemStatus
+from unshelve.contracts.enums import Actor, GoalLabel, ItemStatus, LabelSource
+from unshelve.relevance import labels
 from unshelve.resurface import digest
 from unshelve.track import status
 
@@ -35,6 +37,7 @@ HELP = (
     "To save something, post it in your channel. I store each post of the channel.\n"
     "\n"
     "/digest shows the things that you saved in the last 7 days, and one older thing.\n"
+    "/label asks you about the scores against your goals, one at a time: is the score right?\n"
     "/login gives you a link to sign in to the web app.\n"
     "/help shows this text."
 )
@@ -44,6 +47,9 @@ NO_LINK_NOW = (
 )
 NO_DIGEST_NOW = (
     "I cannot read your items now, because the database does not answer. Try again in a minute."
+)
+NO_LABEL_NOW = (
+    "I cannot read your scores now, because the database does not answer. Try again in a minute."
 )
 
 
@@ -175,6 +181,103 @@ async def on_done(
             log.warning("button.not_changed", reason=error.message)
 
 
+async def _ask(message: Message, found: labels.ToLabel | None) -> None:
+    """Send the question about one score, or say that no score waits."""
+    if found is None:
+        await message.answer(cards.NOTHING_TO_LABEL, parse_mode=None)
+        return
+    await message.answer(
+        cards.label_question(found.item, found.goal.title, found.score, found.reason),
+        parse_mode=ParseMode.HTML,
+        reply_markup=cards.label_buttons(found.item, found.goal.id, found.score),
+        link_preview_options=LinkPreviewOptions(is_disabled=True),
+    )
+
+
+async def on_label(
+    message: Message, settings: Settings, sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    """Ask about one score: is it right? The verdicts go to the golden set (note 33)."""
+    if settings.owner_telegram_id is None:  # the filter of the router lets no such message in
+        return
+    try:
+        async with sessions() as session:
+            owner_id = await auth_store.ensure_owner(session, settings.owner_telegram_id)
+            found = await labels.next_to_label(
+                session, owner_id, seed=datetime.now(UTC).isoformat()
+            )
+            await session.commit()
+    except DATABASE_IS_DOWN as error:
+        log.error("label.database_down", reason=type(error).__name__)
+        await message.answer(NO_LABEL_NOW, parse_mode=None)
+        return
+    await _ask(message, found)
+
+
+async def on_verdict(
+    callback: CallbackQuery, settings: Settings, sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    """A button of a verdict: "Right", "Wrong" or "Skip". Then the next question comes."""
+    await callback.answer()  # first: Telegram forgets a press without an answer (docs/adr/0009)
+    if settings.owner_telegram_id is None or callback.from_user.id != settings.owner_telegram_id:
+        log.info("button.ignored", reason="not the owner")
+        return
+    data = callback.data or ""
+    parsed = cards.parse_label(data)
+    message = callback.message
+    if parsed is None:
+        log.info("button.ignored", reason="no score in the button")
+        return
+    # The press brings the question as Telegram has it now. Without this button, the question
+    # was answered already, and the press came from an old view of it: it changes nothing. A
+    # question older than 48 hours comes without its content: /label asks again.
+    if not isinstance(message, Message) or not cards.has_button(message.reply_markup, data):
+        log.info("button.ignored", reason="answered or too old")
+        return
+    item_id, goal_id, score, verdict = parsed
+    try:
+        async with sessions() as session:
+            owner_id = await auth_store.ensure_owner(session, settings.owner_telegram_id)
+            line = cards.VERDICTS[verdict]
+            if verdict != "skip":
+                label = GoalLabel.CONFIRMED if verdict == "right" else GoalLabel.REJECTED
+                change = await labels.set_label(
+                    session,
+                    owner_id,
+                    item_id,
+                    goal_id,
+                    label,
+                    source=LabelSource.DM,
+                    shown_score=score,
+                )
+                if change.row is None:
+                    line = "This score does not exist any more."
+                elif change.outcome is labels.LabelOutcome.SCORE_CHANGED:
+                    line = f"The score changed to {change.row.score} since: I ask about it again."
+            following = await labels.next_to_label(
+                session,
+                owner_id,
+                seed=datetime.now(UTC).isoformat(),
+                skip=(item_id, goal_id) if verdict == "skip" else None,
+            )
+            await session.commit()
+    except DATABASE_IS_DOWN as error:
+        # The buttons stay. The owner can press again.
+        log.error("button.database_down", reason=type(error).__name__)
+        return
+    log.info("button.verdict", item_id=item_id, goal_id=goal_id, verdict=verdict)
+    try:
+        await message.edit_text(
+            f"{message.html_text}\n\n<i>{html.escape(line, quote=False)}</i>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=cards.links_only(message.reply_markup),
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
+    except TelegramBadRequest as error:
+        log.warning("button.not_changed", reason=error.message)
+    await _ask(message, following)
+
+
 async def on_other_button(callback: CallbackQuery) -> None:
     """A button that this version does not know, for example an old one."""
     await callback.answer()
@@ -207,11 +310,13 @@ def build_router() -> Router:
     owner.message.register(on_login, Command("login", ignore_mention=True))
     owner.message.register(on_help, Command("start", "help", ignore_mention=True))
     owner.message.register(on_digest, Command("digest", ignore_mention=True))
+    owner.message.register(on_label, Command("label", ignore_mention=True))
     owner.message.register(on_other)
     router.include_router(owner)
 
     pressed = Router(name="private.buttons")
     pressed.callback_query.register(on_done, F.data.startswith(f"{cards.DONE}:"))
+    pressed.callback_query.register(on_verdict, F.data.startswith(f"{cards.LABEL}:"))
     pressed.callback_query.register(on_other_button)
     router.include_router(pressed)
 
