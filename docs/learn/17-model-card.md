@@ -182,7 +182,7 @@ Where does the cache go?
 - **A mistake that the review found.** On the night when the clocks go back, the wait until midnight was one hour too short. Python ignores a change of the clocks when it subtracts two times of the same time zone. A test for 25 October 2026 in Helsinki found it, and the difference is now taken in UTC.
 - **What is not done:**
   - No real call was made yet. It needs a yes from the owner, because it costs money.
-  - Batch mode for a large import ([issue #70](https://github.com/herman72/unshelve/issues/70)).
+  - Batch mode for a large import came later: half the price, within hours ([note 29](29-cards-in-a-batch.md)).
   - The embedder stays fake until package M2-5.
   - Images were not sent to the model yet. The image extractor does it now ([note 28](28-image.md)).
   - The prompt is not measured on real items yet: that is the comparison of part 6.
