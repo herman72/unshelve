@@ -12,10 +12,10 @@ Two paths are possible for one item:
 
 | The item | The prefilter | The model | The scores |
 |---|---|---|---|
-| close to a goal | the closest goal is above 0.2 | one question for both goals | 3 and 0, each with a reason |
-| far from each goal, such as a recipe | each goal is below 0.2 | not asked | 0 and 0, with the reason "The card is far from each goal" |
+| close to a goal | the closest goal is at 0.3 or above | one question for both goals | 3 and 0, each with a reason |
+| far from each goal, such as a recipe | each goal is below 0.3 | not asked | 0 and 0, with the reason "The card is far from each goal" |
 
-The prefilter is free: it compares two vectors that exist already. The question costs money. An estimate from the token counts: about $0.0002 for one question with Claude Haiku 5.5 and 5 goals.
+The prefilter is free: it compares two vectors that exist already. The question costs money: in the live check of 16 October, one question with 2 goals cost $0.00014 to $0.00016 with Claude Haiku 5.5. With 7 goals, the estimate is about $0.00045.
 
 ## 1. The scale
 
@@ -36,7 +36,7 @@ Each score has a reason: one short sentence that names the link, or says that th
 flowchart LR
     R["The item is ready"] --> V{"A card vector, and a vector of each goal?"}
     V -->|no| Q["One question to the model, for all goals"]
-    V -->|yes| S{"The closest goal at 0.2 or more?"}
+    V -->|yes| S{"The closest goal at 0.3 or more?"}
     S -->|yes| Q
     S -->|no| Z["Each goal: 0, without a question"]
     Q --> W["Write the scores; a score with a label stays"]
@@ -45,7 +45,15 @@ flowchart LR
 
 Each item has a vector of its card (the embed step, [note 18](18-vectors-for-search.md)). Now each goal gets a vector too: of its title, its description and its keywords. The goal is a *query* (a question), and the card is a *document*. Voyage makes the two kinds a little differently, so that a question finds the texts that answer it.
 
-The *cosine similarity* of two vectors says how close their meanings are: 1 is the same meaning, 0 is no relation. In the check of note 18, a question and a text on its topic were at 0.57, and a text on another topic at 0.00. The *threshold* `UNSHELVE_SCORE_PREFILTER` is 0.2: it lies between them. Postgres computes the similarity (`<=>` of pgvector is 1 minus the cosine similarity).
+The *cosine similarity* of two vectors says how close their meanings are: 1 is the same meaning, 0 is no relation. Postgres computes it (`<=>` of pgvector is 1 minus the cosine similarity). The live check of 16 October measured three made-up cards against two goals, with voyage-4-large:
+
+| Card | Database internals | Learn Finnish |
+|---|---|---|
+| a paper on job queues in Postgres | **0.50** | 0.11 |
+| a video on the cases of Finnish | 0.21 | **0.56** |
+| a recipe for pancakes | 0.22 | 0.23 |
+
+The pairs with a link are at 0.50 and 0.56. The pairs without a link are at 0.11 to 0.23, not at 0: two texts in English share much, also on different topics. The *threshold* `UNSHELVE_SCORE_PREFILTER` is 0.3, between the two groups. The first value of this pull request was 0.2, from a check with a Persian question; with it, the recipe would have gone to the model.
 
 The prefilter answers only when it is sure that it knows:
 
@@ -100,13 +108,13 @@ The worker scores each new item by itself. An item with scores keeps them when y
 ```text
 $ unshelve goals rescore
 1 active goal: 2 items to score.
-- 2 questions to claude-haiku-5-5: about $0.0002 for about 1419 input and 90 output tokens.
+- 2 questions to claude-haiku-5-5: about $0.0002 for about 1775 input and 120 output tokens.
 Score them? [y/N]:
 ```
 
 Two more lines can come before the question:
 
-- `- 162 far from each goal get 0 without a question (UNSHELVE_SCORE_PREFILTER=0.2).`
+- `- 162 far from each goal get 0 without a question (UNSHELVE_SCORE_PREFILTER=0.3).`
 - `- 30 have their answer in the ledger already: no cost.`
 
 The answer "n" starts nothing. So you can try other thresholds for free: run the command with another `UNSHELVE_SCORE_PREFILTER`, and read how many items each value would answer.
@@ -131,7 +139,8 @@ How many questions for one item?
 - **Does a second run pay again?** No. A test runs the step two times and counts one question.
 - **Does a label stay?** Yes, also a label that comes during the question. Two tests.
 - **Is an item without a card vector called far?** No. A test removes the vectors, and the model is asked.
-- **Is the threshold measured on your items?** Not yet. `unshelve goals rescore` shows how many items each value answers; the labels of M3-3 will show how often a 0 of the prefilter was wrong.
+- **Is the threshold measured?** On three made-up cards, yes: it moved from 0.2 to 0.3. On your items, not yet: `unshelve goals rescore` shows how many items each value answers, and the labels of M3-3 will show how often a 0 of the prefilter was wrong.
+- **Is the estimate of the price checked?** Yes. The first estimate was 15% under the real input tokens of the live check; the command now counts 2.0 characters for each token, and it stays a little above the price.
 - **Can the tests fail?** I broke the new code in 43 places, one at a time: 41 in Python and 2 in the web app. The tests found each of the 43. Before that run, the list of the mistakes showed about ten rules without a test, and I wrote those tests first. An example is the rule of the exercise: the step left out the labels that it read, so no test saw the rule of the write.
 - **What is not done:**
   - The digest does not use the scores yet (M3-4).
