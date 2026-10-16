@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     # How an item gets its card. "live" asks the model at once. "batch" lets the card wait,
     # and `unshelve llm batch send` asks for all waiting cards in one batch, at half the price.
     cards: Literal["live", "batch"] = "live"
+    # The prefilter of the scores (docs/adr/0014): an item whose card is less similar than this
+    # to each goal gets 0 for each goal, without a question to the model. -1 asks the model for
+    # each item. The value is a cosine similarity of the embedder: measure it with yours.
+    score_prefilter: float = Field(default=0.2, ge=-1, le=1)
 
     # The embedder makes the vectors for search (ADR 0012). "fake" is local and free. "voyage"
     # asks Voyage AI with VOYAGE_API_KEY, with this model and this length of vector.
