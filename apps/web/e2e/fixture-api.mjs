@@ -4,7 +4,9 @@
 // items (POST /__reset), and change an item between two steps (POST /__items/{id}).
 //
 // The moves of the reading status follow the rules of the real API: the table of moves of
-// contracts/states.py, a queue of 5 slots, and no move for a merged copy.
+// contracts/states.py, a queue of 5 slots, and no move for a merged copy. The goals too: a slug
+// from the title, a clash is a 409, at most 10 active goals, a new version for a new meaning,
+// and one focus.
 //
 //     node e2e/fixture-api.mjs 3901
 //
@@ -20,6 +22,7 @@ import { createServer } from "node:http";
 /** @typedef {import("@unshelve/api-client").components["schemas"]["ItemSummary"]} ItemSummary */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["ItemStatus"]} ItemStatus */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["EventOut"]} EventOut */
+/** @typedef {import("@unshelve/api-client").components["schemas"]["GoalOut"]} GoalOut */
 
 const port = Number(process.argv[2] ?? 3901);
 
@@ -204,7 +207,70 @@ function inQueue(item) {
   return item.duplicate_of_id === null && (item.status === "queued" || item.status === "reading");
 }
 
+/**
+ * The made-up goals, as GET /api/v1/goals gives them: a focus goal, a goal, an archived goal.
+ *
+ * @returns {GoalOut[]}
+ */
+function freshGoals() {
+  /** @type {Omit<GoalOut, "id" | "slug" | "title">} */
+  const base = {
+    description: "",
+    keywords: [],
+    starts_on: null,
+    ends_on: null,
+    version: 1,
+    is_focus: false,
+    archived_at: null,
+  };
+  return [
+    {
+      ...base,
+      id: 1,
+      slug: "database-internals",
+      title: "Database internals",
+      description: "How Postgres stores, locks and finds rows.",
+      keywords: ["postgres", "mvcc"],
+      starts_on: "2026-11-01",
+      ends_on: "2027-01-31",
+      is_focus: true,
+    },
+    { ...base, id: 2, slug: "learn-finnish", title: "Learn Finnish", keywords: ["suomi"] },
+    {
+      ...base,
+      id: 3,
+      slug: "run-a-10k",
+      title: "Run a 10k",
+      archived_at: "2026-10-01T07:00:00Z",
+    },
+  ];
+}
+
+const MAX_ACTIVE_GOALS = 10;
+const GOALS_FULL = "you have 10 active goals, the most; archive one first";
+
+/** @param {GoalOut} goal */
+const isArchived = (goal) => goal.archived_at !== null;
+
+/**
+ * The slug of a new goal, as the real API makes it: the Latin letters and digits of the title.
+ *
+ * @param {string} title
+ */
+function slugFor(title) {
+  const plain = title.normalize("NFKD").replace(/[^\x00-\x7F]/g, "").toLowerCase();
+  const slug = plain.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  if (slug) return slug;
+  let hash = 0;
+  for (const char of title.trim().toLowerCase()) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return `goal-${hash.toString(16).padStart(8, "0").slice(0, 8)}`;
+}
+
+/** @param {GoalOut} goal */
+const meaningOf = (goal) => JSON.stringify([goal.title, goal.description, goal.keywords]);
+
 let items = freshItems();
+let goals = freshGoals();
 /** @type {number[]} */
 let reprocessed = [];
 /** @type {{ id: number, to: string }[]} */
@@ -258,6 +324,7 @@ const server = createServer(async (request, response) => {
   }
   if (request.method === "POST" && path === "/__reset") {
     items = freshItems();
+    goals = freshGoals();
     reprocessed = [];
     moves = [];
     events = [];
@@ -374,6 +441,119 @@ const server = createServer(async (request, response) => {
     item.enrich_state = "pending";
     reprocessed.push(item.id);
     return send(response, 202, item);
+  }
+
+  if (request.method === "GET" && path === "/api/v1/goals") {
+    const archived = url.searchParams.get("include_archived") === "true";
+    const found = goals.filter((goal) => archived || goal.archived_at === null);
+    // The active goals first, each group in the order of creation.
+    found.sort(
+      (one, other) => Number(isArchived(one)) - Number(isArchived(other)) || one.id - other.id,
+    );
+    return send(response, 200, { items: found });
+  }
+
+  if (request.method === "POST" && path === "/api/v1/goals") {
+    const body = await jsonBody(request);
+    const title = String(body.title ?? "").trim();
+    if (!title) {
+      const errors = [
+        { pointer: "/body/title", detail: "String should have at least 1 character" },
+      ];
+      const body = { type: "about:blank", title: "Unprocessable Content", status: 422, errors };
+      return send(response, 422, body, "application/problem+json");
+    }
+    const slug = slugFor(title);
+    const clash = goals.find((goal) => goal.slug === slug);
+    if (clash) {
+      const where = clash.archived_at ? "an archived goal" : "a goal";
+      const detail = `${where} with this title exists already: '${clash.title}'`;
+      return problem(response, 409, "Conflict", detail);
+    }
+    if (goals.filter((goal) => !isArchived(goal)).length >= MAX_ACTIVE_GOALS) {
+      return problem(response, 409, "Conflict", GOALS_FULL);
+    }
+    const starts = /** @type {string | null} */ (body.starts_on ?? null);
+    const ends = /** @type {string | null} */ (body.ends_on ?? null);
+    if (starts && ends && ends < starts) {
+      return problem(response, 422, "Unprocessable Content", "the goal ends before it starts");
+    }
+    /** @type {GoalOut} */
+    const goal = {
+      id: Math.max(0, ...goals.map((candidate) => candidate.id)) + 1,
+      slug,
+      title,
+      description: String(body.description ?? "").trim(),
+      keywords: [...new Set(/** @type {string[]} */ (body.keywords ?? []))],
+      starts_on: starts,
+      ends_on: ends,
+      version: 1,
+      is_focus: false,
+      archived_at: null,
+    };
+    goals.push(goal);
+    return send(response, 201, goal);
+  }
+
+  match = /^\/api\/v1\/goals\/(\d+)$/.exec(path);
+  if (request.method === "PATCH" && match) {
+    const id = Number(match[1]);
+    const goal = goals.find((candidate) => candidate.id === id);
+    if (!goal) return problem(response, 404, "Not Found", "no such goal");
+    const body = await jsonBody(request);
+    for (const name of ["title", "description", "keywords", "archived"]) {
+      if (name in body && body[name] === null) {
+        const detail = `${name} cannot be null; leave it out to keep it`;
+        return problem(response, 422, "Unprocessable Content", detail);
+      }
+    }
+    const before = meaningOf(goal);
+    const changed = { ...goal };
+    if (typeof body.title === "string") changed.title = body.title.trim();
+    if (typeof body.description === "string") changed.description = body.description.trim();
+    if (Array.isArray(body.keywords)) {
+      changed.keywords = [...new Set(/** @type {string[]} */ (body.keywords))];
+    }
+    if ("starts_on" in body) changed.starts_on = /** @type {string | null} */ (body.starts_on);
+    if ("ends_on" in body) changed.ends_on = /** @type {string | null} */ (body.ends_on);
+    if (changed.starts_on && changed.ends_on && changed.ends_on < changed.starts_on) {
+      return problem(response, 422, "Unprocessable Content", "the goal ends before it starts");
+    }
+    if (meaningOf(changed) !== before) changed.version += 1;
+    if (body.archived === true && changed.archived_at === null) {
+      changed.archived_at = new Date().toISOString();
+      changed.is_focus = false;
+    } else if (body.archived === false && changed.archived_at !== null) {
+      if (goals.filter((candidate) => !isArchived(candidate)).length >= MAX_ACTIVE_GOALS) {
+        return problem(response, 409, "Conflict", GOALS_FULL);
+      }
+      changed.archived_at = null;
+    }
+    Object.assign(goal, changed);
+    return send(response, 200, goal);
+  }
+
+  match = /^\/api\/v1\/goals\/(\d+)\/focus$/.exec(path);
+  if (request.method === "POST" && match) {
+    const id = Number(match[1]);
+    const goal = goals.find((candidate) => candidate.id === id);
+    if (!goal) return problem(response, 404, "Not Found", "no such goal");
+    if (goal.archived_at !== null) {
+      const detail = "an archived goal cannot be the focus; restore it first";
+      return problem(response, 409, "Conflict", detail);
+    }
+    for (const other of goals) other.is_focus = other.id === id;
+    return send(response, 200, goal);
+  }
+
+  match = /^\/__goals\/(\d+)$/.exec(path);
+  if (request.method === "POST" && match) {
+    // For a test: the goal changes in another tab while the page is open.
+    const id = Number(match[1]);
+    const goal = goals.find((candidate) => candidate.id === id);
+    if (!goal) return problem(response, 404, "Not Found", "no such goal");
+    Object.assign(goal, await jsonBody(request));
+    return send(response, 200, goal);
   }
 
   return problem(response, 501, "Not Implemented", "not in the pretend API");
