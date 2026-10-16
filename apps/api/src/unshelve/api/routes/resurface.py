@@ -4,7 +4,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from unshelve.api.deps import current_user
+from unshelve.api import item_views
+from unshelve.api.deps import CurrentUserDep, DbDep, current_user
 from unshelve.api.errors import NotImplementedYetError, problems
 from unshelve.api.schemas import DigestPage, DigestPreview, DigestPreviewRequest, Queue
 
@@ -12,9 +13,9 @@ router = APIRouter(tags=["resurface"], dependencies=[Depends(current_user)])
 
 
 @router.get("/queue", responses=problems(401))
-async def get_queue() -> Queue:
+async def get_queue(user: CurrentUserDep, db: DbDep) -> Queue:
     """The items the user plans to read, with the queue limit and how much of it is used."""
-    raise NotImplementedYetError
+    return await item_views.get_queue(db, user.id)
 
 
 @router.get("/digests", responses=problems(401, 422))

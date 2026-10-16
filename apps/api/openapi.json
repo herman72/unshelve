@@ -3188,7 +3188,7 @@
     },
     "/api/v1/items/{item_id}/events": {
       "get": {
-        "description": "A page of the item's history.",
+        "description": "A page of the item's history, newest first.",
         "operationId": "list_item_events",
         "parameters": [
           {
@@ -3603,7 +3603,7 @@
     },
     "/api/v1/items/{item_id}/transition": {
       "post": {
-        "description": "Move the item to another reading status. A move the state machine forbids is a 409.",
+        "description": "Move the item to another reading status. A move the state machine forbids is a 409, and\nso is a move into a full reading queue. The status that the item has already is no error.",
         "operationId": "transition_item",
         "parameters": [
           {
