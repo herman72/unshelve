@@ -42,6 +42,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 28 | [Reading an image](28-image.md) | How the model turns a photo or a screenshot into text that search can find, what one image costs, and why the type of an image comes from its bytes | |
 | 29 | [Cards in a batch](29-cards-in-a-batch.md) | How the cards of a large import cost half, why a waiting card has no job, and how one question keeps one cache key | |
 | 30 | [The reading status](30-reading-status.md) | How an item moves from the inbox to done, why each move and its event are one transaction, and how a lock keeps the queue at 5 slots | |
+| 31 | [Goals](31-goals.md) | How a goal gets a slug that never changes, why only a new meaning gives a new version, and how one focus and 10 active goals are kept | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 

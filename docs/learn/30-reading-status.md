@@ -221,4 +221,4 @@ Both moves took the last slot, and the queue has 6 items. The other tests send o
 - [Explicit Locking](https://www.postgresql.org/docs/current/explicit-locking.html), PostgreSQL documentation. Read "Row-Level Locks" for what `FOR UPDATE` blocks, and "Deadlocks" for the rule of one order.
 - [Transaction Isolation](https://www.postgresql.org/docs/current/transaction-iso.html), PostgreSQL documentation. Read "Read Committed Isolation Level": each statement sees the rows that were committed before the statement started. This is why the second move counts 5 after it gets the lock.
 
-Previous: [29. Cards in a batch](29-cards-in-a-batch.md) · Back to the [list of notes](README.md)
+Previous: [29. Cards in a batch](29-cards-in-a-batch.md) · Next: [31. Goals](31-goals.md) · Back to the [list of notes](README.md)
