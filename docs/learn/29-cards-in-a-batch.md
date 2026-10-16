@@ -177,4 +177,4 @@ Without the two lines, the card step asks the model at once, at the full price, 
 - [Batch processing](https://platform.claude.com/docs/en/build-with-claude/batch-processing), Claude Platform Docs. Read "Batch limitations" and "Pricing": the 24 hours, the 29 days of the results, and the prices of part 1.
 - [dict](https://docs.python.org/3/library/stdtypes.html#dict), Python. Read what the constructor does with an argument that has a method `keys()`: it is the second fault of part 5.
 
-Previous: [28. Reading an image](28-image.md) · Back to the [list of notes](README.md)
+Previous: [28. Reading an image](28-image.md) · Next: [30. The reading status](30-reading-status.md) · Back to the [list of notes](README.md)
