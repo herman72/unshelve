@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy.exc import OperationalError
 from typer.testing import CliRunner, Result
 
 from tests.ingest.support import DESKTOP, MACOS, MADE_UP, made_up_with_files
@@ -89,11 +90,11 @@ def test_every_service_command_is_registered() -> None:
 def _run(monkeypatch: pytest.MonkeyPatch, empty_dir: Path, *args: str, **env: str) -> Result:
     """Run a command with these settings and no others."""
     # The command reads .env relative to the current directory. A developer's own .env must
-    # not reach the test, so the command runs in a directory that has none.
+    # not reach the test, so the command runs in a directory that has none. The database stays
+    # the one of conftest, which does not exist, unless the test gives its own.
     monkeypatch.chdir(empty_dir)
     for name in (
         "UNSHELVE_OWNER_TELEGRAM_ID",
-        "UNSHELVE_DATABASE_URL",
         "UNSHELVE_WEB_BASE_URL",
         "UNSHELVE_CAPTURE_CHAT_IDS",
         "UNSHELVE_EMBEDDER",
@@ -257,6 +258,20 @@ def test_extract_says_when_a_file_is_too_large_for_its_reader(
 
     assert result.exit_code == 1
     assert "Not fetched: too_large." in _plain(result.output)
+
+
+def test_a_command_without_a_database_of_its_own_reaches_no_database(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # An image goes to the model through the ledger. Without UNSHELVE_DATABASE_URL, the ledger
+    # gets the database of conftest, where nothing listens: the command fails, and writes nothing.
+    image = tmp_path / "whiteboard.png"
+    image.write_bytes(TINY_PNG)
+
+    result = _run(monkeypatch, tmp_path, "extract", "--file", str(image))
+
+    assert result.exit_code == 1
+    assert isinstance(result.exception, OperationalError)
 
 
 def test_extract_says_when_no_extractor_reads_a_file(

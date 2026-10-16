@@ -1,6 +1,7 @@
 import pytest
 
 from unshelve.config import Settings
+from unshelve.testing.db import NO_DATABASE_URL
 
 
 def test_defaults_keep_every_external_call_local() -> None:
@@ -10,6 +11,11 @@ def test_defaults_keep_every_external_call_local() -> None:
     assert settings.fetcher == "fixtures"
     assert settings.telegram_bot_token is None
     assert settings.capture_chat_ids == []
+
+
+def test_a_test_without_a_database_of_its_own_gets_none() -> None:
+    # The default names the database of the instance on this computer (conftest).
+    assert Settings(env="test").database_url == NO_DATABASE_URL
 
 
 def test_values_come_from_prefixed_environment_variables(monkeypatch: pytest.MonkeyPatch) -> None:

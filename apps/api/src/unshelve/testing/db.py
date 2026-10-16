@@ -11,6 +11,11 @@ import psycopg
 from psycopg import sql
 from sqlalchemy.engine import make_url
 
+# The database of a test that did not ask for one: nothing listens on port 1. The default of the
+# settings is the database of the instance on this computer, and the tests share its server.
+# So a test that forgets its own database fails at once, and writes nowhere.
+NO_DATABASE_URL = "postgresql+psycopg://nobody:nothing@127.0.0.1:1/none?connect_timeout=1"
+
 
 def unique_name(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
