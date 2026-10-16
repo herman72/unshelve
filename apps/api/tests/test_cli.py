@@ -27,11 +27,11 @@ from unshelve.contracts.dto import (
     LLMUsage,
     SourceRef,
 )
-from unshelve.contracts.enums import CaptureSource, EnrichState, ItemKind
+from unshelve.contracts.enums import CaptureSource, EnrichState, ItemKind, JobKind, JobState
 from unshelve.contracts.errors import ExtractError, ProviderError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.db.engine import create_engine, create_session_factory
-from unshelve.db.models import Capture, Item, ItemContent, ItemKey, Job, LLMBatch, LLMCall
+from unshelve.db.models import Capture, Goal, Item, ItemContent, ItemKey, Job, LLMBatch, LLMCall
 from unshelve.extract import image as image_extractor
 from unshelve.extract.article import ArticleExtractor
 from unshelve.extract.youtube import YouTubeExtractor
@@ -41,6 +41,7 @@ from unshelve.providers.claude import ClaudeLLM
 from unshelve.providers.voyage import VoyageEmbedder, voyage_spec
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
+from unshelve.relevance import rescore
 from unshelve.services import build_services
 from unshelve.testing.conformance import TINY_PNG
 from unshelve.testing.fakes import FakeBatches, FakeEmbedder
@@ -1251,3 +1252,254 @@ def test_embeddings_check_says_why_there_are_no_vectors(
 
     assert result.exit_code == 1
     assert "No vectors: voyage 401: Provided API key is invalid." in result.stderr
+
+
+# --- Scores against the goals ------------------------------------------------------------
+
+
+def _ready_items(database_url: str, *texts: str) -> list[int]:
+    """Saved notes of the owner 4242 that went through the pipeline, with the pretend model."""
+
+    async def make() -> list[int]:
+        engine = create_engine(database_url)
+        try:
+            sessions = create_session_factory(engine)
+            ids: list[int] = []
+            async with sessions() as db:
+                owner_id = await auth_store.ensure_owner(db, 4242)
+                for text in texts:
+                    envelope = CaptureEnvelope(
+                        source=CaptureSource.API,
+                        chat_id=resolve.API_CHAT_ID,
+                        message_id=await resolve.next_api_message_id(db),
+                        posted_at=datetime(2026, 10, 16, tzinfo=UTC),
+                        text=text,
+                        urls=[],
+                    )
+                    capture_id = await resolve.store_capture(db, owner_id, envelope)
+                    assert capture_id is not None
+                    item_id = await resolve.resolve_capture(db, capture_id)
+                    assert item_id is not None
+                    ids.append(item_id)
+                await db.commit()
+            await _work(database_url, sessions)
+            return ids
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(make())
+
+
+async def _work(database_url: str, sessions: Any) -> None:
+    """Run each job, with the pretend model and without the prefilter of the scores."""
+    discover()
+    settings = Settings(env="test", database_url=database_url, score_prefilter=-1)
+    services = build_services(settings, sessions)
+    worker = Worker(services, registry, WorkerConfig(worker_id="w1"))
+    while await worker.run_one():
+        pass
+
+
+def _goal(database_url: str, title: str) -> None:
+    async def add() -> None:
+        engine = create_engine(database_url)
+        try:
+            async with create_session_factory(engine)() as db:
+                owner_id = await auth_store.ensure_owner(db, 4242)
+                db.add(Goal(owner_id=owner_id, slug=title.lower().replace(" ", "-"), title=title))
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(add())
+
+
+def _score_now(database_url: str, item_id: int) -> None:
+    """The score step for one item, with the pretend model: its answer goes to the ledger."""
+
+    async def score() -> None:
+        engine = create_engine(database_url)
+        try:
+            sessions = create_session_factory(engine)
+            await rescore.start(sessions, 1, [item_id])
+            await _work(database_url, sessions)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(score())
+
+
+def _score_jobs(database_url: str) -> int:
+    async def count() -> int:
+        engine = create_engine(database_url)
+        try:
+            async with create_session_factory(engine)() as db:
+                found = await db.scalar(
+                    sa.select(sa.func.count())
+                    .select_from(Job)
+                    .where(Job.kind == JobKind.SCORE_ITEM, Job.state == JobState.PENDING)
+                )
+                return found or 0
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(count())
+
+
+HAIKU = {"UNSHELVE_PROVIDERS": "live", "UNSHELVE_LLM_MODEL": "claude-haiku-5-5"}
+
+
+def test_goals_rescore_needs_an_owner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    result = _run(monkeypatch, tmp_path, "goals", "rescore")
+
+    assert result.exit_code == 1
+    assert "No owner: set UNSHELVE_OWNER_TELEGRAM_ID." in _plain(result.output)
+
+
+def test_goals_rescore_without_a_goal_says_where_to_add_one(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "goals",
+        "rescore",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        UNSHELVE_OWNER_TELEGRAM_ID="4242",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _plain(result.output) == "No active goal. Add your goals on the page Goals first.\n"
+
+
+def test_goals_rescore_shows_the_price_and_starts_nothing_after_a_no(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    # The price of Claude Haiku 5.5. The command asks no model: the price is an estimate.
+    _ready_items(private_database_url, "Leases make a job queue safe.", "A heartbeat moves it.")
+    _goal(private_database_url, "Database internals")
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "goals",
+        "rescore",
+        answer="n\n",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        UNSHELVE_OWNER_TELEGRAM_ID="4242",
+        UNSHELVE_SCORE_PREFILTER="-1",
+        **HAIKU,
+    )
+
+    assert result.exit_code == 0, result.output
+    lines = _plain(result.output).splitlines()
+    assert lines[0] == "1 active goal: 2 items to score."
+    assert lines[1] == (
+        "- 2 questions to claude-haiku-5-5: about $0.0002 for about 1419 input and 90 output "
+        "tokens."
+    )
+    assert lines[2:] == ["Score them? [y/N]: n", "Nothing was started."]
+    assert _score_jobs(private_database_url) == 0
+
+
+def test_goals_rescore_starts_a_score_for_each_item_after_a_yes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _ready_items(private_database_url, "Leases make a job queue safe.", "A heartbeat moves it.")
+    _goal(private_database_url, "Database internals")
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "goals",
+        "rescore",
+        answer="y\n",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        UNSHELVE_OWNER_TELEGRAM_ID="4242",
+        **HAIKU,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _plain(result.output).splitlines()[-1] == "The worker scores 2 items now."
+    assert _score_jobs(private_database_url) == 2
+
+
+def test_goals_rescore_counts_the_items_that_the_prefilter_answers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _ready_items(private_database_url, "Leases make a job queue safe.", "A heartbeat moves it.")
+    _goal(private_database_url, "Run a marathon")
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "goals",
+        "rescore",
+        answer="n\n",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        UNSHELVE_OWNER_TELEGRAM_ID="4242",
+        UNSHELVE_SCORE_PREFILTER="0.9",
+        **HAIKU,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _plain(result.output).splitlines()[:3] == [
+        "1 active goal: 2 items to score.",
+        "- 2 far from each goal get 0 without a question (UNSHELVE_SCORE_PREFILTER=0.9).",
+        "- 0 questions to claude-haiku-5-5: about $0.0000 for about 0 input and 0 output tokens.",
+    ]
+
+
+def test_goals_rescore_leaves_out_current_scores_and_finds_stored_answers(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    scored, other = _ready_items(
+        private_database_url, "Leases make a job queue safe.", "A heartbeat moves it."
+    )
+    _goal(private_database_url, "Database internals")
+    _score_now(private_database_url, scored)  # the real step: its answer is in the ledger
+    options = {
+        "UNSHELVE_DATABASE_URL": private_database_url,
+        "UNSHELVE_OWNER_TELEGRAM_ID": "4242",
+        "UNSHELVE_SCORE_PREFILTER": "-1",
+    }
+
+    new_only = _run(monkeypatch, tmp_path, "goals", "rescore", answer="n\n", **options)
+    each = _run(monkeypatch, tmp_path, "goals", "rescore", "--every-item", answer="n\n", **options)
+
+    # The scored item has a score of the current goal: only the other item waits for one.
+    assert _plain(new_only.output).splitlines()[0] == "1 active goal: 1 item to score."
+    # The plan finds the question that the score step asked: both build the same question.
+    lines = _plain(each.output).splitlines()
+    assert lines[:2] == [
+        "1 active goal: 2 items to score.",
+        "- 1 have their answer in the ledger already: no cost.",
+    ]
+    assert lines[2].startswith("- 1 question to fake-llm: about $0.0000 for about ")
+    assert other != scored
+
+
+def test_goals_rescore_says_when_the_price_is_more_than_the_daily_budget(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _ready_items(private_database_url, "Leases make a job queue safe.")
+    _goal(private_database_url, "Database internals")
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "goals",
+        "rescore",
+        answer="n\n",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        UNSHELVE_OWNER_TELEGRAM_ID="4242",
+        UNSHELVE_SCORE_PREFILTER="-1",
+        UNSHELVE_LLM_DAILY_BUDGET_USD="0.00001",
+        **HAIKU,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (
+        "The price is more than the daily budget of $0.00001: the worker asks until the budget "
+        "of the day is used, and the rest waits for the next day."
+    ) in _plain(result.output).replace("\n", " ")
