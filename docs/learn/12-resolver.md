@@ -1,6 +1,6 @@
 # 12. The resolver: one item for one thing, also when you save it two times
 
-> Pull requests: [#61](https://github.com/herman72/unshelve/pull/61), and [#65](https://github.com/herman72/unshelve/pull/65) for part 9 · Decision record: [ADR 0003](../adr/0003-item-identity-through-alias-keys.md) · Code: [`ingest/canonical.py`](../../apps/api/src/unshelve/ingest/canonical.py), [`ingest/keys.py`](../../apps/api/src/unshelve/ingest/keys.py), [`ingest/resolve.py`](../../apps/api/src/unshelve/ingest/resolve.py) · Tests: [`test_canonical.py`](../../apps/api/tests/ingest/test_canonical.py), [`test_canonical_properties.py`](../../apps/api/tests/ingest/test_canonical_properties.py), [`test_keys.py`](../../apps/api/tests/ingest/test_keys.py), [`test_resolve.py`](../../apps/api/tests/ingest/test_resolve.py), [`test_resolve_together.py`](../../apps/api/tests/ingest/test_resolve_together.py)
+> Pull requests: [#61](https://github.com/herman72/unshelve/pull/61), [#65](https://github.com/herman72/unshelve/pull/65) for part 9, and [#87](https://github.com/herman72/unshelve/pull/87) for part 10 · Decision record: [ADR 0003](../adr/0003-item-identity-through-alias-keys.md) · Code: [`ingest/canonical.py`](../../apps/api/src/unshelve/ingest/canonical.py), [`ingest/keys.py`](../../apps/api/src/unshelve/ingest/keys.py), [`ingest/resolve.py`](../../apps/api/src/unshelve/ingest/resolve.py) · Tests: [`test_canonical.py`](../../apps/api/tests/ingest/test_canonical.py), [`test_canonical_properties.py`](../../apps/api/tests/ingest/test_canonical_properties.py), [`test_keys.py`](../../apps/api/tests/ingest/test_keys.py), [`test_resolve.py`](../../apps/api/tests/ingest/test_resolve.py), [`test_resolve_together.py`](../../apps/api/tests/ingest/test_resolve_together.py)
 
 ## In one minute
 
@@ -80,7 +80,7 @@ https://example.com/Post             is not    https://example.com/post
 github.com/a/b/blob/main/README.md   is not    github.com/a/b/blob/main/readme.md
 ```
 
-The function opens no address. It is a *pure* function: the same input gives the same output, and nothing else happens. So it cannot know where a short link such as `bit.ly/3xYz` goes. The fetch step of a later milestone opens the link, and then it adds the final address as one more key.
+The function opens no address. It is a *pure* function: the same input gives the same output, and nothing else happens. So it cannot know where a short link such as `bit.ly/3xYz` goes. The fetch step opens the link, and then it adds the final address as one more key (part 10).
 
 ## 4. Step two: a save has keys
 
@@ -278,6 +278,31 @@ Now each step writes each of its fields on each run, also an empty one. So the r
 
 **A comparison from daily life:** before you write a new plan on a whiteboard, you clean the whole board. If you write only over the parts that changed, old words stay in the corners.
 
+## 10. The address where a link ends
+
+You saved `https://blog.example.com/2026/queues` on Sunday. On Monday you save `https://t.co/AbCdEf1234`. The two links open the same article: the short link redirects to the full one.
+
+When you save the short link, the resolver cannot see this, because it opens no address (part 3). The fetch step opens the link, and the fetcher follows each redirect. So the fetch step knows where the link ended, and it gives the item one more key:
+
+| | Sunday: the full address | Monday: the short link |
+|---|---|---|
+| Its key from the save | `url:https://blog.example.com/2026/queues` | `url:https://t.co/AbCdEf1234` |
+| The fetch step reads | the article | the same article, at the full address |
+| The key of the final address | its own key | the key of Sunday's item |
+
+The two items share a key, so they are one thing. They are joined as in part 5: the older item stays, and the newer one gets `duplicate_of_id`. The inbox shows one item with 2 saves.
+
+The order can be the other way: you save the short link first, and the full address before the fetch step read the short link. Then the short link is the older item, and it stays.
+
+Two rules keep this safe:
+
+1. **A dead link often ends at the front page of its site.** Two dead links of one site would then share the key of the front page, and become one item by mistake. So the final address of a front page gives no key, unless the saved link was a front page too, as for a site that moved to a new name. "A front page" means: the path is `/`, and there is no query. `example.com/?p=123` is a post of WordPress, not a front page.
+2. **The same lock as in part 6.** Two short links of one page are read at the same moment, and no item has the key of the page yet. Without the lock, each worker looks for the key, finds nothing, and keeps the key for its own item. With the lock, the second worker waits, then finds the first item, and the two are joined. A test makes the first worker slow after it looks, so that the second worker surely looks at the same moment.
+
+The fetch step adds the key in a short transaction of its own, before it writes its result. So the join takes the rows in the same order as each other join: the older item first. If the worker stops between the two transactions, the job runs again and adds the same key again, which changes nothing.
+
+An item that was read before this change has its final address in `item_contents.final_url`, but not its key. `unshelve rekey` (part 8) reads that address too.
+
 ## A choice that we made
 
 How do you make "find it, or make it" safe when two workers do it at the same moment?
@@ -298,10 +323,11 @@ With the lock, one guard is still in the database: a key cannot belong to two it
 - **What do two transactions do at the same moment?** I ran it with real processes, with the lock and without it. A test repeats the bad order of events on purpose.
 - **Can the data be made again?** Yes. The keys come from the stored messages (`unshelve rekey`).
 - **Can the tests fail?** I broke the code in 80 places, one at a time. The first runs missed 7. I added a test for 5 of them, removed a shortcut that changed nothing, and corrected a comment that said too much. Now the tests find each of the 80.
+- **Can two dead links of one site become one item?** No. A final address at the front page of a site gives no key (part 10). A test reads two dead links that end there.
+- **For part 10, can the tests fail?** I broke the new code in 13 places, one at a time. The first run missed 2. The test with two workers did not prove the lock: each worker spent most of its time on the page, so the two key steps never met. The new test makes the first worker slow after it looks. A front page that was saved as a front page needed a test too. Now the tests find each of the 13.
 - **Does a second run give the same result as a first run?** Yes. Each step writes all of its fields, also the empty ones (part 9). For part 9, I broke the new code in 29 places, one at a time. The tests found each of the 29.
 - **An old mistake that the experiment found.** On a new database, two workers that run their first "embed" step at the same moment could fail one time: 8 of 60 tries. The job ran again and passed, so no data was wrong. The cause was one index name in an `INSERT`. It is corrected, and it has a test.
 - **What is not done:**
-  - A short link is not followed. That needs the fetch step of milestone M2.
   - A file from an export has no key, because an export gives no id for a file ([issue #57](https://github.com/herman72/unshelve/issues/57)).
   - A second save of an item that you archived only raises the number. You decided: this stays until you use Unshelve for real ([issue #60](https://github.com/herman72/unshelve/issues/60)).
   - The web app cannot change a title yet ([issue #24](https://github.com/herman72/unshelve/issues/24)). When it can, a restart must keep your title, because the pipeline now writes the title on each run.

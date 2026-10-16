@@ -38,6 +38,7 @@ The package that built this decision made these points exact. [Learning note 12]
 - **The canonical form is for identity.** `items.canonical_url` is always `https` and has no tracking parameters. The address as it arrived stays in `captures.urls`, and the fetch step can use it.
 - **The rules have a version** (`canonical.VERSION`), and `unshelve rekey` makes the keys of each item again from its stored messages.
 - **Not built in M1-3:** the key for the final address after a redirect (it needs the fetch step of M2).
+- **Built in M2-3b (#87):** the fetch step adds the key of the final address. A final address at the front page of a site gives no key, unless the saved link was a front page too: dead links often end there. `unshelve rekey` adds the key for items that were fetched before.
 - **Edits (2026-10-14, issue #60).** An edit of a post is a new version of the message. It joins the item of its message. The item reads the latest version of each message, and each different text one time. The first link of the latest versions is the address of the item. A new first link becomes one more key, and the old keys stay. When what an item reads changes, its pipeline starts again. A step that read an old version writes nothing, and each step writes all of its fields on each run.
 
 ## Alternatives considered

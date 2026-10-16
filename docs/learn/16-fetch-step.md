@@ -108,7 +108,7 @@ Trying again in the same job uses what the queue already has. The rule for the l
 - **Was it tried with the real internet?** Yes: the five links of the table at the start, through the whole pipeline.
 - **Can the tests fail?** I broke the new code in 19 places, one at a time. The tests found each of the 19.
 - **What is not done:**
-  - The final address after redirects is not a key of the item yet ([issue #68](https://github.com/herman72/unshelve/issues/68)).
+  - The final address after redirects was not a key of the item. Since [#87](https://github.com/herman72/unshelve/pull/87) it is: a short link and the full address of one page become one item ([note 12](12-resolver.md), part 10).
   - The date of an article is not stored. `items.published_at` is the time of publishing to the public feed, so it cannot hold the date of a page.
   - With the default setting `UNSHELVE_FETCHER=fixtures` the worker has no web: the pretend web answers 404 for each link. Set `UNSHELVE_FETCHER=live` to read real pages.
   - The web app does not show why an item is partial yet (package M2-6).
