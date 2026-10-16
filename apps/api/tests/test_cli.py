@@ -14,7 +14,7 @@ from sqlalchemy.exc import OperationalError
 from typer.testing import CliRunner, Result
 
 from tests.ingest.support import DESKTOP, MACOS, MADE_UP, made_up_with_files
-from unshelve import __version__
+from unshelve import __version__, cli
 from unshelve.auth import store as auth_store
 from unshelve.bot import cards
 from unshelve.cli import app
@@ -27,11 +27,11 @@ from unshelve.contracts.dto import (
     LLMUsage,
     SourceRef,
 )
-from unshelve.contracts.enums import CaptureSource, ItemKind
+from unshelve.contracts.enums import CaptureSource, EnrichState, ItemKind
 from unshelve.contracts.errors import ExtractError, ProviderError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.db.engine import create_engine, create_session_factory
-from unshelve.db.models import Capture, ItemKey, Job, LLMCall
+from unshelve.db.models import Capture, Item, ItemContent, ItemKey, Job, LLMBatch, LLMCall
 from unshelve.extract import image as image_extractor
 from unshelve.extract.article import ArticleExtractor
 from unshelve.extract.youtube import YouTubeExtractor
@@ -43,7 +43,7 @@ from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
 from unshelve.services import build_services
 from unshelve.testing.conformance import TINY_PNG
-from unshelve.testing.fakes import FakeEmbedder
+from unshelve.testing.fakes import FakeBatches, FakeEmbedder
 
 runner = CliRunner()
 
@@ -87,8 +87,14 @@ def test_every_service_command_is_registered() -> None:
         assert command in _plain(result.stdout)
 
 
-def _run(monkeypatch: pytest.MonkeyPatch, empty_dir: Path, *args: str, **env: str) -> Result:
-    """Run a command with these settings and no others."""
+def _run(
+    monkeypatch: pytest.MonkeyPatch,
+    empty_dir: Path,
+    *args: str,
+    answer: str | None = None,
+    **env: str,
+) -> Result:
+    """Run a command with these settings and no others. ``answer``: what a person types."""
     # The command reads .env relative to the current directory. A developer's own .env must
     # not reach the test, so the command runs in a directory that has none. The database stays
     # the one of conftest, which does not exist, unless the test gives its own.
@@ -105,7 +111,7 @@ def _run(monkeypatch: pytest.MonkeyPatch, empty_dir: Path, *args: str, **env: st
         monkeypatch.setenv(name, value)
     get_settings.cache_clear()
     try:
-        return runner.invoke(app, list(args))
+        return runner.invoke(app, list(args), input=answer)
     finally:
         get_settings.cache_clear()
 
@@ -284,6 +290,136 @@ def test_extract_says_when_no_extractor_reads_a_file(
 
     assert result.exit_code == 1
     assert "No extractor reads this file yet" in _plain(result.output)
+
+
+def _waiting_cards(database_url: str, *texts: str) -> None:
+    """Items that the fetch step read, whose cards wait for a batch."""
+
+    async def store() -> None:
+        engine = create_engine(database_url)
+        try:
+            async with create_session_factory(engine)() as db:
+                owner_id = await auth_store.ensure_owner(db, 4242)
+                for number, text in enumerate(texts, start=1):
+                    item = Item(
+                        owner_id=owner_id,
+                        canonical_url=f"https://example.com/{number}",
+                        first_captured_at=datetime(2026, 10, 16, tzinfo=UTC),
+                        last_captured_at=datetime(2026, 10, 16, tzinfo=UTC),
+                        enrich_state=EnrichState.FETCHED,
+                    )
+                    db.add(item)
+                    await db.flush()
+                    db.add(
+                        ItemContent(
+                            item_id=item.id,
+                            owner_id=owner_id,
+                            text=text,
+                            content_hash=f"{number:064x}",
+                            extractor="article",
+                            extractor_version=1,
+                        )
+                    )
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(store())
+
+
+async def _batches(database_url: str) -> list[tuple[int, str]]:
+    engine = create_engine(database_url)
+    try:
+        async with create_session_factory(engine)() as db:
+            rows = await db.execute(sa.select(LLMBatch.id, LLMBatch.state).order_by(LLMBatch.id))
+            return [(row.id, row.state) for row in rows]
+    finally:
+        await engine.dispose()
+
+
+BATCH_MODE = {"UNSHELVE_CARDS": "batch", "UNSHELVE_PROVIDERS": "fake"}
+
+
+def test_llm_batch_send_needs_batch_mode(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    result = _run(monkeypatch, tmp_path, "llm", "batch", "send", UNSHELVE_CARDS="live")
+
+    assert result.exit_code == 1
+    assert "Batch mode is off (UNSHELVE_CARDS=live)" in _plain(result.output)
+
+
+def test_llm_batch_send_says_when_no_card_waits(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "llm",
+        "batch",
+        "send",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        **BATCH_MODE,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _plain(result.output).strip() == "No card waits for a batch."
+
+
+def test_llm_batch_send_shows_the_price_and_sends_nothing_after_a_no(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    # The price of Claude Haiku 5.5, with a pretend batch API: no request leaves the computer.
+    _waiting_cards(private_database_url, "Leases make a queue safe.", "A heartbeat moves it.")
+
+    def haiku_batches(settings: Settings) -> FakeBatches:
+        return FakeBatches(model="claude-haiku-5-5")
+
+    monkeypatch.setattr(cli, "build_batches", haiku_batches)
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "llm",
+        "batch",
+        "send",
+        answer="n\n",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        **BATCH_MODE,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _plain(result.output).splitlines() == [
+        "2 cards wait: 2 questions to claude-haiku-5-5.",
+        "Estimated price, at half the normal price: $0.0003 for about 1841 input and 800 "
+        "output tokens.",
+        "Send this batch? [y/N]: n",
+        "Nothing was sent.",
+    ]
+    assert asyncio.run(_batches(private_database_url)) == []
+
+
+def test_llm_batch_send_sends_after_a_yes_and_status_lists_the_batch(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _waiting_cards(private_database_url, "Leases make a queue safe.", "A heartbeat moves it.")
+    database = {"UNSHELVE_DATABASE_URL": private_database_url}
+    before = _run(monkeypatch, tmp_path, "llm", "batch", "status", **database, **BATCH_MODE)
+
+    sent = _run(
+        monkeypatch, tmp_path, "llm", "batch", "send", answer="y\n", **database, **BATCH_MODE
+    )
+    after = _run(monkeypatch, tmp_path, "llm", "batch", "status", **database, **BATCH_MODE)
+
+    assert _plain(before.output).strip() == "No batch yet."
+    assert sent.exit_code == 0, sent.output
+    assert _plain(sent.output).splitlines()[-1] == (
+        "Batch 1 sent. The worker reads its answers when it has ended: most batches end "
+        "within an hour, each within 24 hours."
+    )
+    assert asyncio.run(_batches(private_database_url)) == [(1, "sent")]
+    [line] = _plain(after.output).splitlines()
+    assert line.startswith(
+        "Batch 1: sent, 2 questions, 0 answered, 0 not answered, $0.0000 (estimate $0.0000), "
+    )
 
 
 def test_llm_check_prints_the_answer_and_its_price(

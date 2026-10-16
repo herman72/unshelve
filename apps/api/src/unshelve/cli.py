@@ -37,7 +37,7 @@ from unshelve.contracts.errors import ExtractError, FetchError, ProviderError
 from unshelve.contracts.protocols import ExtractContext, Extractor
 from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
-from unshelve.db.models import Digest, EmbeddingSet, Item, LLMCall
+from unshelve.db.models import Digest, EmbeddingSet, Item, LLMBatch, LLMCall
 from unshelve.embed import sets
 from unshelve.extract.image import image_type
 from unshelve.extract.registry import FALLBACK, choose
@@ -46,6 +46,8 @@ from unshelve.ingest.export_html import ExportedMessage, ExportFormatError, read
 from unshelve.log import configure_logging
 from unshelve.net.fetcher import LiveFetcher
 from unshelve.net.guard import BlockedAddressError
+from unshelve.pipeline import batches
+from unshelve.providers.batches import ClaudeBatches
 from unshelve.providers.claude import ClaudeLLM
 from unshelve.providers.ledger import CachedLLM, cost_usd
 from unshelve.providers.voyage import VoyageEmbedder
@@ -54,6 +56,7 @@ from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
 from unshelve.resurface import digest, weekly
 from unshelve.runtime import shutdown_event, wait_for_shutdown
 from unshelve.services import (
+    build_batches,
     build_embedder,
     build_model,
     build_services,
@@ -69,9 +72,14 @@ llm_app = typer.Typer(no_args_is_help=True, help="The model: a test call, and wh
 embeddings_app = typer.Typer(
     no_args_is_help=True, help="The vectors for search: their sets, a backfill, and a test call."
 )
+batch_app = typer.Typer(
+    no_args_is_help=True,
+    help="Cards in one batch, at half the price (UNSHELVE_CARDS=batch).",
+)
 app.add_typer(auth_app, name="auth")
 app.add_typer(digest_app, name="digest")
 app.add_typer(llm_app, name="llm")
+llm_app.add_typer(batch_app, name="batch")
 app.add_typer(embeddings_app, name="embeddings")
 
 
@@ -692,6 +700,96 @@ async def _llm_costs(settings: Settings) -> tuple[list[_CostRow], list[_CostRow]
             return found[0], found[1]
     finally:
         await engine.dispose()
+
+
+# --- Batches of cards --------------------------------------------------------------------
+
+
+@batch_app.command("send")
+def batch_send(
+    yes: Annotated[bool, typer.Option("--yes", help="Send without the question.")] = False,
+) -> None:
+    """Send the cards that wait as one batch, at half the price. It shows the price first.
+
+    It needs UNSHELVE_CARDS=batch: in live mode the worker asks the model for each card at once,
+    so a batch could pay for a card two times. The worker reads the answers when the batch has
+    ended: most batches end within an hour, each within 24 hours.
+    """
+    settings = get_settings()
+    if settings.cards != "batch":
+        typer.echo(
+            "Batch mode is off (UNSHELVE_CARDS=live): the worker asks the model for each card "
+            "at once, so a batch could pay two times. Set UNSHELVE_CARDS=batch, start the "
+            "worker again, and run this command again."
+        )
+        raise typer.Exit(1)
+    asyncio.run(_batch_send(settings, yes=yes))
+
+
+async def _batch_send(settings: Settings, *, yes: bool) -> None:
+    engine = create_engine(settings.database_url)
+    provider = build_batches(settings)
+    try:
+        sessions = create_session_factory(engine)
+        waiting = await batches.waiting_cards(sessions, provider.model)
+        if not waiting.questions:
+            typer.echo("No card waits for a batch.")
+            return
+        cards = len(waiting.items)
+        questions = len(waiting.questions)
+        typer.echo(
+            f"{_count(cards, 'card')} wait: {_count(questions, 'question')} to {provider.model}."
+        )
+        typer.echo(
+            f"Estimated price, at half the normal price: ${waiting.estimated_cost_usd:.4f} for "
+            f"about {waiting.input_tokens} input and {waiting.output_tokens} output tokens."
+        )
+        if not yes and not typer.confirm("Send this batch?"):
+            typer.echo("Nothing was sent.")
+            return
+        try:
+            batch_id = await batches.send_batch(sessions, provider, waiting)
+        except ProviderError as error:
+            typer.echo(f"Not sent: {error}.")
+            raise typer.Exit(1) from None
+        typer.echo(
+            f"Batch {batch_id} sent. The worker reads its answers when it has ended: most "
+            "batches end within an hour, each within 24 hours."
+        )
+    finally:
+        if isinstance(provider, ClaudeBatches):
+            await provider.aclose()
+        await engine.dispose()
+
+
+@batch_app.command("status")
+def batch_status() -> None:
+    """Each batch: its state, its answers and its price."""
+    rows = asyncio.run(_batch_status(get_settings()))
+    if not rows:
+        typer.echo("No batch yet.")
+        return
+    for row in rows:
+        line = (
+            f"Batch {row.id}: {row.state}, {_count(row.questions, 'question')}, "
+            f"{row.answered} answered, {row.not_answered} not answered, ${row.cost_usd:.4f} "
+            f"(estimate ${row.estimated_cost_usd:.4f}), {row.created_at:%Y-%m-%d %H:%M} UTC."
+        )
+        typer.echo(f"{line} {row.error}." if row.error else line)
+
+
+async def _batch_status(settings: Settings) -> list[LLMBatch]:
+    engine = create_engine(settings.database_url)
+    try:
+        async with create_session_factory(engine)() as session:
+            found = await session.scalars(sa.select(LLMBatch).order_by(LLMBatch.id))
+            return list(found.all())
+    finally:
+        await engine.dispose()
+
+
+def _count(number: int, word: str) -> str:
+    return f"{number} {word}" if number == 1 else f"{number} {word}s"
 
 
 # --- Embeddings --------------------------------------------------------------------------
