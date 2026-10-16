@@ -1,4 +1,5 @@
-"""The pipeline of one item: fetch, enrich, embed. After the last step the item is ready.
+"""The pipeline of one item: fetch, enrich, embed. After the last step the item is ready, and
+the score step (``unshelve.pipeline.scores``) scores it against the goals of its owner.
 
 Each step is one job. A step does three things, in this order:
 
@@ -42,6 +43,7 @@ from unshelve.contracts.jobs import (
     JobContext,
     Permanent,
     Retry,
+    ScoreItemPayload,
 )
 from unshelve.contracts.protocols import ExtractContext, Extractor
 from unshelve.contracts.states import check_enrich_change
@@ -221,7 +223,7 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
         # The model reads the images: busy, the daily budget, or a key to fix waits like the
         # card does. An image that it cannot read keeps the saved text.
         if error.retryable and ctx.job.attempts < ctx.job.max_attempts:
-            raise Retry(f"model: {error}", after=_model_wait(error, ctx.job.attempts)) from error
+            raise Retry(f"model: {error}", after=model_wait(error, ctx.job.attempts)) from error
         failure = error
     except ExtractError as error:
         failure = error
@@ -308,8 +310,9 @@ async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:
 # --- Step 2: enrich ----------------------------------------------------------------------
 
 
-def _model_wait(error: ProviderError, attempts: int) -> timedelta:
-    """The pause before the next question to the model."""
+def model_wait(error: ProviderError, attempts: int) -> timedelta:
+    """The pause before the next question to the model or the embedder. The score step uses it
+    too (``pipeline.scores``)."""
     if error.retry_after is not None:
         return min(timedelta(seconds=error.retry_after), PROVIDER_LONGEST_WAIT)
     return min(MODEL_FIRST_WAIT * 4 ** (attempts - 1), MODEL_LONGEST_WAIT)
@@ -389,9 +392,7 @@ async def enrich_item(ctx: JobContext, payload: EnrichItemPayload) -> None:
             return
         except ProviderError as error:
             if error.retryable and ctx.job.attempts < ctx.job.max_attempts:
-                raise Retry(
-                    f"model: {error}", after=_model_wait(error, ctx.job.attempts)
-                ) from error
+                raise Retry(f"model: {error}", after=model_wait(error, ctx.job.attempts)) from error
             failure = error
 
     written: dict[str, Any] = {
@@ -603,9 +604,7 @@ async def embed_item(ctx: JobContext, payload: EmbedItemPayload) -> None:
             found = await services.embedder.embed_documents(new_texts)
         except ProviderError as error:
             if error.retryable and ctx.job.attempts < ctx.job.max_attempts:
-                raise Retry(
-                    f"embed: {error}", after=_model_wait(error, ctx.job.attempts)
-                ) from error
+                raise Retry(f"embed: {error}", after=model_wait(error, ctx.job.attempts)) from error
             failure = error
         else:
             vectors.update(zip(new_texts, found, strict=True))
@@ -640,6 +639,16 @@ async def embed_item(ctx: JobContext, payload: EmbedItemPayload) -> None:
                     type="embed_failed",
                     payload={"reason": str(failure)[:300], "attempt": ctx.job.attempts},
                 )
+            )
+        if moved and item.enrich_state is EnrichState.ENRICHED:
+            # The item is ready now: its scores against the goals come next. A ready item that
+            # only gets the vectors of a new embedder keeps its scores.
+            await queue.enqueue(
+                session,
+                JobKind.SCORE_ITEM,
+                ScoreItemPayload(item_id=item.id),
+                owner_id=item.owner_id,
+                dedupe_key=f"item:{item.id}",
             )
         await session.commit()
     if moved and failure is not None:
