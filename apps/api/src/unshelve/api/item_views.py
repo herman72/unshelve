@@ -27,10 +27,11 @@ from unshelve.api.schemas import (
     ItemListQuery,
     ItemPage,
     ItemSummary,
+    LabelRequest,
     Queue,
     TagRef,
 )
-from unshelve.contracts.enums import Actor, EnrichState, ItemStatus
+from unshelve.contracts.enums import Actor, EnrichState, ItemStatus, LabelSource
 from unshelve.contracts.states import (
     STATUS_TRANSITIONS,
     IllegalTransitionError,
@@ -38,6 +39,7 @@ from unshelve.contracts.states import (
 )
 from unshelve.db.models import Event, Goal, Item, ItemGoal, ItemTag, Tag, User
 from unshelve.ingest import resolve
+from unshelve.relevance import labels
 from unshelve.track import status
 
 # --- Paging ------------------------------------------------------------------------------
@@ -314,6 +316,39 @@ async def list_events(
             for event in events
         ],
         next_cursor=_encode_event_cursor(events[-1].id) if len(found) > limit else None,
+    )
+
+
+# --- Your verdicts on the scores ---------------------------------------------------------
+
+
+async def set_goal_label(
+    db: AsyncSession, owner_id: int, item_id: int, goal_id: int, body: LabelRequest
+) -> GoalScore:
+    """Give the score of one goal for one item your verdict from the web app. The caller commits."""
+    change = await labels.set_label(
+        db,
+        owner_id,
+        item_id,
+        goal_id,
+        body.label,
+        source=LabelSource.WEB,
+        shown_score=body.score,
+    )
+    if change.row is None:
+        raise NotFoundError("the item has no score for this goal")
+    if change.outcome is labels.LabelOutcome.SCORE_CHANGED:
+        raise ConflictError(
+            f"the score changed since you saw it: it is {change.row.score} now; look at it again"
+        )
+    goal = await db.get_one(Goal, goal_id)
+    return GoalScore(
+        goal_id=goal.id,
+        goal_slug=goal.slug,
+        goal_title=goal.title,
+        score=change.row.score,
+        reason=change.row.reason,
+        label=change.row.label,
     )
 
 

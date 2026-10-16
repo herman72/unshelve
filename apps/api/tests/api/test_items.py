@@ -18,7 +18,15 @@ from unshelve.api.deps import SESSION_COOKIE
 from unshelve.auth import store as auth
 from unshelve.config import Settings
 from unshelve.contracts.dto import CaptureEnvelope
-from unshelve.contracts.enums import Actor, CaptureSource, EnrichState, JobKind, JobState
+from unshelve.contracts.enums import (
+    Actor,
+    CaptureSource,
+    EnrichState,
+    GoalLabel,
+    JobKind,
+    JobState,
+    LabelSource,
+)
 from unshelve.db.models import Capture, Event, Goal, Item, ItemGoal, ItemTag, Job, Tag
 from unshelve.ingest import resolve
 
@@ -768,3 +776,120 @@ async def test_the_queue_lists_the_items_being_read_then_the_items_that_wait_lon
         (second, "queued"),
         (first, "queued"),
     ]
+
+
+# --- Your verdicts on the scores ---------------------------------------------------------
+
+
+async def _scored(sessions: Sessions, owner_id: int, item_id: int, score: int = 3) -> int:
+    """A goal with a score for the item. Returns the goal."""
+    async with sessions() as db:
+        goal = Goal(owner_id=owner_id, slug="rust", title="Rust")
+        db.add(goal)
+        await db.flush()
+        db.add(
+            ItemGoal(
+                item_id=item_id,
+                goal_id=goal.id,
+                owner_id=owner_id,
+                score=score,
+                reason="Close.",
+                scorer_version="score-1:fake-llm",
+                goal_version=1,
+            )
+        )
+        await db.commit()
+    return goal.id
+
+
+async def _verdict_row(sessions: Sessions, item_id: int, goal_id: int) -> ItemGoal:
+    async with sessions() as db:
+        return await db.get_one(ItemGoal, (item_id, goal_id))
+
+
+def _label(item_id: int, goal_id: int) -> str:
+    return f"{ITEMS}/{item_id}/goals/{goal_id}/label"
+
+
+async def test_a_verdict_on_a_score_is_kept_with_the_source_web(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    owner_id = await _owner(committed_db)
+    item_id = await _saved(committed_db, owner_id)
+    goal_id = await _scored(committed_db, owner_id, item_id)
+
+    response = await client.put(_label(item_id, goal_id), json={"label": "confirmed", "score": 3})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "goal_id": goal_id,
+        "goal_slug": "rust",
+        "goal_title": "Rust",
+        "score": 3,
+        "reason": "Close.",
+        "label": "confirmed",
+    }
+    row = await _verdict_row(committed_db, item_id, goal_id)
+    assert (row.label, row.label_source) == (GoalLabel.CONFIRMED, LabelSource.WEB)
+    assert row.labelled_at is not None
+    detail = (await client.get(f"{ITEMS}/{item_id}")).json()
+    assert detail["goals"][0]["label"] == "confirmed"
+
+
+async def test_a_verdict_on_a_score_that_changed_since_you_saw_it_is_a_409(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    owner_id = await _owner(committed_db)
+    item_id = await _saved(committed_db, owner_id)
+    goal_id = await _scored(committed_db, owner_id, item_id, score=3)
+
+    response = await client.put(_label(item_id, goal_id), json={"label": "confirmed", "score": 2})
+
+    assert problem_body(response, 409)["detail"] == (
+        "the score changed since you saw it: it is 3 now; look at it again"
+    )
+    assert (await _verdict_row(committed_db, item_id, goal_id)).label is None
+
+
+async def test_a_null_label_removes_the_verdict(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    owner_id = await _owner(committed_db)
+    item_id = await _saved(committed_db, owner_id)
+    goal_id = await _scored(committed_db, owner_id, item_id)
+    await client.put(_label(item_id, goal_id), json={"label": "rejected"})
+
+    response = await client.put(_label(item_id, goal_id), json={"label": None})
+
+    assert (response.status_code, response.json()["label"]) == (200, None)
+    row = await _verdict_row(committed_db, item_id, goal_id)
+    assert (row.label, row.label_source, row.labelled_at) == (None, None, None)
+
+
+async def test_a_verdict_without_a_score_or_on_the_score_of_another_owner_is_a_404(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    owner_id = await _owner(committed_db)
+    unscored = await _saved(committed_db, owner_id)
+    theirs = await _owner(committed_db, telegram_user_id=999)
+    their_item = await _saved(committed_db, theirs, 1)
+    their_goal = await _scored(committed_db, theirs, their_item)
+    body = {"label": "confirmed"}
+
+    no_score = await client.put(_label(unscored, their_goal), json=body)
+    not_mine = await client.put(_label(their_item, their_goal), json=body)
+
+    assert problem_body(no_score, 404)["detail"] == "the item has no score for this goal"
+    problem_body(not_mine, 404)
+    assert (await _verdict_row(committed_db, their_item, their_goal)).label is None
+
+
+async def test_a_verdict_that_cannot_be_one_is_a_422(
+    client: httpx.AsyncClient, committed_db: Sessions
+) -> None:
+    owner_id = await _owner(committed_db)
+    item_id = await _saved(committed_db, owner_id)
+    goal_id = await _scored(committed_db, owner_id, item_id)
+
+    for body in ({"label": "maybe"}, {"label": "confirmed", "score": 4}, {}):
+        problem_body(await client.put(_label(item_id, goal_id), json=body), 422)

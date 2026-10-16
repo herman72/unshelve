@@ -278,6 +278,11 @@ class GoalUpdate(Request):
 
 class LabelRequest(Request):
     label: GoalLabel | None = Field(description="Null removes the label.")
+    score: Score | None = Field(
+        default=None,
+        description="The score that you saw. When the score changed since, the answer is a 409: "
+        "a verdict is about the score that was shown.",
+    )
 
 
 # --- Search ------------------------------------------------------------------------------
