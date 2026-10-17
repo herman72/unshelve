@@ -185,4 +185,4 @@ The page showed a 3, and you said "right". The score was 2 by then, and the verd
 - [UPDATE](https://www.postgresql.org/docs/current/sql-update.html), PostgreSQL documentation. Read about the `WHERE` condition and `RETURNING`: together they are the compare and set of part 1.
 - [JSON Lines](https://jsonlines.org/), the format of the golden set. Read the three rules on the first page.
 
-Previous: [32. Scores against your goals](32-scores-against-goals.md) · Back to the [list of notes](README.md)
+Previous: [32. Scores against your goals](32-scores-against-goals.md) · Next: [34. Choosing a digest](34-choosing-a-digest.md) · Back to the [list of notes](README.md)
