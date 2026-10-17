@@ -103,6 +103,18 @@
       },
       "DigestPick": {
         "properties": {
+          "goal_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The goal of a pick for a goal.",
+            "title": "Goal Title"
+          },
           "item": {
             "$ref": "#/components/schemas/ItemSummary"
           },
@@ -111,6 +123,7 @@
               "focus_goal",
               "other_goal",
               "saved_again",
+              "recent",
               "random"
             ],
             "title": "Reason",
@@ -126,6 +139,18 @@
       },
       "DigestPreview": {
         "properties": {
+          "goal_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The goal of the focus picks: the goal of the request, or the focus goal.",
+            "title": "Goal Title"
+          },
           "picks": {
             "items": {
               "$ref": "#/components/schemas/DigestPick"
@@ -140,7 +165,8 @@
         },
         "required": [
           "picks",
-          "total_minutes"
+          "total_minutes",
+          "goal_title"
         ],
         "title": "DigestPreview",
         "type": "object"
@@ -2447,7 +2473,7 @@
     },
     "/api/v1/digests/preview": {
       "post": {
-        "description": "The picks a digest would contain now, for a reading time budget. Nothing is sent.",
+        "description": "The picks a digest would contain now, for a reading time budget, and why. Nothing is\nsent, and nothing is marked as shown. A goal that is not an active goal is a 404.",
         "operationId": "preview_digest",
         "requestBody": {
           "content": {
@@ -2479,6 +2505,16 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Not Found"
           },
           "422": {
             "content": {

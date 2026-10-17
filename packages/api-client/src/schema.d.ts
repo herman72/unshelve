@@ -115,7 +115,8 @@ export interface paths {
         put?: never;
         /**
          * Preview Digest
-         * @description The picks a digest would contain now, for a reading time budget. Nothing is sent.
+         * @description The picks a digest would contain now, for a reading time budget, and why. Nothing is
+         *     sent, and nothing is marked as shown. A goal that is not an active goal is a 404.
          */
         post: operations["preview_digest"];
         delete?: never;
@@ -590,15 +591,25 @@ export interface components {
         };
         /** DigestPick */
         DigestPick: {
+            /**
+             * Goal Title
+             * @description The goal of a pick for a goal.
+             */
+            goal_title?: string | null;
             item: components["schemas"]["ItemSummary"];
             /**
              * Reason
              * @enum {string}
              */
-            reason: "focus_goal" | "other_goal" | "saved_again" | "random";
+            reason: "focus_goal" | "other_goal" | "saved_again" | "recent" | "random";
         };
         /** DigestPreview */
         DigestPreview: {
+            /**
+             * Goal Title
+             * @description The goal of the focus picks: the goal of the request, or the focus goal.
+             */
+            goal_title: string | null;
             /** Picks */
             picks: components["schemas"]["DigestPick"][];
             /** Total Minutes */
@@ -1468,6 +1479,15 @@ export interface operations {
             };
             /** @description Unauthorized */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

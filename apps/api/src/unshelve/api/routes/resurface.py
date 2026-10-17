@@ -1,5 +1,6 @@
 """Bringing items back: the reading queue and the weekly digest."""
 
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
@@ -26,7 +27,10 @@ async def list_digests(
     raise NotImplementedYetError
 
 
-@router.post("/digests/preview", responses=problems(401, 422))
-async def preview_digest(body: DigestPreviewRequest) -> DigestPreview:
-    """The picks a digest would contain now, for a reading time budget. Nothing is sent."""
-    raise NotImplementedYetError
+@router.post("/digests/preview", responses=problems(401, 404, 422))
+async def preview_digest(
+    body: DigestPreviewRequest, user: CurrentUserDep, db: DbDep
+) -> DigestPreview:
+    """The picks a digest would contain now, for a reading time budget, and why. Nothing is
+    sent, and nothing is marked as shown. A goal that is not an active goal is a 404."""
+    return await item_views.preview_digest(db, user.id, body, now=datetime.now(UTC))

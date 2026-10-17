@@ -20,6 +20,9 @@ from unshelve.api.errors import (
     NotImplementedYetError,
 )
 from unshelve.api.schemas import (
+    DigestPick,
+    DigestPreview,
+    DigestPreviewRequest,
     EventOut,
     EventPage,
     GoalScore,
@@ -40,6 +43,7 @@ from unshelve.contracts.states import (
 from unshelve.db.models import Event, Goal, Item, ItemGoal, ItemTag, Tag, User
 from unshelve.ingest import resolve
 from unshelve.relevance import labels
+from unshelve.resurface.plan import plan_digest
 from unshelve.track import status
 
 # --- Paging ------------------------------------------------------------------------------
@@ -349,6 +353,45 @@ async def set_goal_label(
         score=change.row.score,
         reason=change.row.reason,
         label=change.row.label,
+    )
+
+
+# --- A preview of the digest ------------------------------------------------------------
+
+
+async def preview_digest(
+    db: AsyncSession, owner_id: int, body: DigestPreviewRequest, *, now: datetime
+) -> DigestPreview:
+    """The digest of now, for the reading time of the request. Nothing is sent or marked.
+
+    The day is the seed: a second preview of the same day shows the same random pick.
+    """
+    try:
+        planned = await plan_digest(
+            db,
+            owner_id,
+            now=now,
+            seed=f"{owner_id}:{now:%Y-%m-%d}",
+            minutes=body.minutes,
+            goal_id=body.goal_id,
+        )
+    except LookupError as error:
+        raise NotFoundError(str(error)) from error
+    ids = [item.id for item, _ in planned.picks]
+    tags, goals = await _tags_of(db, ids), await _goals_of(db, ids)
+    return DigestPreview(
+        picks=[
+            DigestPick(
+                item=ItemSummary(
+                    **_summary_fields(item, tags.get(item.id, []), goals.get(item.id, []))
+                ),
+                reason=pick.reason.value,
+                goal_title=None if pick.goal_id is None else planned.goal_titles[pick.goal_id],
+            )
+            for item, pick in planned.picks
+        ],
+        total_minutes=planned.total_minutes,
+        goal_title=planned.goal.title if planned.goal is not None else None,
     )
 
 
