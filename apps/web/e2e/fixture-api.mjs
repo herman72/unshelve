@@ -6,7 +6,8 @@
 // The moves of the reading status follow the rules of the real API: the table of moves of
 // contracts/states.py, a queue of 5 slots, and no move for a merged copy. The goals too: a slug
 // from the title, a clash is a 409, at most 10 active goals, a new version for a new meaning,
-// and one focus.
+// and one focus. The preview of a digest has three made-up picks, and it keeps them in order
+// while they fit the reading time; the choice itself is tested in the API.
 //
 //     node e2e/fixture-api.mjs 3901
 //
@@ -24,6 +25,7 @@ import { createServer } from "node:http";
 /** @typedef {import("@unshelve/api-client").components["schemas"]["EventOut"]} EventOut */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["GoalOut"]} GoalOut */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["GoalScore"]} GoalScore */
+/** @typedef {import("@unshelve/api-client").components["schemas"]["DigestPick"]} DigestPick */
 
 const port = Number(process.argv[2] ?? 3901);
 
@@ -312,6 +314,28 @@ let moves = [];
 let events = [];
 /** @type {Map<number, number>} the id of each item, and the id of its newest move */
 let lastMove = new Map();
+/** @type {number[]} the reading time of each preview of a digest, in order */
+let digestMinutes = [];
+/** For a test: the digest has nothing to bring back. */
+let emptyDigest = false;
+
+/**
+ * The made-up picks of a digest: the item for the focus goal, a recent item, a random pick.
+ *
+ * @returns {DigestPick[]}
+ */
+function digestPicks() {
+  /** @type {[number, DigestPick["reason"], string | null][]} */
+  const chosen = [
+    [1, "focus_goal", "Database internals"],
+    [2, "recent", null],
+    [5, "random", null],
+  ];
+  return chosen.flatMap(([id, reason, goal_title]) => {
+    const item = items.find((candidate) => candidate.id === id);
+    return item ? [{ item: summaryOf(item), reason, goal_title }] : [];
+  });
+}
 
 /**
  * @param {import("node:http").ServerResponse} response
@@ -363,10 +387,16 @@ const server = createServer(async (request, response) => {
     moves = [];
     events = [];
     lastMove = new Map();
+    digestMinutes = [];
+    emptyDigest = false;
     return send(response, 200, {});
   }
   if (request.method === "GET" && path === "/__calls") {
-    return send(response, 200, { reprocessed, moves, verdicts });
+    return send(response, 200, { reprocessed, moves, verdicts, digestMinutes });
+  }
+  if (request.method === "POST" && path === "/__digest") {
+    emptyDigest = Boolean((await jsonBody(request)).empty);
+    return send(response, 200, {});
   }
   let match = /^\/__items\/(\d+)$/.exec(path);
   if (request.method === "POST" && match) {
@@ -398,6 +428,27 @@ const server = createServer(async (request, response) => {
       limit: QUEUE_LIMIT,
       used: queued.length,
       items: queued.map(summaryOf),
+    });
+  }
+
+  if (request.method === "POST" && path === "/api/v1/digests/preview") {
+    const minutes = (await jsonBody(request)).minutes ?? 60;
+    if (typeof minutes !== "number" || !Number.isInteger(minutes) || minutes < 5 || minutes > 600) {
+      return problem(response, 422, "Unprocessable Content", "the body is not valid");
+    }
+    digestMinutes.push(minutes);
+    // As in the real API, an item without an estimate counts as 5 minutes.
+    let left = minutes;
+    const picks = (emptyDigest ? [] : digestPicks()).filter((pick) => {
+      const length = pick.item.est_minutes ?? 5;
+      if (length > left) return false;
+      left -= length;
+      return true;
+    });
+    return send(response, 200, {
+      picks,
+      total_minutes: minutes - left,
+      goal_title: "Database internals",
     });
   }
 

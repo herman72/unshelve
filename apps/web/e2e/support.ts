@@ -47,3 +47,14 @@ export async function verdicts(request: APIRequestContext): Promise<Verdict[]> {
   const answer = await request.get(`${API_URL}/__calls`);
   return ((await answer.json()) as { verdicts: Verdict[] }).verdicts;
 }
+
+/** The reading time of each preview of a digest that the pretend API was asked for, in order. */
+export async function digestMinutes(request: APIRequestContext): Promise<number[]> {
+  const answer = await request.get(`${API_URL}/__calls`);
+  return ((await answer.json()) as { digestMinutes: number[] }).digestMinutes;
+}
+
+/** For the next previews: the digest has nothing to bring back. */
+export async function emptyDigest(request: APIRequestContext): Promise<void> {
+  await request.post(`${API_URL}/__digest`, { data: { empty: true } });
+}
