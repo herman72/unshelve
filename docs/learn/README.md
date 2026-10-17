@@ -45,6 +45,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 31 | [Goals](31-goals.md) | How a goal gets a slug that never changes, why only a new meaning gives a new version, and how one focus and 10 active goals are kept | |
 | 32 | [Scores against your goals](32-scores-against-goals.md) | How a free vector prefilter saves questions, why one question scores all goals, and why a score with a label stays | |
 | 33 | [Your verdicts, and the golden set](33-labels-and-golden-set.md) | How a verdict holds only for the score that you saw, which score the chat asks about next, and how the golden set stays reproducible | |
+| 34 | [Choosing a digest](34-choosing-a-digest.md) | How a digest fills a time budget rule by rule, why its random slot is reserved first, and how a pure function and property tests keep the choice the same for the same seed | [Digest simulator](../digest-simulator.html) |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 

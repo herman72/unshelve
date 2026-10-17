@@ -1,0 +1,608 @@
+<!doctype html>
+<!--
+  Interactive simulator of the choice of a digest. Open this file in a browser.
+  The rules in the script mirror apps/api/src/unshelve/resurface/selection.py. The random pick
+  uses the random numbers of Python's random.Random, so the same seed gives the same pick.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>html{color-scheme:light}body{margin:0}[hidden]{display:none!important}</style>
+<title>Digest Simulator</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: the controls and the steps on top, then what the last step did, then the inbox and
+   the digest side by side. Each step takes one item or says why it does not. */
+:root {
+  --ground: #f1f4f7; --surface: #ffffff; --ink: #101b2d; --muted: #566274; --rule: #d3dae3;
+  --accent: #4f43c9; --on-accent: #ffffff; --flash: #fff3c4;
+  --pick: #0a7d77; --skip: #a35f00; --out: #8a94a3;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground: #0d1420; --surface: #151f30; --ink: #e9eef6; --muted: #9aa8ba; --rule: #283650;
+    --accent: #a094ff; --on-accent: #0d1420; --flash: #4a3f12;
+    --pick: #3cc9c1; --skip: #f0a93a; --out: #6b7a8f; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --ground: #0d1420; --surface: #151f30; --ink: #e9eef6; --muted: #9aa8ba; --rule: #283650;
+  --accent: #a094ff; --on-accent: #0d1420; --flash: #4a3f12;
+  --pick: #3cc9c1; --skip: #f0a93a; --out: #6b7a8f; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--ground); color: var(--ink); font-family: var(--display); font-size: 15px; line-height: 1.5; }
+.page { max-width: 1080px; margin-inline: auto; padding-inline: 16px; padding-block: 28px 56px; display: grid; gap: 20px; }
+.eyebrow { margin: 0; font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+h1 { margin: 0; font-stretch: 112%; font-weight: 750; font-size: clamp(24px, 4vw, 32px); line-height: 1.15; text-wrap: balance; }
+h2 { margin: 0; font-stretch: 108%; font-weight: 700; font-size: 18px; }
+p { margin: 0; }
+.lede { max-width: 70ch; color: var(--muted); }
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+button:disabled { opacity: 0.4; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.panel { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; display: grid; gap: 12px; min-width: 0; }
+.label { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.fields { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: end; }
+.field { display: grid; gap: 4px; font-weight: 600; font-size: 14px; }
+.field select, .field input { border: 1px solid var(--rule); background: var(--ground); border-radius: 6px; padding: 7px 10px; font-weight: 400; min-width: 0; }
+.field input { width: 19ch; font-family: var(--mono); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.btn { border: 1px solid var(--rule); background: var(--ground); border-radius: 6px; padding: 8px 12px; font-weight: 600; }
+.btn:hover:not(:disabled) { border-color: var(--ink); }
+.btn-main { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.steps { margin: 0; padding-left: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.steps li { border: 1px solid var(--rule); border-radius: 999px; padding: 3px 11px; font-size: 13px; color: var(--muted); }
+.steps li.is-done { color: var(--ink); }
+.steps li.is-now { background: var(--ink); border-color: var(--ink); color: var(--ground); font-weight: 650; }
+.said { border-left: 6px solid var(--accent); }
+.said.is-skip { border-left-color: var(--skip); }
+.said.is-pick { border-left-color: var(--pick); }
+.said .what { font-weight: 650; font-size: 16px; }
+.said .why { max-width: 76ch; }
+.world { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .world { grid-template-columns: minmax(0, 1.75fr) minmax(0, 1fr); align-items: start; } }
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 640px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 500; color: var(--muted); font-size: 12px; font-family: var(--mono); }
+tr:last-child td { border-bottom: 0; }
+tr.is-now td { background: var(--flash); }
+td.num { font-family: var(--mono); white-space: nowrap; }
+td input[type="number"] { width: 5.2em; border: 1px solid var(--rule); background: var(--ground); border-radius: 4px; padding: 2px 4px; font-family: var(--mono); }
+.wrong { color: var(--skip); }
+td .sub { display: block; font-family: var(--display); font-size: 12px; color: var(--muted); white-space: normal; }
+.state { font-size: 12.5px; }
+.state.pick { color: var(--pick); font-weight: 650; }
+.state.skip { color: var(--skip); }
+.state.out { color: var(--out); }
+.digest { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+.digest .why-line { display: block; font-size: 12.5px; color: var(--muted); }
+.digest .is-reserved { color: var(--muted); }
+.meter { display: grid; gap: 6px; }
+.bar { height: 10px; border-radius: 999px; background: var(--ground); border: 1px solid var(--rule); overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--pick); width: 0; transition: width 160ms ease-out; }
+.rules { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px 24px; }
+.rules p { max-width: 48ch; }
+.note { color: var(--muted); font-size: 13px; max-width: 80ch; }
+code { font-family: var(--mono); font-size: 0.92em; }
+a { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .bar span { transition: none; } }
+</style>
+</head>
+<body>
+<div class="page">
+  <header style="display:grid;gap:6px">
+    <p class="eyebrow">Unshelve · learning note 34</p>
+    <h1>How a digest is chosen, step by step</h1>
+    <p class="lede">Ten made-up items wait in the inbox. Choose a time to read, a focus goal and a seed. Then press "Next step": each step takes one item into the digest, or says why it does not. Change the minutes of an item, or mark it as shown in a recent digest, and the digest starts again.</p>
+  </header>
+
+  <section class="panel" aria-label="Choices">
+    <div class="fields">
+      <label class="field">Time to read
+        <select id="budget">
+          <option value="15">15 minutes</option>
+          <option value="30">30 minutes</option>
+          <option value="60" selected>1 hour</option>
+          <option value="120">2 hours</option>
+          <option value="180">3 hours</option>
+        </select>
+      </label>
+      <label class="field">Focus goal
+        <select id="focus">
+          <option value="1" selected>Database internals</option>
+          <option value="2">Learn Finnish</option>
+          <option value="">No focus goal</option>
+        </select>
+      </label>
+      <label class="field">Seed
+        <input id="seed" value="1:2026-10-18" maxlength="40" spellcheck="false" autocomplete="off">
+      </label>
+    </div>
+    <div class="row">
+      <button class="btn" id="restart" type="button">Start again</button>
+      <button class="btn" id="all" type="button">Run to the end</button>
+      <button class="btn btn-main" id="next" type="button">Next step</button>
+    </div>
+    <ol class="steps" id="phases" aria-label="The steps of the choice"></ol>
+  </section>
+
+  <section class="panel said" id="said" aria-live="polite">
+    <span class="label">What happened</span>
+    <p class="what" id="what"></p>
+    <p class="why" id="why"></p>
+  </section>
+
+  <div class="world">
+    <section style="display:grid;gap:8px;min-width:0">
+      <span class="label" id="inbox-label">The inbox</span>
+      <div class="table-wrap"><table aria-labelledby="inbox-label">
+        <thead><tr>
+          <th scope="col">#</th><th scope="col">Item</th><th scope="col">Minutes</th><th scope="col">Saved, days ago</th>
+          <th scope="col">Database internals</th><th scope="col">Learn Finnish</th>
+          <th scope="col">Shown lately</th><th scope="col">In this digest</th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table></div>
+    </section>
+    <section class="panel">
+      <span class="label">The digest so far</span>
+      <ol class="digest" id="digest"></ol>
+      <div class="meter">
+        <p id="meter-text"></p>
+        <div class="bar" aria-hidden="true"><span id="meter-bar"></span></div>
+      </div>
+    </section>
+  </div>
+
+  <section class="rules" aria-label="The rules">
+    <p><b>Who can come.</b> Only items of the inbox, and none that a digest showed in the last 3 weeks.</p>
+    <p><b>The random slot.</b> It is reserved first, so that it always has its place. It takes an item that no other rule chooses, of at most a quarter of the time (but at least 5 minutes, and never more than the time).</p>
+    <p><b>The rules.</b> Then the focus goal, other goals, saved again and recent, in this order. A score helps from 2 up. "You said wrong" turns a score: a wrong 3 counts as 0, a wrong 0 as 2.</p>
+    <p><b>The time.</b> An item that does not fit the minutes that are left is skipped, and a shorter item can still come. A digest has at most 8 items.</p>
+  </section>
+  <p class="note">The page uses the rules of <code>apps/api/src/unshelve/resurface/selection.py</code> and the random numbers of Python's <code>random.Random</code> (SHA-512 of the seed, then a Mersenne Twister, then <code>random()</code>). So a seed gives the same random pick here and in the API. Without a secure browser context (for example over plain HTTP), the page cannot compute SHA-512 and says so. Back to <a href="learn/34-choosing-a-digest.md">note 34</a>.</p>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  /* core:start - the rules of resurface/selection.py, without the page */
+  const DEFAULT_MINUTES = 5;
+  const MAX_PICKS = 8;
+  const RECENT_DAYS = 7;
+  const HELPS_FROM = 2;
+  const SAVED_AGAIN_FROM = 2;
+  const RANDOM_SHARE = 4;
+  const GOALS = { 1: "Database internals", 2: "Learn Finnish" };
+
+  // Made-up items. scores: goal id -> [score, you said "wrong"].
+  const INBOX = [
+    { id: 1, title: "Leases for job queues in Postgres", minutes: 40, daysAgo: 30, saves: 1, scores: { 1: [3, false], 2: [0, false] } },
+    { id: 2, title: "How MVCC keeps old rows", minutes: 30, daysAgo: 45, saves: 1, scores: { 1: [3, false] } },
+    { id: 3, title: "B-tree pages, drawn", minutes: 15, daysAgo: 60, saves: 1, scores: { 1: [2, false] } },
+    { id: 4, title: "Finnish cases in ten minutes", minutes: 10, daysAgo: 20, saves: 1, scores: { 1: [0, false], 2: [3, false] } },
+    { id: 5, title: "A talk on write-ahead logs", minutes: 25, daysAgo: 90, saves: 1, scores: { 1: [3, true] } },
+    { id: 6, title: "Sourdough at home", minutes: 8, daysAgo: 50, saves: 3, scores: { 1: [0, false], 2: [0, false] } },
+    { id: 7, title: "A new paper on vector indexes", minutes: 20, daysAgo: 2, saves: 1, scores: {} },
+    { id: 8, title: "A note about a bike route", minutes: 5, daysAgo: 120, saves: 1, scores: { 1: [0, false], 2: [0, false] } },
+    { id: 9, title: "Ten terminal shortcuts", minutes: 4, daysAgo: 200, saves: 1, scores: { 1: [1, false] } },
+    { id: 10, title: "A long essay on attention", minutes: 90, daysAgo: 300, saves: 1, scores: { 1: [1, false], 2: [1, false] } },
+  ];
+
+  /** The Mersenne Twister of CPython (Modules/_randommodule.c), seeded with init_by_array. */
+  class MersenneTwister {
+    constructor(key) {
+      const mt = (this.mt = new Uint32Array(624));
+      mt[0] = 19650218;
+      for (let i = 1; i < 624; i++) mt[i] = Math.imul(1812433253, mt[i - 1] ^ (mt[i - 1] >>> 30)) + i;
+      let i = 1;
+      let j = 0;
+      for (let k = Math.max(624, key.length); k > 0; k--) {
+        mt[i] = (mt[i] ^ Math.imul(mt[i - 1] ^ (mt[i - 1] >>> 30), 1664525)) + key[j] + j;
+        i++;
+        j++;
+        if (i >= 624) { mt[0] = mt[623]; i = 1; }
+        if (j >= key.length) j = 0;
+      }
+      for (let k = 623; k > 0; k--) {
+        mt[i] = (mt[i] ^ Math.imul(mt[i - 1] ^ (mt[i - 1] >>> 30), 1566083941)) - i;
+        i++;
+        if (i >= 624) { mt[0] = mt[623]; i = 1; }
+      }
+      mt[0] = 0x80000000;
+      this.index = 624;
+    }
+
+    next32() {
+      const mt = this.mt;
+      if (this.index >= 624) {
+        for (let k = 0; k < 624; k++) {
+          const y = (mt[k] & 0x80000000) | (mt[(k + 1) % 624] & 0x7fffffff);
+          mt[k] = mt[(k + 397) % 624] ^ (y >>> 1) ^ (y & 1 ? 0x9908b0df : 0);
+        }
+        this.index = 0;
+      }
+      let y = mt[this.index++];
+      y ^= y >>> 11;
+      y ^= (y << 7) & 0x9d2c5680;
+      y ^= (y << 15) & 0xefc60000;
+      y ^= y >>> 18;
+      return y >>> 0;
+    }
+
+    /** random(): a float in [0, 1) from 53 random bits, as genrand_res53 makes it. */
+    random() {
+      const a = this.next32() >>> 5;
+      const b = this.next32() >>> 6;
+      return (a * 67108864 + b) / 9007199254740992;
+    }
+  }
+
+  /** The index that selection.py takes from a list of n things: int(random() * n) with the seed. */
+  async function pythonPickIndex(seed, n) {
+    // seed(str, version=2): the bytes of the text and their SHA-512, read as one big-endian number.
+    const text = new TextEncoder().encode(seed);
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-512", text));
+    let number = 0n;
+    for (const byte of [...text, ...digest]) number = (number << 8n) | BigInt(byte);
+    // The key of init_by_array: 32-bit words of that number, the least significant first.
+    const key = [];
+    while (number > 0n) {
+      key.push(Number(number & 0xffffffffn));
+      number >>= 32n;
+    }
+    const twister = new MersenneTwister(key.length ? key : [0]);
+    return Math.floor(twister.random() * n);
+  }
+
+  const effectiveScore = ([score, wrong]) => (!wrong ? score : score >= HELPS_FROM ? 0 : HELPS_FROM);
+  const minutesOf = (item) => (item.minutes > 0 ? item.minutes : DEFAULT_MINUTES);
+  // Saved more often first, then saved later, then the lower id.
+  const freshness = (item) => [-item.saves, item.daysAgo, item.id];
+  const byKey = (key) => (one, other) => {
+    const a = key(one);
+    const b = key(other);
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] - b[i];
+    return 0;
+  };
+  const isRecent = (item) => item.daysAgo <= RECENT_DAYS;
+  const hasARule = (item) =>
+    Object.values(item.scores).some((value) => effectiveScore(value) >= HELPS_FROM) ||
+    item.saves >= SAVED_AGAIN_FROM ||
+    isRecent(item);
+
+  /** The candidates of each rule, in the order of the rules and in the order of each rule. */
+  function ranked(eligible, focus) {
+    const focusList = [];
+    const others = [];
+    for (const item of eligible) {
+      for (const [goal, value] of Object.entries(item.scores)) {
+        if (Number(goal) === focus && effectiveScore(value) >= HELPS_FROM) {
+          focusList.push({ item, goal: focus, score: effectiveScore(value) });
+        }
+      }
+      let best = null; // the highest score of another goal, then the older goal
+      for (const [goal, value] of Object.entries(item.scores)) {
+        if (Number(goal) === focus) continue;
+        const score = effectiveScore(value);
+        if (!best || score > best.score || (score === best.score && Number(goal) < best.goal)) {
+          best = { item, goal: Number(goal), score };
+        }
+      }
+      if (best && best.score >= HELPS_FROM) others.push(best);
+    }
+    const byScore = byKey((entry) => [-entry.score, ...freshness(entry.item)]);
+    return [
+      ["focus_goal", focusList.sort(byScore)],
+      ["other_goal", others.sort(byScore)],
+      ["saved_again", eligible.filter((item) => item.saves >= SAVED_AGAIN_FROM).sort(byKey(freshness)).map((item) => ({ item }))],
+      ["recent", eligible.filter(isRecent).sort(byKey((item) => [item.daysAgo, item.id])).map((item) => ({ item }))],
+    ];
+  }
+
+  /** The digest, and each step that made it. shown: the ids of a digest of the last 3 weeks. */
+  async function chooseDigest(items, { budget, focus, seed, shown }) {
+    const steps = [];
+    const eligible = items.filter((item) => !shown.has(item.id)).sort(byKey((item) => [item.id]));
+    steps.push({ phase: 0, kind: "eligible", eligible: eligible.map((item) => item.id), out: [...shown].sort((a, b) => a - b) });
+
+    const limit = Math.min(budget, Math.max(DEFAULT_MINUTES, Math.floor(budget / RANDOM_SHARE)));
+    const short = eligible.filter((item) => minutesOf(item) <= limit && !hasARule(item));
+    const chosen = short.length ? short[await pythonPickIndex(seed, short.length)] : null;
+    let left = budget - (chosen ? minutesOf(chosen) : 0);
+    const room = MAX_PICKS - (chosen ? 1 : 0);
+    const taken = new Set(chosen ? [chosen.id] : []);
+    steps.push({ phase: 1, kind: "random", chosen: chosen?.id ?? null, short: short.map((item) => item.id), limit, left, room });
+
+    const picks = [];
+    let phase = 2;
+    for (const [reason, entries] of ranked(eligible, focus)) {
+      if (!entries.length) steps.push({ phase, kind: "none", reason });
+      for (const { item, goal, score } of entries) {
+        const minutes = minutesOf(item);
+        const step = { phase, reason, item: item.id, goal: goal ?? null, score: score ?? null, minutes, leftBefore: left };
+        if (picks.length >= room) steps.push({ ...step, kind: "skip", why: "full" });
+        else if (taken.has(item.id)) steps.push({ ...step, kind: "skip", why: "taken" });
+        else if (minutes > left) steps.push({ ...step, kind: "skip", why: "time" });
+        else {
+          picks.push({ item: item.id, reason, minutes, goal: goal ?? null });
+          taken.add(item.id);
+          left -= minutes;
+          steps.push({ ...step, kind: "pick", left });
+        }
+      }
+      phase++;
+    }
+    if (chosen) picks.push({ item: chosen.id, reason: "random", minutes: minutesOf(chosen), goal: null });
+    steps.push({ phase: 6, kind: "last", chosen: chosen?.id ?? null, total: picks.reduce((sum, pick) => sum + pick.minutes, 0) });
+    return { steps, picks };
+  }
+  /* core:end */
+
+  if (typeof document === "undefined") return; // the checks of the core run without a page
+
+  const $ = (id) => document.getElementById(id);
+  const PHASES = ["Who can come", "The random slot", "The focus goal", "Other goals", "Saved again", "Recent", "The random pick goes last"];
+  const RULE_WORDS = {
+    focus_goal: "the focus goal",
+    other_goal: "another goal",
+    saved_again: "saved again",
+    recent: "recent",
+    random: "the random slot",
+  };
+  const LINE_WORDS = {
+    focus_goal: (goal) => `For your focus goal: ${GOALS[goal]}`,
+    other_goal: (goal) => `For your goal: ${GOALS[goal]}`,
+    saved_again: () => "You saved it more than one time",
+    recent: () => "You saved it in the last 7 days",
+    random: () => "A random pick from your inbox",
+  };
+  const items = INBOX.map((item) => ({ ...item, scores: { ...item.scores } }));
+  const shown = new Set();
+  let plan = null;
+  let at = -1; // the index of the last step that is shown
+  let version = 0;
+
+  const make = (tag, className, text) => {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  };
+  const itemOf = (id) => items.find((item) => item.id === id);
+  const named = (id) => `item ${id} (${minutesOf(itemOf(id))} min)`;
+  const list = (ids) => (ids.length <= 1 ? ids.join("") : `${ids.slice(0, -1).join(", ")} and ${ids.at(-1)}`);
+  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+  function scoreCell(item, goal) {
+    const value = item.scores[goal];
+    if (!value) return make("td", "num", "—");
+    if (!value[1]) return make("td", "num", String(value[0]));
+    const cell = make("td", "num wrong", `${value[0]} → ${effectiveScore(value)}`);
+    cell.append(make("span", "sub", "you said wrong"));
+    return cell;
+  }
+
+  function describe(step) {
+    const budget = Number($("budget").value);
+    switch (step.kind) {
+      case "eligible":
+        return {
+          what: `${plural(step.eligible.length, "item")} can come.`,
+          why: step.out.length
+            ? `A digest of the last 3 weeks showed ${list(step.out.map((id) => `item ${id}`))}: a digest does not show them again so soon.`
+            : "Each item is in the inbox, and no digest of the last 3 weeks showed one of them.",
+        };
+      case "random":
+        if (step.chosen === null) {
+          return {
+            what: "No random pick in this digest.",
+            why: `The random slot takes an item that no other rule chooses, of at most ${step.limit} minutes. No item is such an item.`,
+          };
+        }
+        return {
+          what: `The random slot takes ${named(step.chosen)}.`,
+          why: `No other rule chooses ${list(step.short.map((id) => `item ${id}`))}, and ${step.short.length === 1 ? "it is" : "each is"} ${step.limit} minutes or shorter (a quarter of ${budget}, at least 5). The seed chooses item ${step.chosen}. It waits for the end of the digest: ${step.left} minutes and ${step.room} places are left for the rules.`,
+        };
+      case "none":
+        return { what: `No item for "${RULE_WORDS[step.reason]}".`, why: noneWhy(step.reason) };
+      case "pick":
+        return {
+          what: `${capital(named(step.item))} comes in, for ${RULE_WORDS[step.reason]}.`,
+          why: `${pickWhy(step)} It fits: ${step.leftBefore} minutes were left, now ${step.left}.`,
+        };
+      case "skip":
+        return {
+          what: `${capital(named(step.item))} does not come in.`,
+          why:
+            step.why === "time"
+              ? step.leftBefore === 0
+                ? `${pickWhy(step)} But no minutes are left.`
+                : `${pickWhy(step)} But only ${step.leftBefore === 1 ? "1 minute is" : `${step.leftBefore} minutes are`} left. A shorter item can still come.`
+              : step.why === "taken"
+                ? `It is in the digest already: an item comes at most one time.`
+                : `The digest has ${MAX_PICKS} items, the most.`,
+        };
+      case "last":
+        return {
+          what: step.chosen === null ? "The digest is ready." : `The random pick, item ${step.chosen}, goes last. The digest is ready.`,
+          why: `It has ${plural(plan.picks.length, "item")}, ${step.total} of ${budget} minutes.`,
+        };
+    }
+  }
+
+  const capital = (text) => text[0].toUpperCase() + text.slice(1);
+  function noneWhy(reason) {
+    const focus = $("focus").value;
+    if (reason === "focus_goal") return focus ? `No item that can come helps ${GOALS[focus]}: no effective score of 2 or 3.` : "This digest has no focus goal.";
+    if (reason === "other_goal") return "No item that can come helps another goal with an effective score of 2 or 3.";
+    if (reason === "saved_again") return "No item that can come was saved two times or more.";
+    return "No item that can come was saved in the last 7 days.";
+  }
+  function pickWhy(step) {
+    if (step.reason === "focus_goal" || step.reason === "other_goal") {
+      return `It helps ${GOALS[step.goal]} with an effective score of ${step.score}.`;
+    }
+    if (step.reason === "saved_again") return `You saved it ${itemOf(step.item).saves} times.`;
+    return `You saved it ${itemOf(step.item).daysAgo} days ago.`;
+  }
+
+  function stateOf(id) {
+    // What the steps up to now say about one item, for the last column.
+    if (!plan) return null;
+    let state = null;
+    for (const step of plan.steps.slice(0, at + 1)) {
+      if (step.kind === "eligible" && !step.eligible.includes(id)) state = { kind: "out", text: "shown lately" };
+      if (step.kind === "random" && step.chosen === id) state = { kind: "pick", text: "random pick" };
+      if (step.item === id && step.kind === "pick") state = { kind: "pick", text: RULE_WORDS[step.reason] };
+      if (step.item === id && step.kind === "skip" && state?.kind !== "pick") {
+        state = { kind: "skip", text: step.why === "time" ? `skipped: ${step.minutes} > ${step.leftBefore} min` : step.why === "full" ? "skipped: 8 items" : "in it already" };
+      }
+    }
+    return state;
+  }
+
+  function renderRows() {
+    const now = plan && at >= 0 ? plan.steps[at] : null;
+    const rows = items.map((item) => {
+      const row = make("tr");
+      if (now && (now.item === item.id || (now.kind === "random" && now.chosen === item.id) || (now.kind === "last" && now.chosen === item.id))) {
+        row.className = "is-now";
+      }
+      row.append(make("td", "num", String(item.id)));
+      const title = make("td");
+      title.append(make("span", "", item.title));
+      if (item.saves > 1) title.append(make("span", "sub", `saved ${item.saves} times`));
+      row.append(title);
+      const minutesCell = make("td");
+      const minutes = make("input");
+      minutes.type = "number";
+      minutes.min = "0";
+      minutes.max = "300";
+      minutes.value = String(item.minutes);
+      minutes.setAttribute("aria-label", `Minutes of item ${item.id}`);
+      minutes.addEventListener("change", () => {
+        const value = Math.max(0, Math.min(300, Math.round(Number(minutes.value) || 0)));
+        item.minutes = value;
+        rebuild();
+      });
+      minutesCell.append(minutes);
+      row.append(minutesCell);
+      row.append(make("td", "num", String(item.daysAgo)));
+      row.append(scoreCell(item, 1), scoreCell(item, 2));
+      const shownCell = make("td");
+      const box = make("input");
+      box.type = "checkbox";
+      box.checked = shown.has(item.id);
+      box.setAttribute("aria-label", `Item ${item.id} was in a digest of the last 3 weeks`);
+      box.addEventListener("change", () => {
+        if (box.checked) shown.add(item.id);
+        else shown.delete(item.id);
+        rebuild();
+      });
+      shownCell.append(box);
+      row.append(shownCell);
+      const state = stateOf(item.id);
+      row.append(make("td", `state ${state?.kind ?? ""}`, state?.text ?? ""));
+      return row;
+    });
+    $("rows").replaceChildren(...rows);
+  }
+
+  function render() {
+    const budget = Number($("budget").value);
+    const steps = plan?.steps ?? [];
+    const now = at >= 0 ? steps[at] : null;
+    const phaseNow = now ? now.phase : -1;
+    $("phases").replaceChildren(
+      ...PHASES.map((name, index) => {
+        const item = make("li", index < phaseNow ? "is-done" : index === phaseNow ? "is-now" : "", `${index}. ${name}`);
+        if (index === phaseNow) item.setAttribute("aria-current", "step");
+        return item;
+      }),
+    );
+
+    if (!now) {
+      $("what").textContent = plan ? 'Press "Next step" to start.' : "Choosing…";
+      $("why").textContent = "The digest is empty. The steps follow the order of the rules.";
+      $("said").className = "panel said";
+    } else {
+      const { what, why } = describe(now);
+      $("what").textContent = what;
+      $("why").textContent = why;
+      $("said").className = `panel said ${now.kind === "pick" ? "is-pick" : now.kind === "skip" ? "is-skip" : ""}`;
+    }
+
+    // The picks so far; the random pick is reserved from step 1 and goes last at the end.
+    const picked = steps.slice(0, at + 1).filter((step) => step.kind === "pick");
+    const random = steps.slice(0, at + 1).find((step) => step.kind === "random" && step.chosen !== null);
+    const finished = now?.kind === "last";
+    const entries = picked.map((step) => ({ id: step.item, line: LINE_WORDS[step.reason](step.goal), reserved: false }));
+    if (random) entries.push({ id: random.chosen, line: finished ? LINE_WORDS.random() : "Reserved for the random slot: it goes last", reserved: !finished });
+    $("digest").replaceChildren(
+      ...(entries.length
+        ? entries.map((entry) => {
+            const li = make("li", entry.reserved ? "is-reserved" : "");
+            li.append(make("span", "", `${itemOf(entry.id).title} (${minutesOf(itemOf(entry.id))} min)`), make("span", "why-line", entry.line));
+            return li;
+          })
+        : [make("li", "is-reserved", "Nothing yet.")]),
+    );
+    const used = entries.reduce((sum, entry) => sum + minutesOf(itemOf(entry.id)), 0);
+    $("meter-text").textContent = `${used} of ${budget} minutes · ${plural(entries.length, "item")} of ${MAX_PICKS} at most`;
+    $("meter-bar").style.width = `${Math.min(100, (used / budget) * 100)}%`;
+
+    $("next").disabled = !plan || at >= steps.length - 1;
+    $("all").disabled = $("next").disabled;
+    $("restart").disabled = at < 0;
+    renderRows();
+  }
+
+  async function rebuild() {
+    const mine = ++version;
+    plan = null;
+    at = -1;
+    render();
+    if (!globalThis.crypto?.subtle) {
+      $("what").textContent = "This browser cannot compute SHA-512 here.";
+      $("why").textContent = "Open the file from your disk (file://) or over HTTPS, where the page is a secure context.";
+      return;
+    }
+    const result = await chooseDigest(items, {
+      budget: Number($("budget").value),
+      focus: $("focus").value ? Number($("focus").value) : null,
+      seed: $("seed").value,
+      shown,
+    });
+    if (mine !== version) return; // a newer choice started meanwhile
+    plan = result;
+    render();
+  }
+
+  $("next").addEventListener("click", () => {
+    at = Math.min(at + 1, plan.steps.length - 1);
+    render();
+  });
+  $("all").addEventListener("click", () => {
+    at = plan.steps.length - 1;
+    render();
+  });
+  $("restart").addEventListener("click", () => {
+    at = -1;
+    render();
+  });
+  for (const id of ["budget", "focus"]) $(id).addEventListener("change", rebuild);
+  $("seed").addEventListener("input", rebuild);
+
+  rebuild();
+})();
+</script>
+</body>
+</html>
