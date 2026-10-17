@@ -351,7 +351,8 @@ class Queue(Response):
 
 class DigestPick(Response):
     item: ItemSummary
-    reason: Literal["focus_goal", "other_goal", "saved_again", "random"]
+    reason: Literal["focus_goal", "other_goal", "saved_again", "recent", "random"]
+    goal_title: str | None = Field(default=None, description="The goal of a pick for a goal.")
 
 
 class DigestOut(Response):
@@ -374,6 +375,9 @@ class DigestPreviewRequest(Request):
 class DigestPreview(Response):
     picks: list[DigestPick]
     total_minutes: int
+    goal_title: str | None = Field(
+        description="The goal of the focus picks: the goal of the request, or the focus goal."
+    )
 
 
 # --- Operations --------------------------------------------------------------------------
