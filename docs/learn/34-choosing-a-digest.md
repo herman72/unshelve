@@ -39,7 +39,7 @@ A *digest* is a short list of items that you saved earlier. The *budget* is the 
 | Repeats | possible: no digest knows what the last one showed | no item that a digest showed in the last 3 weeks |
 | A second try | the same digest (a seed) | the same digest (a seed), also after a Python upgrade (part 3) |
 
-The weekly digest in Telegram still uses the old choice. M3-5 (#29) moves it to the new choice.
+Since [note 35](35-sending-the-digest.md), the weekly digest in Telegram uses this choice too.
 
 ## 1. The rules, in order
 
@@ -80,7 +80,7 @@ Three details make it work:
 - **It is short.** It takes at most a quarter of the budget: 15 minutes of 60. It is never less than 5 minutes, and never more than the budget. So it cannot push out the items of the focus goal.
 - **It takes only items without a rule.** The first version took any short item. Then a test of the API showed a digest with one item that helps the focus goal, under the reason "A random pick from your inbox". The reason was wrong, and the digest showed nothing new.
 
-Why does a digest have a random slot? The rules show the high scores again and again. A wrong 0 from the model hides a useful item for ever. The random pick gives such an item a chance. Later (M3-5), your verdict on it can show that the 0 was wrong. Verdicts only on the items that the model likes teach you only about those items: the plan calls this *label bias*.
+Why does a digest have a random slot? The rules show the high scores again and again. A wrong 0 from the model hides a useful item for ever. The random pick gives such an item a chance. Your verdict on its score can show that the 0 was wrong (note 35, part 4). Verdicts only on the items that the model likes teach you only about those items: the plan calls this *label bias*.
 
 **A comparison from daily life:** a shop keeps one shelf for a surprise product. The shelf is always there, so the best sellers cannot fill it.
 
@@ -91,7 +91,7 @@ Why does a digest have a random slot? The rules show the high scores again and a
 | The digest | Its seed |
 |---|---|
 | the preview of the page | the owner and the day, for example `1:2026-10-18` |
-| the weekly digest (M3-5) | the week |
+| the weekly digest (note 35) | the week |
 
 So a second preview on the same day shows the same random pick. And a second try of a weekly digest gives the same digest.
 
@@ -168,9 +168,8 @@ How does a digest fill its minutes?
 
   The browser tests found each of the 6 mistakes in the web app. Now the tests find 67 of the 69 mistakes, and the 2 others change no result.
 - **What is not done:**
-  - The weekly digest and `/digest` of the bot still use the old choice. M3-5 (#29) moves them to the new choice, marks the items as shown, and keeps the reason of each pick.
   - The page has no choice of the goal yet. The API takes a `goal_id`.
-  - The digest has no buttons of a verdict yet (M3-5).
+  - Note 35 sends this digest each week, with buttons of a verdict.
 
 ## Try it yourself
 
@@ -235,4 +234,4 @@ The property "Each pick has its reason" still passes: each of the two picks has 
 - [Introduction to Hypothesis](https://hypothesis.readthedocs.io/en/latest/tutorial/introduction.html). Read "Defining a simple test" and "When to use Hypothesis and property-based testing".
 - [Notes on Reproducibility](https://docs.python.org/3/library/random.html#notes-on-reproducibility), in the Python documentation of `random`. Read the two promises: they are the reason why the code calls `random()` and not `choice()`.
 
-Previous: [33. Your verdicts, and the golden set](33-labels-and-golden-set.md) · Back to the [list of notes](README.md)
+Previous: [33. Your verdicts, and the golden set](33-labels-and-golden-set.md) · Next: [35. Sending the digest](35-sending-the-digest.md) · Back to the [list of notes](README.md)

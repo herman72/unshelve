@@ -1,6 +1,6 @@
 # 13. Cards, a button, and the digest
 
-> Pull requests: [#63](https://github.com/herman72/unshelve/pull/63), and [#64](https://github.com/herman72/unshelve/pull/64) for part 8 · Code: [`resurface/weekly.py`](../../apps/api/src/unshelve/resurface/weekly.py), [`bot/cards.py`](../../apps/api/src/unshelve/bot/cards.py), [`bot/private.py`](../../apps/api/src/unshelve/bot/private.py), [`resurface/digest.py`](../../apps/api/src/unshelve/resurface/digest.py), [`track/status.py`](../../apps/api/src/unshelve/track/status.py) · Tests: [`tests/bot/test_cards.py`](../../apps/api/tests/bot/test_cards.py), [`tests/bot/test_private.py`](../../apps/api/tests/bot/test_private.py), [`tests/resurface/`](../../apps/api/tests/resurface/), [`tests/track/`](../../apps/api/tests/track/)
+> Pull requests: [#63](https://github.com/herman72/unshelve/pull/63), and [#64](https://github.com/herman72/unshelve/pull/64) for part 8 · Code: [`resurface/weekly.py`](../../apps/api/src/unshelve/resurface/weekly.py), [`bot/cards.py`](../../apps/api/src/unshelve/bot/cards.py), [`bot/private.py`](../../apps/api/src/unshelve/bot/private.py), `resurface/digest.py` (removed in #96), [`track/status.py`](../../apps/api/src/unshelve/track/status.py) · Tests: [`tests/bot/test_cards.py`](../../apps/api/tests/bot/test_cards.py), [`tests/bot/test_private.py`](../../apps/api/tests/bot/test_private.py), [`tests/resurface/`](../../apps/api/tests/resurface/), [`tests/track/`](../../apps/api/tests/track/)
 
 ## In one minute
 
@@ -11,6 +11,8 @@ You write `/digest` to the bot. The bot answers with one message: the things tha
 When you press "Done", the item is read. The button goes away, and the item leaves the inbox of the web app.
 
 The same digest also comes by itself, each Sunday at 09:00 (part 8).
+
+> **Since #96:** the digest chooses its items by your goals and a reading time ([note 34](34-choosing-a-digest.md)), and a stale prompt follows it ([note 35](35-sending-the-digest.md)). Parts 1 and 7 of this note describe the first choice of items; the other parts still hold.
 
 ## 1. A digest, as Telegram gets it
 
