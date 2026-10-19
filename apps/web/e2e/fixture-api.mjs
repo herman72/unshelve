@@ -407,6 +407,22 @@ const server = createServer(async (request, response) => {
     Object.assign(item, await jsonBody(request));
     return send(response, 200, detailOf(item));
   }
+  match = /^\/__events\/(\d+)$/.exec(path);
+  if (request.method === "POST" && match) {
+    // For a test: the worker or the bot wrote an event of the item.
+    const body = await jsonBody(request);
+    const event = {
+      id: events.length + 1,
+      actor: /** @type {EventOut["actor"]} */ (body.actor ?? "system"),
+      type: String(body.type),
+      from_status: null,
+      to_status: null,
+      payload: /** @type {Record<string, unknown>} */ (body.payload ?? {}),
+      created_at: "2026-10-25T06:00:00Z",
+    };
+    events.push({ itemId: Number(match[1]), event });
+    return send(response, 200, event);
+  }
 
   if (request.method === "GET" && path === "/api/v1/items") {
     // As in the real API, a merged copy is not in a list.
