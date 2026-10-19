@@ -28,7 +28,7 @@ from unshelve.auth import store as auth
 from unshelve.config import Settings
 from unshelve.contracts.enums import JobKind
 from unshelve.contracts.jobs import Permanent, Retry, Services
-from unshelve.db.models import Digest, Item, Job
+from unshelve.db.models import Digest, Event, Goal, Item, ItemGoal, Job
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig
 from unshelve.resurface import weekly
@@ -191,7 +191,9 @@ def services(
     return dataclasses.replace(built, bot=offline_bot(telegram))
 
 
-async def _owner_with_items(sessions: Sessions, *titles: str, days_ago: float = 1) -> int:
+async def _owner_with_items(
+    sessions: Sessions, *titles: str, days_ago: float = 1, minutes: int | None = None
+) -> int:
     at = datetime.now(UTC) - timedelta(days=days_ago)
     async with sessions() as db:
         owner_id = await auth.ensure_owner(db, OWNER_TELEGRAM_ID)
@@ -201,12 +203,32 @@ async def _owner_with_items(sessions: Sessions, *titles: str, days_ago: float = 
                 sa.insert(Item).values(
                     owner_id=owner_id,
                     title=title,
+                    est_minutes=minutes,
                     first_captured_at=moment,
                     last_captured_at=moment,
                 )
             )
         await db.commit()
     return owner_id
+
+
+async def _ids(sessions: Sessions, *titles: str) -> list[int]:
+    async with sessions() as db:
+        found = {
+            row.title: row.id
+            for row in await db.execute(
+                sa.select(Item.id, Item.title).where(Item.title.in_(titles))
+            )
+        }
+    return [found[title] for title in titles]
+
+
+async def _events(sessions: Sessions) -> list[tuple[int, str, dict[str, Any]]]:
+    async with sessions() as db:
+        rows = await db.execute(
+            sa.select(Event.item_id, Event.type, Event.payload).order_by(Event.id)
+        )
+        return [(row.item_id, row.type, row.payload) for row in rows]
 
 
 async def _claim(sessions: Sessions, owner_id: int, week: str) -> None:
@@ -229,28 +251,142 @@ async def test_the_digest_goes_to_the_owner_and_is_marked_as_sent(
 
     sent = await weekly.send(services, owner_id, "2026-W42", now)
 
-    (message,) = telegram.sent
+    (message,) = telegram.sent  # nothing is stale, so no prompt follows
     assert message.chat_id == OWNER_TELEGRAM_ID
     assert message.parse_mode == "HTML"
-    assert message.text.startswith("<b>Your digest</b>\nYou saved 2 things in the last 7 days.")
+    # No estimate of the minutes: 5 for each item.
+    assert message.text.startswith("<b>Your digest</b>\n2 things, about 10 minutes.")
     assert isinstance(message.reply_markup, InlineKeyboardMarkup)
-    assert sent.items == 2
+    assert (sent.items, sent.stale) == (2, 0)
     row = await _row(committed_db, "2026-W42")
-    assert row.sent_at == now
+    assert (row.sent_at, row.stale_sent_at) == (now, now)
     assert len(row.item_ids) == 2
+    assert row.stale_item_ids == []
 
 
-async def test_a_job_that_runs_again_sends_nothing_again(
+async def test_a_sent_digest_marks_its_items_as_shown_and_keeps_each_reason(
+    services: Services, committed_db: Sessions
+) -> None:
+    owner_id = await _owner_with_items(committed_db, "Old paper", days_ago=60, minutes=20)
+    await _owner_with_items(committed_db, "New note")
+    old, new = await _ids(committed_db, "Old paper", "New note")
+    async with committed_db() as db:
+        goal = Goal(owner_id=owner_id, slug="rust", title="Rust", is_focus=True)
+        db.add(goal)
+        await db.flush()
+        db.add(
+            ItemGoal(
+                item_id=old,
+                goal_id=goal.id,
+                owner_id=owner_id,
+                score=3,
+                reason="Close.",
+                scorer_version="score-1:fake-llm",
+                goal_version=1,
+            )
+        )
+        await db.commit()
+    await _claim(committed_db, owner_id, "2026-W42")
+    now = datetime.now(UTC)
+
+    await weekly.send(services, owner_id, "2026-W42", now)
+
+    week = {"period": "2026-W42"}
+    assert await _events(committed_db) == [
+        (old, "surfaced", week | {"reason": "focus_goal", "goal_id": goal.id}),
+        (new, "surfaced", week | {"reason": "recent"}),
+    ]
+    async with committed_db() as db:
+        shown = {item.id: item.last_surfaced_at for item in await db.scalars(sa.select(Item))}
+    assert shown == {old: now, new: now}
+
+
+async def test_the_stale_prompt_comes_after_the_digest(
+    services: Services, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    # 90 minutes: too long for the random slot, so no digest takes it.
+    owner_id = await _owner_with_items(committed_db, "Old essay", days_ago=60, minutes=90)
+    await _owner_with_items(committed_db, "New note")
+    (old,) = await _ids(committed_db, "Old essay")
+    await _claim(committed_db, owner_id, "2026-W42")
+    now = datetime.now(UTC)
+
+    sent = await weekly.send(services, owner_id, "2026-W42", now)
+
+    digest, prompt = telegram.sent
+    assert digest.text.startswith("<b>Your digest</b>\n1 thing")
+    assert prompt.text.startswith("<b>Still in your inbox</b>")
+    assert "<b>Old essay</b>" in prompt.text
+    assert isinstance(prompt.reply_markup, InlineKeyboardMarkup)
+    assert [b.callback_data for b in prompt.reply_markup.inline_keyboard[0]] == [
+        f"stale:{old}:archive",
+        f"stale:{old}:keep",
+    ]
+    assert (sent.items, sent.stale) == (1, 1)
+    row = await _row(committed_db, "2026-W42")
+    assert (row.stale_item_ids, row.stale_sent_at) == ([old], now)
+    assert (old, "stale_asked", {"period": "2026-W42"}) in await _events(committed_db)
+
+
+class PickyTelegram(PretendTelegram):
+    """A Telegram without a connection for the stale prompt only."""
+
+    async def make_request[T](
+        self,
+        bot: Bot,
+        method: TelegramMethod[T],
+        timeout: int | None = None,  # noqa: ASYNC109 - the signature of the library
+    ) -> T:
+        request: TelegramMethod[Any] = method  # narrowed below; ``method`` keeps its type
+        if isinstance(request, SendMessage) and request.text.startswith("<b>Still in your inbox"):
+            raise TelegramNetworkError(method, "no connection")
+        return await super().make_request(bot, method, timeout)
+
+
+async def test_when_the_stale_prompt_fails_the_next_try_sends_only_the_prompt(
+    committed_db: Sessions, private_database_url: str
+) -> None:
+    owner_id = await _owner_with_items(committed_db, "Old essay", days_ago=60, minutes=90)
+    await _owner_with_items(committed_db, "New note")
+    await _claim(committed_db, owner_id, "2026-W42")
+    built = build_services(_settings(database_url=private_database_url), committed_db)
+    picky, working = PickyTelegram(), PretendTelegram()
+
+    with pytest.raises(Retry):
+        await weekly.send(
+            dataclasses.replace(built, bot=offline_bot(picky)),
+            owner_id,
+            "2026-W42",
+            datetime.now(UTC),
+        )
+    row = await _row(committed_db, "2026-W42")
+    assert (row.sent_at is not None, row.stale_sent_at) == (True, None)
+    again = await weekly.send(
+        dataclasses.replace(built, bot=offline_bot(working)),
+        owner_id,
+        "2026-W42",
+        datetime.now(UTC),
+    )
+
+    assert [m.text.split("\n")[0] for m in picky.sent] == ["<b>Your digest</b>"]
+    assert [m.text.split("\n")[0] for m in working.sent] == ["<b>Still in your inbox</b>"]
+    assert (again.items, again.message_id, again.stale) == (1, None, 1)
+    kinds = [kind for _, kind, _ in await _events(committed_db)]
+    assert kinds == ["surfaced", "stale_asked"]  # one of each: the digest is not marked again
+
+
+async def test_a_job_that_runs_again_sends_neither_message_again(
     services: Services, telegram: PretendTelegram, committed_db: Sessions
 ) -> None:
     owner_id = await _owner_with_items(committed_db, "One")
+    await _owner_with_items(committed_db, "Old essay", days_ago=60, minutes=90)
     await _claim(committed_db, owner_id, "2026-W42")
     await weekly.send(services, owner_id, "2026-W42", datetime.now(UTC))
 
     again = await weekly.send(services, owner_id, "2026-W42", datetime.now(UTC))
 
-    assert len(telegram.sent) == 1
-    assert (again.items, again.message_id) == (1, None)
+    assert len(telegram.sent) == 2
+    assert (again.items, again.message_id, again.stale) == (1, None, 1)
 
 
 async def test_a_week_with_nothing_to_show_sends_no_message(
@@ -346,9 +482,16 @@ async def test_a_second_attempt_shows_the_same_items_as_the_first(
     first = (await _row(committed_db, "2026-W42")).item_ids
     await weekly.send(working, owner_id, "2026-W42", datetime.now(UTC))
 
-    # The older thing is chosen at random, with the week as its seed.
-    assert (await _row(committed_db, "2026-W42")).item_ids == first
-    assert len(working_telegram.sent) == 1
+    # The random pick is chosen with the week as its seed. The two others are stale; the
+    # prompt does not ask to archive the random pick that the digest just brought back.
+    row = await _row(committed_db, "2026-W42")
+    assert row.item_ids == first
+    assert len(row.stale_item_ids) == 2
+    assert not set(row.stale_item_ids) & set(first)
+    assert [m.text.split("\n")[0] for m in working_telegram.sent] == [
+        "<b>Your digest</b>",
+        "<b>Still in your inbox</b>",
+    ]
 
 
 async def test_without_a_bot_the_job_fails_for_good(
@@ -456,21 +599,32 @@ def test_the_services_have_a_bot_only_with_a_token(
     assert without.bot is None
 
 
-async def test_the_older_thing_is_chosen_with_the_week_as_the_seed(
-    services: Services, committed_db: Sessions, monkeypatch: pytest.MonkeyPatch
+async def test_the_week_is_the_seed_and_the_settings_give_the_reading_time(
+    committed_db: Sessions,
+    private_database_url: str,
+    telegram: PretendTelegram,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     owner_id = await _owner_with_items(committed_db, "One")
     await _claim(committed_db, owner_id, "2026-W42")
-    seeds: list[str] = []
-    pick = weekly.digest.pick
+    built = build_services(
+        _settings(database_url=private_database_url, digest_minutes=45), committed_db
+    )
+    asked: list[tuple[str, int]] = []
+    plan_digest = weekly.plan.plan_digest
 
-    async def remember_the_seed(*args: Any, **kwargs: Any) -> Any:
-        seeds.append(kwargs["seed"])
-        return await pick(*args, **kwargs)
+    async def remember(*args: Any, **kwargs: Any) -> Any:
+        asked.append((kwargs["seed"], kwargs["minutes"]))
+        return await plan_digest(*args, **kwargs)
 
-    monkeypatch.setattr(weekly.digest, "pick", remember_the_seed)
+    monkeypatch.setattr(weekly.plan, "plan_digest", remember)
 
-    await weekly.send(services, owner_id, "2026-W42", datetime.now(UTC))
+    await weekly.send(
+        dataclasses.replace(built, bot=offline_bot(telegram)),
+        owner_id,
+        "2026-W42",
+        datetime.now(UTC),
+    )
 
-    # So each attempt of one week shows the same older thing.
-    assert seeds == ["2026-W42"]
+    # So each attempt of one week shows the same random pick.
+    assert asked == [("2026-W42", 45)]

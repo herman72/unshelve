@@ -35,7 +35,7 @@ from unshelve.bot import cards, private
 from unshelve.bot.runner import build_dispatcher
 from unshelve.config import Settings
 from unshelve.contracts.enums import EnrichState, GoalLabel, ItemStatus, LabelSource
-from unshelve.db.models import AuthToken, Capture, Event, Goal, Item, ItemGoal
+from unshelve.db.models import AuthToken, Capture, Digest, Event, Goal, Item, ItemGoal
 
 Sessions = async_sessionmaker[AsyncSession]
 
@@ -351,7 +351,7 @@ async def _events(sessions: Sessions) -> list[tuple[int, str | None]]:
         return [(row.item_id, row.to_status) for row in rows]
 
 
-async def test_digest_shows_the_owner_the_recent_things_with_their_buttons(
+async def test_digest_shows_the_owner_the_digest_of_now_with_the_reasons_and_buttons(
     dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
 ) -> None:
     first, second = await _saved(committed_db, "Vector search in Postgres", "Queues & <locks>")
@@ -360,14 +360,64 @@ async def test_digest_shows_the_owner_the_recent_things_with_their_buttons(
 
     (sent,) = telegram.sent
     assert sent.parse_mode == "HTML"
-    assert sent.text.startswith("<b>Your digest</b>\nYou saved 2 things in the last 7 days.")
+    # No estimate of the minutes: 5 for each item.
+    assert sent.text.startswith("<b>Your digest</b>\n2 things, about 10 minutes.")
     assert "<b>Queues &amp; &lt;locks&gt;</b>" in sent.text  # the newest first, escaped
     assert sent.text.index("Queues") < sent.text.index("Vector search")
+    # The first was saved one day ago, the second one minute later.
+    assert "New in your inbox: saved 1 day ago." in sent.text
+    assert "New in your inbox: saved today." in sent.text
     assert isinstance(sent.reply_markup, InlineKeyboardMarkup)
     done = [row[-1].callback_data for row in sent.reply_markup.inline_keyboard]
     assert done == [f"done:{second}", f"done:{first}"]
     assert isinstance(sent.link_preview_options, LinkPreviewOptions)
     assert sent.link_preview_options.is_disabled is True
+
+
+async def test_digest_records_nothing(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    (item_id,) = await _saved(committed_db, "One")
+
+    await _arrive(dispatcher, telegram, _message("/digest"))
+
+    assert len(telegram.sent) == 1
+    async with committed_db() as db:
+        assert await db.scalar(sa.select(sa.func.count()).select_from(Digest)) == 0
+        assert (await db.get_one(Item, item_id)).last_surfaced_at is None
+    assert await _events(committed_db) == []
+
+
+async def test_digest_keeps_its_random_pick_for_the_day(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    # Old, short and without a rule: each one can only be the random pick.
+    ids = await _saved(committed_db, *(f"Old note {n}" for n in range(30)), days_ago=60)
+    async with committed_db() as db:
+        await db.execute(sa.update(Item).where(Item.id.in_(ids)).values(est_minutes=5))
+        await db.commit()
+
+    await _arrive(dispatcher, telegram, _message("/digest"))
+    await _arrive(dispatcher, telegram, _message("/digest"))
+
+    first, second = telegram.sent
+    assert first.text == second.text  # the owner and the day are the seed
+    assert "A random pick from your inbox" in first.text
+
+
+async def test_digest_fits_the_reading_time_of_the_settings(
+    settings: Settings, committed_db: Sessions, telegram: PretendTelegram
+) -> None:
+    ids = await _saved(committed_db, "A long new read")
+    async with committed_db() as db:
+        await db.execute(sa.update(Item).where(Item.id.in_(ids)).values(est_minutes=20))
+        await db.commit()
+    short = build_dispatcher(settings.model_copy(update={"digest_minutes": 15}), committed_db)
+
+    await _arrive(short, telegram, _message("/digest"))
+
+    (sent,) = telegram.sent
+    assert sent.text == cards.NOTHING_YET  # 20 minutes do not fit into 15
 
 
 async def test_digest_without_saved_things_says_how_to_start(
@@ -732,3 +782,218 @@ def test_a_button_of_a_verdict_is_read_only_in_its_own_form() -> None:
 
 def test_help_names_the_label_command() -> None:
     assert "/label asks you about the scores against your goals" in private.HELP
+
+
+# --- The buttons of a verdict under a digest -----------------------------------------------
+
+
+async def _digest_with_a_score(
+    dispatcher: Dispatcher, telegram: PretendTelegram, sessions: Sessions
+) -> tuple[int, int, InlineKeyboardMarkup]:
+    """A /digest with one item that has a score of 3 for the focus goal. Returns the item, the
+    goal and the buttons of the digest, as the owner got them."""
+    (item_id,) = await _saved(sessions, "Leases in Postgres")
+    async with sessions() as db:
+        owner_id = await auth_store.ensure_owner(db, OWNER_TELEGRAM_ID)
+        goal = Goal(owner_id=owner_id, slug="databases", title="Databases", is_focus=True)
+        db.add(goal)
+        await db.flush()
+        db.add(
+            ItemGoal(
+                item_id=item_id,
+                goal_id=goal.id,
+                owner_id=owner_id,
+                score=3,
+                reason="Close.",
+                scorer_version="score-1:fake-llm",
+                goal_version=1,
+            )
+        )
+        await db.commit()
+    await _arrive(dispatcher, telegram, _message("/digest"))
+    markup = telegram.sent[-1].reply_markup
+    assert isinstance(markup, InlineKeyboardMarkup)
+    telegram.calls.clear()
+    return item_id, goal.id, markup
+
+
+async def _verdict(sessions: Sessions, item_id: int, goal_id: int) -> ItemGoal:
+    async with sessions() as db:
+        return await db.get_one(ItemGoal, (item_id, goal_id))
+
+
+def _data(markup: InlineKeyboardMarkup | None) -> list[str]:
+    assert markup is not None
+    return [b.callback_data for row in markup.inline_keyboard for b in row if b.callback_data]
+
+
+async def test_right_under_a_digest_pick_confirms_the_score_from_the_digest(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    item_id, goal_id, markup = await _digest_with_a_score(dispatcher, telegram, committed_db)
+    assert _data(markup) == [
+        f"done:{item_id}",
+        f"dlabel:{item_id}:{goal_id}:3:right",
+        f"dlabel:{item_id}:{goal_id}:3:wrong",
+    ]
+
+    await _arrive(
+        dispatcher, telegram, _press(f"dlabel:{item_id}:{goal_id}:3:right", markup=markup)
+    )
+
+    answer, edit = telegram.calls  # no next question: that is what /label does
+    assert isinstance(answer, AnswerCallbackQuery)
+    assert answer.text is None
+    assert isinstance(edit, EditMessageText)
+    assert edit.text == "Your digest\n\n<i>#1: you said that the score is right.</i>"
+    assert _data(edit.reply_markup) == [f"done:{item_id}"]  # "Open" and "Done" stay
+    row = await _verdict(committed_db, item_id, goal_id)
+    assert (row.label, row.label_source) == (GoalLabel.CONFIRMED, LabelSource.DIGEST)
+
+
+async def test_wrong_under_a_digest_pick_rejects_the_score(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    item_id, goal_id, markup = await _digest_with_a_score(dispatcher, telegram, committed_db)
+
+    await _arrive(
+        dispatcher, telegram, _press(f"dlabel:{item_id}:{goal_id}:3:wrong", markup=markup)
+    )
+
+    row = await _verdict(committed_db, item_id, goal_id)
+    assert (row.label, row.label_source) == (GoalLabel.REJECTED, LabelSource.DIGEST)
+
+
+async def test_a_digest_verdict_on_a_score_that_changed_is_refused_and_says_so(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    item_id, goal_id, markup = await _digest_with_a_score(dispatcher, telegram, committed_db)
+    async with committed_db() as db:
+        await db.execute(sa.update(ItemGoal).where(ItemGoal.item_id == item_id).values(score=1))
+        await db.commit()
+
+    await _arrive(
+        dispatcher, telegram, _press(f"dlabel:{item_id}:{goal_id}:3:right", markup=markup)
+    )
+
+    _, edit = telegram.calls
+    assert isinstance(edit, EditMessageText)
+    assert (edit.text or "").endswith(
+        "<i>#1: the score changed to 1 since. /label asks about it.</i>"
+    )
+    assert (await _verdict(committed_db, item_id, goal_id)).label is None
+
+
+async def test_a_digest_verdict_of_a_stranger_or_from_an_old_view_changes_nothing(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    item_id, goal_id, markup = await _digest_with_a_score(dispatcher, telegram, committed_db)
+    data = f"dlabel:{item_id}:{goal_id}:3:right"
+    answered = cards.without_item(markup, cards.DIGEST_LABEL, item_id)
+
+    await _arrive(dispatcher, telegram, _press(data, sender=STRANGER, markup=markup))
+    await _arrive(dispatcher, telegram, _press(data, markup=answered))
+
+    assert [type(call).__name__ for call in telegram.calls] == ["AnswerCallbackQuery"] * 2
+    assert (await _verdict(committed_db, item_id, goal_id)).label is None
+
+
+# --- The stale prompt ----------------------------------------------------------------------
+
+
+async def _prompt(sessions: Sessions, *item_ids: int) -> InlineKeyboardMarkup:
+    """The buttons of a stale prompt about these items, as the owner got them."""
+    items = [await _item(sessions, item_id) for item_id in item_ids]
+    return cards.stale_message(items, now=datetime.now(UTC))[1]
+
+
+async def _kinds(sessions: Sessions) -> list[tuple[int, str]]:
+    async with sessions() as db:
+        rows = await db.execute(sa.select(Event.item_id, Event.type).order_by(Event.id))
+        return [(row.item_id, row.type) for row in rows]
+
+
+async def test_archive_in_the_stale_prompt_moves_the_item_to_the_archive(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    old, other = await _saved(committed_db, "Old essay", "Older essay", days_ago=60)
+    markup = await _prompt(committed_db, old, other)
+
+    await _arrive(dispatcher, telegram, _press(f"stale:{old}:archive", markup=markup))
+
+    answer, edit = telegram.calls
+    assert isinstance(answer, AnswerCallbackQuery)
+    assert isinstance(edit, EditMessageText)
+    assert (edit.text or "").endswith("<i>#1: archived. The web app can bring it back.</i>")
+    assert _data(edit.reply_markup) == [f"stale:{other}:archive", f"stale:{other}:keep"]
+    assert await _item_status(committed_db, old) is ItemStatus.ARCHIVED
+    assert await _events(committed_db) == [(old, "archived")]
+
+
+async def test_keep_in_the_stale_prompt_leaves_the_item_and_remembers_the_answer(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    (old,) = await _saved(committed_db, "Old essay", days_ago=60)
+    markup = await _prompt(committed_db, old)
+
+    await _arrive(dispatcher, telegram, _press(f"stale:{old}:keep", markup=markup))
+
+    _, edit = telegram.calls
+    assert isinstance(edit, EditMessageText)
+    assert (edit.text or "").endswith("<i>#1: kept in your inbox.</i>")
+    assert await _item_status(committed_db, old) is ItemStatus.INBOX
+    assert await _kinds(committed_db) == [(old, "kept")]
+
+
+async def test_archive_of_a_merged_copy_archives_the_item_that_it_is_a_copy_of(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    older, copy = await _saved(committed_db, "Essay", "Essay again", days_ago=60)
+    markup = await _prompt(committed_db, copy)
+    async with committed_db() as db:
+        await db.execute(sa.update(Item).where(Item.id == copy).values(duplicate_of_id=older))
+        await db.commit()
+
+    await _arrive(dispatcher, telegram, _press(f"stale:{copy}:archive", markup=markup))
+
+    assert await _item_status(committed_db, older) is ItemStatus.ARCHIVED
+    assert await _events(committed_db) == [(older, "archived")]
+
+
+async def test_a_stale_button_of_an_item_that_is_gone_says_so(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    gone = Item(
+        id=999_999,
+        owner_id=1,
+        title="Gone",
+        capture_count=1,
+        last_captured_at=datetime.now(UTC) - timedelta(days=60),
+    )
+    _, markup = cards.stale_message([gone], now=datetime.now(UTC))
+
+    for action in ("archive", "keep"):
+        await _arrive(dispatcher, telegram, _press(f"stale:999999:{action}", markup=markup))
+
+    edits = [call for call in telegram.calls if isinstance(call, EditMessageText)]
+    assert [(edit.text or "").rpartition("\n")[2] for edit in edits] == [
+        "<i>#1: this thing does not exist any more.</i>"
+    ] * 2
+    assert await _kinds(committed_db) == []
+
+
+async def test_a_stale_button_of_a_stranger_or_from_an_old_view_changes_nothing(
+    dispatcher: Dispatcher, telegram: PretendTelegram, committed_db: Sessions
+) -> None:
+    (old,) = await _saved(committed_db, "Old essay", days_ago=60)
+    markup = await _prompt(committed_db, old)
+    answered = cards.without_item(markup, cards.STALE, old)
+
+    await _arrive(
+        dispatcher, telegram, _press(f"stale:{old}:archive", sender=STRANGER, markup=markup)
+    )
+    await _arrive(dispatcher, telegram, _press(f"stale:{old}:archive", markup=answered))
+
+    assert [type(call).__name__ for call in telegram.calls] == ["AnswerCallbackQuery"] * 2
+    assert await _item_status(committed_db, old) is ItemStatus.INBOX
+    assert await _kinds(committed_db) == []

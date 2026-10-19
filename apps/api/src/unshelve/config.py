@@ -37,6 +37,8 @@ class Settings(BaseSettings):
         "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"
     ] = "sunday"
     digest_hour: int = Field(default=9, ge=0, le=23)
+    # The reading time of a digest, in minutes: its items fit into it (resurface.selection).
+    digest_minutes: int = Field(default=60, ge=5, le=600)
 
     # "fake" and "fixtures" keep every model and network call local and deterministic.
     # "live" asks Claude with ANTHROPIC_API_KEY.

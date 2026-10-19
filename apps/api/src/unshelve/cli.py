@@ -56,7 +56,7 @@ from unshelve.providers.voyage import VoyageEmbedder
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
 from unshelve.relevance import golden, rescore
-from unshelve.resurface import digest, weekly
+from unshelve.resurface import plan, weekly
 from unshelve.runtime import shutdown_event, wait_for_shutdown
 from unshelve.services import (
     build_batches,
@@ -559,29 +559,45 @@ def rekey() -> None:
     typer.echo(f"Items: {items}. New keys: {keys}. Joined to an older item: {joined}.")
 
 
-async def _digest(settings: Settings, *, send: bool) -> tuple[str, int]:
-    """The text of the digest of now, and the number of its items. With ``send``, the bot
-    sends it too."""
+async def _digest_preview(settings: Settings) -> str:
+    """The text of the digest of now, as /digest shows it. Nothing is recorded."""
+    if settings.owner_telegram_id is None:
+        raise _stop("UNSHELVE_OWNER_TELEGRAM_ID is not set. The digest needs its owner.")
+    engine = create_engine(settings.database_url)
+    sessions = create_session_factory(engine)
+    now = datetime.now(UTC)
+    try:
+        async with sessions() as session:
+            owner_id = await auth_store.ensure_owner(session, settings.owner_telegram_id)
+            planned = await plan.plan_digest(
+                session,
+                owner_id,
+                now=now,
+                seed=f"{owner_id}:{now:%Y-%m-%d}",
+                minutes=settings.digest_minutes,
+            )
+            await session.commit()
+        return cards.NOTHING_YET if planned.empty else cards.digest_message(planned, now=now)[0]
+    finally:
+        await engine.dispose()
+
+
+async def _digest_send(settings: Settings) -> weekly.Sent:
+    """Send a digest and its stale prompt now, as the week would send them. A try has a row
+    of its own, so the digest of the week stays as it is. Like each sent digest, it marks its
+    items as shown: they do not come again for three weeks."""
     if settings.owner_telegram_id is None:
         raise _stop("UNSHELVE_OWNER_TELEGRAM_ID is not set. The digest needs its owner.")
     engine = create_engine(settings.database_url)
     services = build_services(settings, create_session_factory(engine))
     now = datetime.now(UTC)
+    period = f"try-{now:%Y-%m-%dT%H:%M:%S}"
     try:
         async with services.sessions() as session:
             owner_id = await auth_store.ensure_owner(session, settings.owner_telegram_id)
-            found = await digest.pick(session, owner_id, now=now, seed=f"{owner_id}:{now:%Y-%m-%d}")
-            text, _ = cards.digest_message(
-                found.recent, found.from_the_shelf, now=now, days=digest.RECENT_DAYS
-            )
-            if send:
-                # A try has a row of its own, so the digest of the week stays as it is.
-                session.add(Digest(owner_id=owner_id, period_key=f"try-{now:%Y-%m-%dT%H:%M:%S}"))
+            session.add(Digest(owner_id=owner_id, period_key=period))
             await session.commit()
-        items = len(found.recent) + (found.from_the_shelf is not None)
-        if send and items:
-            await weekly.send(services, owner_id, f"try-{now:%Y-%m-%dT%H:%M:%S}", now)
-        return text, items
+        return await weekly.send(services, owner_id, period, now)
     finally:
         await close_services(services)
         await engine.dispose()
@@ -589,19 +605,27 @@ async def _digest(settings: Settings, *, send: bool) -> tuple[str, int]:
 
 @digest_app.command("preview")
 def digest_preview() -> None:
-    """Print the digest of now, as the bot would send it. Nothing is sent."""
-    text, items = asyncio.run(_digest(get_settings(), send=False))
-    typer.echo(text if items else cards.NOTHING_YET)
+    """Print the digest of now, as /digest shows it. Nothing is sent or recorded."""
+    typer.echo(asyncio.run(_digest_preview(get_settings())))
 
 
 @digest_app.command("send")
 def digest_send() -> None:
-    """Send the digest of now to the owner, to try it. The digest of the week is not changed."""
+    """Send a digest and its stale prompt to the owner now, to try them. The digest of the
+    week is not changed, but the items of the try count as shown."""
     settings = get_settings()
     if settings.telegram_bot_token is None:
         raise _stop("UNSHELVE_TELEGRAM_BOT_TOKEN is not set. Without a bot, nothing can be sent.")
-    _, items = asyncio.run(_digest(settings, send=True))
-    typer.echo(f"Sent a digest with {items} items." if items else "Nothing to send: no items.")
+    sent = asyncio.run(_digest_send(settings))
+
+    def things(count: int) -> str:
+        return f"{count} item" if count == 1 else f"{count} items"
+
+    typer.echo(
+        f"Sent a digest with {things(sent.items)} and a stale prompt with {things(sent.stale)}."
+        if sent.items or sent.stale
+        else "Nothing to send: no items."
+    )
 
 
 class _Title(BaseModel):

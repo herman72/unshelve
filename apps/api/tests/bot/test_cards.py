@@ -1,13 +1,16 @@
-"""The text of the cards and of the digest. Each test name is one rule. No database here."""
+"""The text of the cards, of the digest and of the stale prompt. Each test name is one rule. No
+database here."""
 
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup
 
 from unshelve.bot import cards
-from unshelve.contracts.enums import ItemStatus
-from unshelve.db.models import Item
+from unshelve.contracts.enums import GoalLabel, ItemStatus
+from unshelve.db.models import Goal, Item
+from unshelve.resurface.plan import PlannedDigest
+from unshelve.resurface.selection import Pick, Reason
 
 NOW = datetime(2026, 10, 18, 9, 0, tzinfo=UTC)
 
@@ -129,52 +132,210 @@ def test_the_pressed_button_goes_and_an_empty_row_goes_too() -> None:
     assert cards.without_button(markup, "done:9") == markup
 
 
-def test_a_digest_lists_the_week_and_then_one_thing_from_the_shelf() -> None:
-    older = _item(9, title="An old paper", last_captured_at=NOW - timedelta(days=95))
-
-    text, markup = cards.digest_message(
-        [_item(1), _item(2, title="Second")], older, now=NOW, days=7
+def _planned(
+    *picks: tuple[Item, Pick],
+    goal: Goal | None = None,
+    titles: dict[int, str] | None = None,
+    scores: dict[tuple[int, int], tuple[int, GoalLabel | None]] | None = None,
+) -> PlannedDigest:
+    return PlannedDigest(
+        goal=goal, picks=list(picks), goal_titles=titles or {}, scores=scores or {}
     )
 
+
+FOCUS = Goal(id=1, owner_id=1, slug="database-internals", title="Database internals")
+
+
+def test_a_digest_lists_its_picks_in_order_each_with_its_reason() -> None:
+    planned = _planned(
+        (_item(1), Pick(1, Reason.FOCUS_GOAL, 6, goal_id=1)),
+        (_item(2, title="Finnish cases"), Pick(2, Reason.OTHER_GOAL, 6, goal_id=2)),
+        (_item(3, title="Sourdough", capture_count=3), Pick(3, Reason.SAVED_AGAIN, 6)),
+        (_item(4, title="New paper"), Pick(4, Reason.RECENT, 6)),
+        (
+            _item(5, title="Bike route", last_captured_at=NOW - timedelta(days=95)),
+            Pick(5, Reason.RANDOM, 6),
+        ),
+        goal=FOCUS,
+        titles={1: "Database internals", 2: "Learn Finnish"},
+        scores={(1, 1): (3, None), (2, 2): (2, None)},
+    )
+
+    text, markup = cards.digest_message(planned, now=NOW)
+
     parts = text.split("\n\n")
-    assert parts[0] == "<b>Your digest</b>\nYou saved 2 things in the last 7 days."
-    assert parts[1].startswith("<b>Vector search in Postgres</b>\n#1 ·")
-    assert parts[2].startswith("<b>Second</b>\n#2 ·")
-    assert parts[3].startswith("<b>From your shelf</b>\n<b>An old paper</b>\n#3 ·")
-    assert parts[3].endswith("saved 3 months ago")
-    assert markup is not None
-    assert [row[-1].callback_data for row in markup.inline_keyboard] == [
-        "done:1",
-        "done:2",
-        "done:9",
+    assert parts[0] == "<b>Your digest</b>\n5 things, about 30 minutes."
+    assert parts[1] == "Your focus goal:\n<b>Database internals</b>"
+    assert parts[2].startswith("<b>Vector search in Postgres</b>\n#1 ·")
+    assert parts[2].endswith("\nFor your focus goal. Score: 3 of 3.")
+    assert parts[3].endswith("\nFor your goal:\n<b>Learn Finnish</b>\nScore: 2 of 3.")
+    assert parts[4].endswith("\nYou saved it 3 times.")
+    assert parts[5].endswith("\nNew in your inbox: saved 1 day ago.")
+    assert parts[6].endswith("\nA random pick from your inbox: saved 3 months ago.")
+    assert parts[7] == "<i>Right or Wrong: is the score of the goal right?</i>"
+    assert _buttons(markup) == [
+        [("Open #1", "https://example.com/how-pgvector-works", None), ("Done #1", None, "done:1")],
+        [("Right #1", None, "dlabel:1:1:3:right"), ("Wrong #1", None, "dlabel:1:1:3:wrong")],
+        [("Open #2", "https://example.com/how-pgvector-works", None), ("Done #2", None, "done:2")],
+        [("Right #2", None, "dlabel:2:2:2:right"), ("Wrong #2", None, "dlabel:2:2:2:wrong")],
+        [("Open #3", "https://example.com/how-pgvector-works", None), ("Done #3", None, "done:3")],
+        [("Open #4", "https://example.com/how-pgvector-works", None), ("Done #4", None, "done:4")],
+        [("Open #5", "https://example.com/how-pgvector-works", None), ("Done #5", None, "done:5")],
     ]
 
 
-def test_a_week_without_saves_still_brings_one_thing_from_the_shelf() -> None:
-    text, _ = cards.digest_message(
-        [], _item(9, last_captured_at=NOW - timedelta(days=20)), now=NOW, days=7
+def test_a_score_with_a_verdict_says_it_and_gets_no_buttons_of_a_verdict() -> None:
+    planned = _planned(
+        (_item(1), Pick(1, Reason.FOCUS_GOAL, 6, goal_id=1)),
+        (_item(2), Pick(2, Reason.FOCUS_GOAL, 6, goal_id=1)),
+        goal=FOCUS,
+        titles={1: "Database internals"},
+        scores={(1, 1): (3, GoalLabel.CONFIRMED), (2, 1): (0, GoalLabel.REJECTED)},
     )
 
-    assert text.startswith("<b>Your digest</b>\nYou saved nothing new in the last 7 days.")
-    assert "<b>From your shelf</b>" in text
+    text, markup = cards.digest_message(planned, now=NOW)
+
+    assert "For your focus goal. Score: 3 of 3. You said: right." in text
+    assert "For your focus goal. Score: 0 of 3. You said: wrong." in text
+    assert "Right or Wrong" not in text
+    assert [b.callback_data for row in markup.inline_keyboard for b in row if b.callback_data] == [  # type: ignore[union-attr]
+        "done:1",
+        "done:2",
+    ]
 
 
-def test_one_saved_thing_is_one_thing() -> None:
-    text, _ = cards.digest_message([_item()], None, now=NOW, days=7)
+def test_the_random_pick_shows_its_score_for_the_focus_goal_and_asks_about_it() -> None:
+    # A low score is what the other rules never show: a verdict on it finds a useful item that
+    # the model missed.
+    random_pick = (_item(5, title="Bike route"), Pick(5, Reason.RANDOM, 6))
+    planned = _planned(random_pick, goal=FOCUS, scores={(5, 1): (0, None)})
 
-    assert "You saved 1 thing in the last 7 days." in text
+    text, markup = cards.digest_message(planned, now=NOW)
+
+    assert text.split("\n\n")[2].endswith(
+        "\nA random pick from your inbox: saved 1 day ago.\nFor your focus goal. Score: 0 of 3."
+    )
+    assert _buttons(markup)[1] == [
+        ("Right #1", None, "dlabel:5:1:0:right"),
+        ("Wrong #1", None, "dlabel:5:1:0:wrong"),
+    ]
+
+
+def test_a_random_pick_without_a_score_for_the_focus_goal_asks_nothing() -> None:
+    random_pick = (_item(5, title="Bike route"), Pick(5, Reason.RANDOM, 6))
+    without_focus = _planned(random_pick, scores={(5, 1): (0, None)})
+    without_score = _planned(random_pick, goal=FOCUS)
+
+    for planned in (without_focus, without_score):
+        text, markup = cards.digest_message(planned, now=NOW)
+
+        assert "Score" not in text
+        assert _buttons(markup) == [
+            [
+                ("Open #1", "https://example.com/how-pgvector-works", None),
+                ("Done #1", None, "done:5"),
+            ]
+        ]
+
+
+def test_a_goal_title_stands_alone_on_its_line_and_is_escaped() -> None:
+    persian = "یادگیری سیستم <i>"
+    planned = _planned(
+        (_item(1), Pick(1, Reason.OTHER_GOAL, 6, goal_id=7)),
+        goal=Goal(id=8, owner_id=1, slug="x", title="Rust & <i>systems</i>"),
+        titles={7: persian},
+        scores={(1, 7): (2, None)},
+    )
+
+    text, _ = cards.digest_message(planned, now=NOW)
+
+    lines = text.splitlines()
+    assert "<b>Rust &amp; &lt;i&gt;systems&lt;/i&gt;</b>" in lines
+    assert "<b>" + "یادگیری سیستم &lt;i&gt;" + "</b>" in lines
+
+
+def test_a_digest_without_a_focus_goal_has_no_line_for_it_and_one_pick_is_one_thing() -> None:
+    text, _ = cards.digest_message(_planned((_item(1), Pick(1, Reason.RECENT, 6))), now=NOW)
+
+    assert text.startswith("<b>Your digest</b>\n1 thing, about 6 minutes.\n\n<b>Vector search")
+    assert "focus goal" not in text
 
 
 def test_a_digest_that_is_too_long_loses_the_summaries_first() -> None:
-    many = [_item(n, title="t" * 190, summary="s" * 500) for n in range(1, 30)]
+    many = [
+        (_item(n, title="t" * 190, summary="s" * 500), Pick(n, Reason.RECENT, 6))
+        for n in range(1, 30)
+    ]
 
-    text, _ = cards.digest_message(many, None, now=NOW, days=7)
+    text, _ = cards.digest_message(_planned(*many), now=NOW)
 
-    assert len(text) <= cards.MAX_MESSAGE or "sss" not in text
     assert "sss" not in text
 
 
+# --- The stale prompt --------------------------------------------------------------------
+
+
+def test_the_stale_prompt_asks_about_each_item_with_archive_and_keep() -> None:
+    old = [
+        _item(4, last_captured_at=NOW - timedelta(days=40)),
+        _item(9, title="A note", canonical_url=None, last_captured_at=NOW - timedelta(days=200)),
+    ]
+
+    text, markup = cards.stale_message(old, now=NOW)
+
+    parts = text.split("\n\n")
+    assert parts[0] == (
+        "<b>Still in your inbox</b>\nThese things wait since 30 days or more. Archive, or keep?"
+    )
+    assert parts[1].startswith("<b>Vector search in Postgres</b>\n#1 ·")
+    assert parts[1].endswith("\nsaved 5 weeks ago")
+    assert "How pgvector stores vectors." not in text  # no summaries: a short question
+    assert parts[2].startswith("<b>A note</b>\n#2")
+    assert _buttons(markup) == [
+        [
+            ("Open #1", "https://example.com/how-pgvector-works", None),
+            ("Archive #1", None, "stale:4:archive"),
+            ("Keep #1", None, "stale:4:keep"),
+        ],
+        [("Archive #2", None, "stale:9:archive"), ("Keep #2", None, "stale:9:keep")],
+    ]
+
+
+def test_one_stale_thing_is_one_thing() -> None:
+    text, _ = cards.stale_message([_item(4, last_captured_at=NOW - timedelta(days=40))], now=NOW)
+
+    assert "This thing waits since 30 days or more." in text
+
+
+def test_only_the_buttons_of_this_version_are_read() -> None:
+    assert cards.parse_stale("stale:4:archive") == (4, "archive")
+    assert cards.parse_stale("stale:4:keep") == (4, "keep")
+    for data in ("stale:4:delete", "stale:x:keep", "stale:4", "done:4", "stale:4:keep:1"):
+        assert cards.parse_stale(data) is None
+    assert cards.parse_label("dlabel:1:2:3:right", prefix=cards.DIGEST_LABEL) == (1, 2, 3, "right")
+    assert cards.parse_label("dlabel:1:2:3:right") is None  # not a button of /label
+    assert cards.parse_label("label:1:2:3:right", prefix=cards.DIGEST_LABEL) is None
+
+
+def test_a_pressed_item_loses_its_buttons_and_says_its_number() -> None:
+    _, markup = cards.stale_message(
+        [_item(4, last_captured_at=NOW - timedelta(days=40)), _item(9)], now=NOW
+    )
+
+    assert cards.number_of(markup, "stale:9:keep") == "#2"
+    assert cards.number_of(markup, "stale:5:keep") == "This thing"
+    assert _buttons(cards.without_item(markup, cards.STALE, 9)) == [
+        [
+            ("Open #1", "https://example.com/how-pgvector-works", None),
+            ("Archive #1", None, "stale:4:archive"),
+            ("Keep #1", None, "stale:4:keep"),
+        ],
+        [("Open #2", "https://example.com/how-pgvector-works", None)],
+    ]
+
+
 def test_the_age_of_an_older_thing_is_said_in_days_weeks_or_months() -> None:
+    assert cards.ago(NOW - timedelta(hours=23), NOW) == "saved today"
     assert cards.ago(NOW - timedelta(days=1), NOW) == "saved 1 day ago"
     assert cards.ago(NOW - timedelta(days=9), NOW) == "saved 9 days ago"
     assert cards.ago(NOW - timedelta(days=30), NOW) == "saved 4 weeks ago"
@@ -182,9 +343,24 @@ def test_the_age_of_an_older_thing_is_said_in_days_weeks_or_months() -> None:
 
 
 def test_a_button_can_have_no_more_than_64_bytes_of_data() -> None:
-    markup = cards.buttons([_item(9_223_372_036_854_775_807)])  # the largest id of a BIGINT
+    largest = 9_223_372_036_854_775_807  # the largest id of a BIGINT
+    planned = _planned(
+        (_item(largest), Pick(largest, Reason.OTHER_GOAL, 6, goal_id=largest)),
+        titles={largest: "A goal"},
+        scores={(largest, largest): (3, None)},
+    )
+    markups = [
+        cards.buttons([_item(largest)]),
+        cards.digest_buttons(planned),
+        cards.stale_message([_item(largest)], now=NOW)[1],
+    ]
 
-    assert markup is not None
-    button: InlineKeyboardButton = markup.inline_keyboard[0][-1]
-    assert button.callback_data is not None
-    assert len(button.callback_data.encode()) <= 64
+    data = [
+        button.callback_data
+        for markup in markups
+        for row in markup.inline_keyboard  # type: ignore[union-attr]
+        for button in row
+        if button.callback_data
+    ]
+    assert len(data) == 6
+    assert all(len(item.encode()) <= 64 for item in data)

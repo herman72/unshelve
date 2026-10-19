@@ -17,7 +17,7 @@ from aiogram import F, Router
 from aiogram.enums import ChatType, ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
-from aiogram.types import CallbackQuery, LinkPreviewOptions, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, LinkPreviewOptions, Message
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from unshelve.auth import store as auth_store
@@ -26,7 +26,7 @@ from unshelve.bot.capture import DATABASE_IS_DOWN
 from unshelve.config import Settings
 from unshelve.contracts.enums import Actor, GoalLabel, ItemStatus, LabelSource
 from unshelve.relevance import labels
-from unshelve.resurface import digest
+from unshelve.resurface import plan, stale
 from unshelve.track import status
 
 log = structlog.get_logger()
@@ -36,7 +36,8 @@ HELP = (
     "\n"
     "To save something, post it in your channel. I store each post of the channel.\n"
     "\n"
-    "/digest shows the things that you saved in the last 7 days, and one older thing.\n"
+    "/digest shows what a digest would bring back now: things for your goals first, then things "
+    "that you saved again or lately, and one random pick. Each week I send you one.\n"
     "/label asks you about the scores against your goals, one at a time: is the score right?\n"
     "/login gives you a link to sign in to the web app.\n"
     "/help shows this text."
@@ -100,33 +101,39 @@ async def on_login(
 async def on_digest(
     message: Message, settings: Settings, sessions: async_sessionmaker[AsyncSession]
 ) -> None:
-    """Show the digest now: the things of the last days, and one older thing."""
+    """Show the digest of now, as the weekly digest would choose it (note 34). Nothing is
+    recorded: the items are not marked as shown."""
     if settings.owner_telegram_id is None:  # the filter of the router lets no such message in
         return
     now = datetime.now(UTC)
     try:
         async with sessions() as session:
             owner_id = await auth_store.ensure_owner(session, settings.owner_telegram_id)
-            # The older thing changes once a day, not with each /digest.
-            found = await digest.pick(session, owner_id, now=now, seed=f"{owner_id}:{now:%Y-%m-%d}")
+            # The random pick changes once a day, not with each /digest; the page "Digest" of
+            # the web app uses the same seed.
+            planned = await plan.plan_digest(
+                session,
+                owner_id,
+                now=now,
+                seed=f"{owner_id}:{now:%Y-%m-%d}",
+                minutes=settings.digest_minutes,
+            )
             await session.commit()
     except DATABASE_IS_DOWN as error:
         log.error("digest.database_down", reason=type(error).__name__)
         await message.answer(NO_DIGEST_NOW, parse_mode=None)
         return
-    if found.empty:
+    if planned.empty:
         await message.answer(cards.NOTHING_YET, parse_mode=None)
         return
-    text, keyboard = cards.digest_message(
-        found.recent, found.from_the_shelf, now=now, days=digest.RECENT_DAYS
-    )
+    text, keyboard = cards.digest_message(planned, now=now)
     await message.answer(
         text,
         parse_mode=ParseMode.HTML,
         reply_markup=keyboard,
         link_preview_options=LinkPreviewOptions(is_disabled=True),
     )
-    log.info("digest.shown", items=len(found.recent) + (found.from_the_shelf is not None))
+    log.info("digest.shown", items=len(planned.picks))
 
 
 async def on_done(
@@ -278,6 +285,135 @@ async def on_verdict(
     await _ask(message, following)
 
 
+async def _note(message: Message, line: str, markup: InlineKeyboardMarkup | None) -> None:
+    """Add a line in italics at the end of a message, and give it new buttons."""
+    try:
+        await message.edit_text(
+            f"{message.html_text}\n\n<i>{html.escape(line, quote=False)}</i>",
+            parse_mode=ParseMode.HTML,
+            reply_markup=markup,
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
+    except TelegramBadRequest as error:
+        log.warning("button.not_changed", reason=error.message)
+
+
+def _usable_press(callback: CallbackQuery, settings: Settings) -> Message | None:
+    """The message of a press of the owner on a button that the message still has, or None.
+    A press on a button that is gone came from an old view of the message: it changes nothing.
+    A message older than 48 hours comes without its content."""
+    if settings.owner_telegram_id is None or callback.from_user.id != settings.owner_telegram_id:
+        log.info("button.ignored", reason="not the owner")
+        return None
+    message = callback.message
+    if not isinstance(message, Message) or not cards.has_button(
+        message.reply_markup, callback.data or ""
+    ):
+        log.info("button.ignored", reason="answered or too old")
+        return None
+    return message
+
+
+async def on_digest_verdict(
+    callback: CallbackQuery, settings: Settings, sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    """ "Right" or "Wrong" under a pick of a digest: a verdict on the score that the digest
+    shows. No next question follows; that is what /label does."""
+    await callback.answer()  # first: Telegram forgets a press without an answer (docs/adr/0009)
+    message = _usable_press(callback, settings)
+    data = callback.data or ""
+    parsed = cards.parse_label(data, prefix=cards.DIGEST_LABEL)
+    if message is None or settings.owner_telegram_id is None:
+        return
+    if parsed is None or parsed[3] == "skip":
+        log.info("button.ignored", reason="no score in the button")
+        return
+    item_id, goal_id, score, verdict = parsed
+    try:
+        async with sessions() as session:
+            owner_id = await auth_store.ensure_owner(session, settings.owner_telegram_id)
+            change = await labels.set_label(
+                session,
+                owner_id,
+                item_id,
+                goal_id,
+                GoalLabel.CONFIRMED if verdict == "right" else GoalLabel.REJECTED,
+                source=LabelSource.DIGEST,
+                shown_score=score,
+            )
+            await session.commit()
+    except DATABASE_IS_DOWN as error:
+        # The buttons stay. The owner can press again.
+        log.error("button.database_down", reason=type(error).__name__)
+        return
+    number = cards.number_of(message.reply_markup, data)
+    if change.row is None:
+        line = f"{number}: this score does not exist any more."
+    elif change.outcome is labels.LabelOutcome.SCORE_CHANGED:
+        line = f"{number}: the score changed to {change.row.score} since. /label asks about it."
+    else:
+        line = f"{number}: you said that the score is {verdict}."
+    log.info("button.digest_verdict", item_id=item_id, goal_id=goal_id, verdict=verdict)
+    await _note(
+        message, line, cards.without_item(message.reply_markup, cards.DIGEST_LABEL, item_id)
+    )
+
+
+async def on_stale(
+    callback: CallbackQuery, settings: Settings, sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    """A button of the stale prompt. "Archive" moves the thing out of the inbox (nothing is
+    deleted); "Keep" leaves it there, and the prompt leaves it alone for 90 days."""
+    await callback.answer()  # first: Telegram forgets a press without an answer (docs/adr/0009)
+    message = _usable_press(callback, settings)
+    data = callback.data or ""
+    parsed = cards.parse_stale(data)
+    if message is None or settings.owner_telegram_id is None:
+        return
+    if parsed is None:
+        log.info("button.ignored", reason="no item in the button")
+        return
+    item_id, action = parsed
+    try:
+        async with sessions() as session:
+            owner_id = await auth_store.ensure_owner(session, settings.owner_telegram_id)
+            if action == "archive":
+                change = await status.change_status(
+                    session,
+                    owner_id,
+                    item_id,
+                    ItemStatus.ARCHIVED,
+                    actor=Actor.USER,
+                    via="telegram",
+                )
+                if change.duplicate_of is not None:
+                    # The thing was merged into an older item since: that one is in the lists.
+                    change = await status.change_status(
+                        session,
+                        owner_id,
+                        change.duplicate_of,
+                        ItemStatus.ARCHIVED,
+                        actor=Actor.USER,
+                        via="telegram",
+                    )
+                found = change.outcome is not status.Outcome.NOT_FOUND
+            else:
+                found = await stale.keep(session, owner_id, item_id)
+            await session.commit()
+    except DATABASE_IS_DOWN as error:
+        log.error("button.database_down", reason=type(error).__name__)
+        return
+    number = cards.number_of(message.reply_markup, data)
+    if not found:
+        line = f"{number}: this thing does not exist any more."
+    elif action == "archive":
+        line = f"{number}: archived. The web app can bring it back."
+    else:
+        line = f"{number}: kept in your inbox."
+    log.info("button.stale", item_id=item_id, action=action, found=found)
+    await _note(message, line, cards.without_item(message.reply_markup, cards.STALE, item_id))
+
+
 async def on_other_button(callback: CallbackQuery) -> None:
     """A button that this version does not know, for example an old one."""
     await callback.answer()
@@ -317,6 +453,8 @@ def build_router() -> Router:
     pressed = Router(name="private.buttons")
     pressed.callback_query.register(on_done, F.data.startswith(f"{cards.DONE}:"))
     pressed.callback_query.register(on_verdict, F.data.startswith(f"{cards.LABEL}:"))
+    pressed.callback_query.register(on_digest_verdict, F.data.startswith(f"{cards.DIGEST_LABEL}:"))
+    pressed.callback_query.register(on_stale, F.data.startswith(f"{cards.STALE}:"))
     pressed.callback_query.register(on_other_button)
     router.include_router(pressed)
 
