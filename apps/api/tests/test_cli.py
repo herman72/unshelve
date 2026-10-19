@@ -14,6 +14,7 @@ import sqlalchemy as sa
 from sqlalchemy.exc import OperationalError
 from typer.testing import CliRunner, Result
 
+from tests.bot.support import PretendTelegram, offline_bot
 from tests.ingest.support import DESKTOP, MACOS, MADE_UP, made_up_with_files
 from unshelve import __version__, cli
 from unshelve.auth import store as auth_store
@@ -41,7 +42,9 @@ from unshelve.contracts.errors import ExtractError, ProviderError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import (
+    Base,
     Capture,
+    Digest,
     Goal,
     Item,
     ItemContent,
@@ -1025,6 +1028,97 @@ def test_digest_preview_prints_the_digest_and_sends_nothing(
     # so the digest has nothing to show.
     assert result.exit_code == 0, result.output
     assert result.stdout.strip() == cards.NOTHING_YET
+
+
+def _count(database_url: str, model: type[Base]) -> int:
+    async def count() -> int:
+        engine = create_engine(database_url)
+        try:
+            async with create_session_factory(engine)() as db:
+                return await db.scalar(sa.select(sa.func.count()).select_from(model)) or 0
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(count())
+
+
+def _saved_items(database_url: str, *titles_and_days: tuple[str, int]) -> None:
+    """Items of the owner 4242, each saved that many days ago, with 20 minutes to read."""
+
+    async def save() -> None:
+        engine = create_engine(database_url)
+        try:
+            async with create_session_factory(engine)() as db:
+                owner_id = await auth_store.ensure_owner(db, 4242)
+                for title, days in titles_and_days:
+                    at = datetime.now(UTC) - timedelta(days=days)
+                    db.add(
+                        Item(
+                            owner_id=owner_id,
+                            title=title,
+                            est_minutes=20,
+                            first_captured_at=at,
+                            last_captured_at=at,
+                        )
+                    )
+                await db.commit()
+        finally:
+            await engine.dispose()
+
+    asyncio.run(save())
+
+
+def test_digest_preview_prints_the_digest_of_now_and_records_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _saved_items(private_database_url, ("A new note", 2))
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "digest",
+        "preview",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        UNSHELVE_OWNER_TELEGRAM_ID="4242",
+    )
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.startswith("<b>Your digest</b>\n1 thing, about 20 minutes.")
+    assert "New in your inbox: saved 2 days ago." in result.stdout
+    assert _count(private_database_url, Digest) == 0
+
+
+def test_digest_send_sends_a_try_with_its_stale_prompt(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _saved_items(private_database_url, ("A new note", 2), ("An old essay", 60))
+    telegram = PretendTelegram()
+
+    def offline(settings: Settings, sessions: Any) -> Any:
+        return dataclasses.replace(build_services(settings, sessions), bot=offline_bot(telegram))
+
+    monkeypatch.setattr(cli, "build_services", offline)
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "digest",
+        "send",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        UNSHELVE_OWNER_TELEGRAM_ID="4242",
+        UNSHELVE_TELEGRAM_BOT_TOKEN="42:TEST",  # noqa: S106 - the made-up token of the tests
+    )
+
+    assert result.exit_code == 0, result.output
+    # The lines before it are the log lines of the sending.
+    last = result.stdout.strip().splitlines()[-1]
+    assert last == "Sent a digest with 1 item and a stale prompt with 1 item."
+    assert [m.text.split("\n")[0] for m in telegram.sent] == [
+        "<b>Your digest</b>",
+        "<b>Still in your inbox</b>",
+    ]
+    # A try has a row of its own: the row of the week is not touched.
+    assert _count(private_database_url, Digest) == 1
 
 
 def test_digest_send_needs_a_bot(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
