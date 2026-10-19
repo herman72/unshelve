@@ -611,7 +611,8 @@ class LLMBatchItem(Base):
 
 
 class Digest(Base):
-    """One sent digest. The unique key makes sending idempotent."""
+    """One digest of a period, and its stale prompt. The unique key makes sending idempotent:
+    each part is sent one time, and its ``..._sent_at`` says that it was."""
 
     __tablename__ = "digests"
     __table_args__ = (sa.UniqueConstraint("owner_id", "period_key", name="uq_digests_period"),)
@@ -621,4 +622,7 @@ class Digest(Base):
     period_key: Mapped[str] = mapped_column(sa.Text)
     item_ids: Mapped[list[int]] = mapped_column(JSONB, server_default=EMPTY_LIST)
     sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP)
+    # The old items of the inbox that the stale prompt asked about: archive or keep?
+    stale_item_ids: Mapped[list[int]] = mapped_column(JSONB, server_default=EMPTY_LIST)
+    stale_sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP)
     created_at: Mapped[datetime] = _created_at()
