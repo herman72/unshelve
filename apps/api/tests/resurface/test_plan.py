@@ -84,6 +84,31 @@ async def test_the_focus_goal_of_the_owner_gives_the_focus_picks(db: AsyncSessio
     assert planned.total_minutes == 40
 
 
+async def test_the_plan_keeps_the_scores_that_the_digest_shows(db: AsyncSession) -> None:
+    owner_id = await _owner(db)
+    focus = await _goal(db, owner_id, "Rust", is_focus=True)
+    other = await _goal(db, owner_id, "GPU")
+    for_other = await _item(db, owner_id)
+    # 5 minutes and no rule: the random pick. Its score of 0 for the focus goal is shown.
+    short = await _item(db, owner_id, est_minutes=5)
+    await _score(db, for_other, other, 3)
+    await _score(db, for_other, focus, 0)
+    await _score(db, short, focus, 0)
+
+    planned = await plan_digest(db, owner_id, now=NOW, seed="2026-W42", minutes=60)
+
+    assert [(item.id, pick.reason) for item, pick in planned.picks] == [
+        (for_other.id, Reason.OTHER_GOAL),
+        (short.id, Reason.RANDOM),
+    ]
+    # Only the score that each pick shows: not the 0 of the first item for the focus goal.
+    assert planned.scores == {(for_other.id, other.id): (3, None), (short.id, focus.id): (0, None)}
+    assert [planned.shown_score(pick) for _, pick in planned.picks] == [
+        (other.id, 3, None),
+        (focus.id, 0, None),
+    ]
+
+
 async def test_a_goal_of_the_request_replaces_the_focus_goal(db: AsyncSession) -> None:
     owner_id = await _owner(db)
     await _goal(db, owner_id, "Rust", is_focus=True)
