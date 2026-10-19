@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from unshelve.contracts.enums import GoalLabel, ItemStatus
 from unshelve.db.models import Digest, Goal, Item, ItemGoal
-from unshelve.resurface.selection import Candidate, Pick, select
+from unshelve.resurface.selection import Candidate, Pick, Reason, select
 
 # A digest does not show an item again that a digest of the last three weeks showed.
 NO_REPEAT_DAYS = 21
@@ -24,6 +24,17 @@ class PlannedDigest:
     goal: Goal | None  # the goal of the focus picks
     picks: list[tuple[Item, Pick]]
     goal_titles: dict[int, str]  # the title of each active goal, for the reasons
+    # The scores that the digest shows, as (item, goal): (score of the model, your verdict).
+    # A pick for a goal shows the score of its goal; the random pick shows its score for the
+    # focus goal, when it has one. A digest asks for a verdict only on a score that has none.
+    scores: dict[tuple[int, int], tuple[int, GoalLabel | None]]
+
+    def shown_score(self, pick: Pick) -> tuple[int, int, GoalLabel | None] | None:
+        """The goal, the score and your verdict that the digest shows for a pick, or None."""
+        goal_id = _goal_of_score(pick, self.goal)
+        if goal_id is None or (pick.item_id, goal_id) not in self.scores:
+            return None
+        return (goal_id, *self.scores[(pick.item_id, goal_id)])
 
     @property
     def total_minutes(self) -> int:
@@ -46,7 +57,9 @@ async def _goal(session: AsyncSession, owner_id: int, goal_id: int | None) -> Go
     return goal
 
 
-async def _shown_since(session: AsyncSession, owner_id: int, since: datetime) -> set[int]:
+async def shown_since(session: AsyncSession, owner_id: int, since: datetime) -> set[int]:
+    """The items of the digests that were sent from ``since`` on. A planned digest that was
+    never sent showed nothing."""
     shown: set[int] = set()
     for item_ids in await session.scalars(
         sa.select(Digest.item_ids).where(Digest.owner_id == owner_id, Digest.sent_at >= since)
@@ -114,11 +127,28 @@ async def plan_digest(
         budget=minutes,
         seed=seed,
         now=now,
-        shown_recently=await _shown_since(session, owner_id, now - timedelta(days=NO_REPEAT_DAYS)),
+        shown_recently=await shown_since(session, owner_id, now - timedelta(days=NO_REPEAT_DAYS)),
     )
     by_id = {item.id: item for item in items}
     return PlannedDigest(
         goal=goal,
         picks=[(by_id[pick.item_id], pick) for pick in selection.picks],
         goal_titles=titles,
+        scores={
+            (pick.item_id, goal_id): scores[pick.item_id][goal_id]
+            for pick in selection.picks
+            if (goal_id := _goal_of_score(pick, goal)) is not None
+            and goal_id in scores.get(pick.item_id, {})
+        },
     )
+
+
+def _goal_of_score(pick: Pick, focus: Goal | None) -> int | None:
+    """The goal whose score the digest shows for a pick: the goal of a pick for a goal, or the
+    focus goal for the random pick. Your verdict on the random pick tells whether a low score
+    hid a useful item: the other rules never show such a score (docs/learn/34)."""
+    if pick.goal_id is not None:
+        return pick.goal_id
+    if pick.reason is Reason.RANDOM and focus is not None:
+        return focus.id
+    return None
