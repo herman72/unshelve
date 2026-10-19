@@ -47,6 +47,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 33 | [Your verdicts, and the golden set](33-labels-and-golden-set.md) | How a verdict holds only for the score that you saw, which score the chat asks about next, and how the golden set stays reproducible | |
 | 34 | [Choosing a digest](34-choosing-a-digest.md) | How a digest fills a time budget rule by rule, why its random slot is reserved first, and how a pure function and property tests keep the choice the same for the same seed | [Digest simulator](../digest-simulator.html) |
 | 35 | [Sending the digest](35-sending-the-digest.md) | How one job sends the digest and the stale prompt each one time, how Archive and Keep work, and why the random pick asks for a verdict | |
+| 36 | [Three retrievers](36-three-retrievers.md) | How full text, trigrams and vectors each find items, why a Persian word with a zero-width non-joiner needs trigrams, and how a measurement chose the trigram threshold | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 
