@@ -17,6 +17,21 @@ const AT = new Intl.DateTimeFormat("en-GB", {
 
 const VIA: Record<string, string> = { api: "through the API", telegram: "in Telegram" };
 
+// Why a digest brought the item back (the reasons of resurface/selection.py).
+const WHY: Record<string, string> = {
+  focus_goal: "for your focus goal",
+  other_goal: "for one of your goals",
+  saved_again: "because you saved it again",
+  recent: "because it was new",
+  random: "as the random pick",
+};
+
+/** "your digest of week 43, 2026" for a week; a digest that was sent to try it has no week. */
+function digestName(period: string | null): string {
+  const week = period ? /^(\d{4})-W(\d{2})$/.exec(period) : null;
+  return week ? `your digest of week ${Number(week[2])}, ${week[1]}` : "a digest";
+}
+
 function text(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
 }
@@ -40,6 +55,14 @@ function describe(event: ItemEvent): string {
       return `The vectors could not be made${because}`;
     case "score_failed":
       return `The scores against the goals could not be made${because}`;
+    case "surfaced": {
+      const why = WHY[text(event.payload.reason) ?? ""];
+      return `Shown in ${digestName(text(event.payload.period))}${why ? `, ${why}` : ""}`;
+    }
+    case "stale_asked":
+      return "Asked in Telegram: archive it, or keep it?";
+    case "kept":
+      return "Kept in the inbox, in Telegram";
     default:
       return event.type; // a type that this page does not know yet
   }

@@ -58,3 +58,12 @@ export async function digestMinutes(request: APIRequestContext): Promise<number[
 export async function emptyDigest(request: APIRequestContext): Promise<void> {
   await request.post(`${API_URL}/__digest`, { data: { empty: true } });
 }
+
+/** An event of an item in the pretend API, as the worker or the bot would write it. */
+export async function addEvent(
+  request: APIRequestContext,
+  itemId: number,
+  event: { type: string; actor?: string; payload?: Record<string, unknown> },
+): Promise<void> {
+  await request.post(`${API_URL}/__events/${itemId}`, { data: event });
+}

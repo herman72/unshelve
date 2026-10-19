@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { changeItem, moves, resetApi } from "./support";
+import { addEvent, changeItem, moves, resetApi } from "./support";
 
 // The made-up items of e2e/fixture-api.mjs: 1 to 5 are in the inbox, 6 is a merged copy of 1,
 // and 1000 is done. The pretend API has the table of moves of the real API, and a reading
@@ -115,4 +115,27 @@ test("the queue lists the item being read first, then the items that wait", asyn
   await expect(cards).toHaveCount(2);
   await expect(cards.nth(0)).toContainText("Leases for Job Queues in Postgres");
   await expect(cards.nth(1)).toContainText("صف کارها در پستگرس");
+});
+
+test("the history says when a digest showed the item and what the stale prompt asked", async ({
+  page,
+  request,
+}) => {
+  await addEvent(request, 3, {
+    type: "surfaced",
+    payload: { period: "2026-W43", reason: "focus_goal", goal_id: 1 },
+  });
+  await addEvent(request, 3, { type: "surfaced", payload: { period: "try-2026-10-19T17:00:00" } });
+  await addEvent(request, 3, { type: "stale_asked", payload: { period: "2026-W44" } });
+  await addEvent(request, 3, { type: "kept", actor: "user", payload: { via: "telegram" } });
+
+  await page.goto("/items/3");
+
+  // Newest first.
+  await expect(page.getByRole("list", { name: "History" }).getByRole("listitem")).toContainText([
+    "Kept in the inbox, in Telegram",
+    "Asked in Telegram: archive it, or keep it?",
+    "Shown in a digest",
+    "Shown in your digest of week 43, 2026, for your focus goal",
+  ]);
 });
