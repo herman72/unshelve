@@ -58,6 +58,7 @@ from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
 from unshelve.relevance import golden, rescore
 from unshelve.resurface import plan, weekly
 from unshelve.runtime import shutdown_event, wait_for_shutdown
+from unshelve.search import retrievers
 from unshelve.services import (
     build_batches,
     build_embedder,
@@ -90,6 +91,8 @@ labels_app = typer.Typer(
     no_args_is_help=True, help="Your verdicts on the scores, as an evaluation set."
 )
 app.add_typer(labels_app, name="labels")
+search_app = typer.Typer(no_args_is_help=True, help="Search your items.")
+app.add_typer(search_app, name="search")
 
 
 def _setup_logging() -> structlog.stdlib.BoundLogger:
@@ -1119,4 +1122,77 @@ async def _labels_export(settings: Settings, telegram_user_id: int) -> list[dict
             await session.commit()
             return lines
     finally:
+        await engine.dispose()
+
+
+# --- unshelve search ---------------------------------------------------------------------
+
+Found = list[tuple[int, str]]  # the item and its title, the best first
+
+
+@search_app.command("retrievers")
+def search_retrievers(
+    query: Annotated[str, typer.Argument(help="What to look for, as in a web search.")],
+    limit: Annotated[
+        int, typer.Option(min=1, max=50, help="At most this many items for each retriever.")
+    ] = 10,
+) -> None:
+    """Print what each of the three retrievers finds, the best first (docs/learn/36).
+
+    Search joins the three lists into one (reciprocal rank fusion). With a live embedder, the
+    query costs one call of the embedder.
+    """
+    settings = get_settings()
+    if settings.owner_telegram_id is None:
+        raise _stop("UNSHELVE_OWNER_TELEGRAM_ID is not set. Search needs its owner.")
+    owner = settings.owner_telegram_id
+    for name, found in asyncio.run(_search_retrievers(settings, owner, query, limit)):
+        typer.echo(f"{name}:")
+        if found is None:
+            typer.echo(
+                "  no vectors of this embedder in the active set: unshelve embeddings status"
+            )
+        elif not found:
+            typer.echo("  nothing")
+        for rank, (item_id, title) in enumerate(found or [], start=1):
+            typer.echo(f"  {rank}. #{item_id} {title}")
+
+
+async def _search_retrievers(
+    settings: Settings, owner_telegram_id: int, query: str, limit: int
+) -> list[tuple[str, Found | None]]:
+    engine = create_engine(settings.database_url)
+    services = build_services(settings, create_session_factory(engine))
+    try:
+        async with services.sessions() as session:
+            owner_id = await auth_store.ensure_owner(session, owner_telegram_id)
+            set_id = await retrievers.searchable_set(session, services.embedder.spec)
+            await session.commit()
+        # The query vector is made with no transaction open: a provider can be slow.
+        query_vector = await services.embedder.embed_query(query) if set_id is not None else None
+        async with services.sessions() as session:
+            full = await retrievers.full_text(session, owner_id, query, limit=limit)
+            close = await retrievers.trigram(session, owner_id, query, limit=limit)
+            near = (
+                await retrievers.vector(session, owner_id, set_id, query_vector, limit=limit)
+                if set_id is not None and query_vector is not None
+                else None
+            )
+            rows = await session.execute(
+                sa.select(Item.id, Item.title, Item.canonical_url).where(
+                    Item.id.in_([*full, *close, *(near or [])])
+                )
+            )
+            titles = {row.id: row.title or row.canonical_url or "(no title)" for row in rows}
+
+        def named(ids: list[int]) -> Found:
+            return [(item_id, titles[item_id]) for item_id in ids]
+
+        return [
+            ("full text", named(full)),
+            ("trigram", named(close)),
+            ("vector", named(near) if near is not None else None),
+        ]
+    finally:
+        await close_services(services)
         await engine.dispose()

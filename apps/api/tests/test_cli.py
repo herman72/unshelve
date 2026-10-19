@@ -1697,3 +1697,65 @@ def test_labels_export_writes_one_line_for_each_verdict_and_the_summary_apart(
         == "2 verdicts: 1 confirmed, 1 rejected; 1 relevant. Sources: dm 1, web 1."
     )
     assert first.stdout == second.stdout  # the same database gives the same file
+
+
+# --- unshelve search ---------------------------------------------------------------------
+
+
+def test_search_retrievers_prints_what_each_retriever_finds(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _saved_items(private_database_url, ("Postgres as a job queue", 1))
+    env = {"UNSHELVE_DATABASE_URL": private_database_url, "UNSHELVE_OWNER_TELEGRAM_ID": "4242"}
+
+    exact = _run(monkeypatch, tmp_path, "search", "retrievers", "postgres", **env)
+    typo = _run(monkeypatch, tmp_path, "search", "retrievers", "postgress", **env)
+
+    assert exact.exit_code == 0, exact.output
+    no_vectors = "  no vectors of this embedder in the active set: unshelve embeddings status"
+    assert exact.stdout.splitlines() == [
+        "full text:",
+        "  1. #1 Postgres as a job queue",
+        "trigram:",
+        "  1. #1 Postgres as a job queue",
+        "vector:",
+        no_vectors,
+    ]
+    # A typo: full text finds nothing, trigram finds the title.
+    assert typo.stdout.splitlines()[:4] == [
+        "full text:",
+        "  nothing",
+        "trigram:",
+        "  1. #1 Postgres as a job queue",
+    ]
+
+
+def test_search_retrievers_reads_the_vectors_of_the_active_set(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _two_ready_items(private_database_url)  # the fake pipeline: vectors in the active set
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "search",
+        "retrievers",
+        "vector search",
+        "--limit",
+        "5",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        UNSHELVE_OWNER_TELEGRAM_ID="1",
+    )
+
+    assert result.exit_code == 0, result.output
+    lines = result.stdout.splitlines()
+    near = lines[lines.index("vector:") + 1 :]
+    # Both items have vectors; the nearest come back, also when they are not near.
+    assert [line.split(".")[0] for line in near] == ["  1", "  2"]
+
+
+def test_search_needs_an_owner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    result = _run(monkeypatch, tmp_path, "search", "retrievers", "x", UNSHELVE_DATABASE_URL=NOWHERE)
+
+    assert result.exit_code == 1
+    assert "UNSHELVE_OWNER_TELEGRAM_ID is not set" in result.stderr
