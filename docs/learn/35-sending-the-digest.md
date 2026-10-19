@@ -209,4 +209,4 @@ So the mark protects the record of the prompt, not only the message.
 
 - [Designing robust and predictable APIs with idempotency](https://stripe.com/blog/idempotency), Brandur Leach, Stripe. Read the part about the idempotency key: it is the same idea as the period key of a digest.
 
-Previous: [34. Choosing a digest](34-choosing-a-digest.md) · Back to the [list of notes](README.md)
+Previous: [34. Choosing a digest](34-choosing-a-digest.md) · Next: [36. Three retrievers](36-three-retrievers.md) · Back to the [list of notes](README.md)
