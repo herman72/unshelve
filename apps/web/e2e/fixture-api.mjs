@@ -188,9 +188,11 @@ function freshItems() {
     },
     {
       ...base,
-      // Done, so not in the inbox. Its id is 1000: "/items/1e3" must not find it.
+      // Done, so not in the inbox. Its id is 1000: "/items/1e3" must not find it. As in the
+      // database of the real API, a done item has the time it was read (done_needs_read_at).
       id: 1000,
       status: "done",
+      read_at: "2026-10-18T19:00:00Z",
       kind: "note",
       enrich_state: "ready",
       partial: false,
