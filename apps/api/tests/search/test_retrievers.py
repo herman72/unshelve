@@ -1,12 +1,16 @@
 """The three retrievers, each one alone, on the made-up corpus. Each test name is one rule."""
 
 import pytest
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests.search.corpus import QUEUES, SAVED, Corpus, seed
 from unshelve.contracts.dto import EmbeddingSpec
-from unshelve.db.models import Item, ItemContent
+from unshelve.contracts.enums import GoalLabel, ItemKind, ItemStatus, LabelSource
+from unshelve.db.models import Goal, Item, ItemContent, ItemGoal, ItemTag, Tag
+from unshelve.resurface.selection import HELPS_FROM, effective_score
 from unshelve.search import retrievers
+from unshelve.search.retrievers import NO_FILTERS, Filters
 
 
 @pytest.fixture
@@ -200,3 +204,159 @@ async def test_only_the_active_set_of_the_model_is_searchable(
     assert await retrievers.searchable_set(db, active) == corpus.set_id
     assert await retrievers.searchable_set(db, old) is None
     assert await retrievers.searchable_set(db, unknown) is None
+
+
+# --- Filters -------------------------------------------------------------------------------
+
+INBOX_ONLY = Filters(statuses=frozenset({ItemStatus.INBOX}))
+
+
+async def _change(db: AsyncSession, item_id: int, **values: object) -> None:
+    await db.execute(sa.update(Item).where(Item.id == item_id).values(**values))
+
+
+async def _postgres(db: AsyncSession, corpus: Corpus, filters: Filters) -> list[int]:
+    return await retrievers.full_text(db, corpus.owner_id, "postgres", filters=filters)
+
+
+async def _three_lists(db: AsyncSession, corpus: Corpus, filters: Filters) -> list[list[int]]:
+    """One list of each retriever, each one with a query that finds two items or more."""
+    return [
+        await retrievers.full_text(db, corpus.owner_id, "postgres", filters=filters),
+        await retrievers.trigram(db, corpus.owner_id, "کتابهای", filters=filters),
+        await retrievers.vector(db, corpus.owner_id, corpus.set_id, QUEUES, filters=filters),
+    ]
+
+
+async def test_each_retriever_keeps_only_the_items_that_pass_the_filters(
+    db: AsyncSession, corpus: Corpus
+) -> None:
+    everything = await _three_lists(db, corpus, NO_FILTERS)
+    archived = {corpus["pgvector"], corpus["persian_ml"]}
+    for item_id in archived:
+        await _change(db, item_id, status=ItemStatus.ARCHIVED)
+
+    filtered = await _three_lists(db, corpus, INBOX_ONLY)
+
+    # Each list had one of the items that are archived now, and only that one goes.
+    assert all(set(found) & archived for found in everything)
+    assert filtered == [[item for item in found if item not in archived] for found in everything]
+
+
+async def test_a_filter_acts_before_the_limit(db: AsyncSession, corpus: Corpus) -> None:
+    # The best match is archived. A filter after the limit of 1 would leave an empty list.
+    await _change(db, corpus["queue"], status=ItemStatus.ARCHIVED)
+
+    found = await retrievers.full_text(db, corpus.owner_id, "postgres", filters=INBOX_ONLY, limit=1)
+
+    assert found == [corpus["pgvector"]]
+
+
+async def test_kinds_and_statuses_combine(db: AsyncSession, corpus: Corpus) -> None:
+    await _change(db, corpus["queue"], kind=ItemKind.ARTICLE)
+    await _change(db, corpus["pgvector"], kind=ItemKind.ARTICLE, status=ItemStatus.ARCHIVED)
+    await _change(db, corpus["text_only"], kind=ItemKind.NOTE)
+    articles = Filters(kinds=frozenset({ItemKind.ARTICLE}))
+    notes_and_articles_of_the_inbox = Filters(
+        kinds=frozenset({ItemKind.ARTICLE, ItemKind.NOTE}), statuses=frozenset({ItemStatus.INBOX})
+    )
+
+    assert await _postgres(db, corpus, articles) == [corpus["queue"], corpus["pgvector"]]
+    assert await _postgres(db, corpus, notes_and_articles_of_the_inbox) == [
+        corpus["queue"],
+        corpus["text_only"],
+    ]
+
+
+async def _tag(db: AsyncSession, owner_id: int, slug: str, *item_ids: int) -> None:
+    tag = Tag(owner_id=owner_id, slug=slug, name=slug)
+    db.add(tag)
+    await db.flush()
+    db.add_all(ItemTag(item_id=item_id, tag_id=tag.id, owner_id=owner_id) for item_id in item_ids)
+    await db.flush()
+
+
+async def test_two_tags_find_the_items_that_have_both(db: AsyncSession, corpus: Corpus) -> None:
+    queue, pgvector, text_only = corpus["queue"], corpus["pgvector"], corpus["text_only"]
+    await _tag(db, corpus.owner_id, "databases", queue, pgvector, text_only)
+    await _tag(db, corpus.owner_id, "queues", queue, text_only)
+
+    def tags(*slugs: str) -> Filters:
+        return Filters(tags=frozenset(slugs))
+
+    assert await _postgres(db, corpus, tags("databases")) == [queue, pgvector, text_only]
+    assert await _postgres(db, corpus, tags("databases", "queues")) == [queue, text_only]
+    assert await _postgres(db, corpus, tags("databases", "no-such-tag")) == []
+
+
+async def _goal(db: AsyncSession, owner_id: int, slug: str) -> int:
+    goal = Goal(owner_id=owner_id, slug=slug, title=slug)
+    db.add(goal)
+    await db.flush()
+    return goal.id
+
+
+def _score(
+    corpus: Corpus, item_id: int, goal_id: int, score: int, label: GoalLabel | None = None
+) -> ItemGoal:
+    return ItemGoal(
+        item_id=item_id,
+        goal_id=goal_id,
+        owner_id=corpus.owner_id,
+        score=score,
+        label=label,
+        label_source=None if label is None else LabelSource.WEB,
+        scorer_version="test",
+        goal_version=1,
+    )
+
+
+@pytest.mark.parametrize(
+    ("score", "label", "helps"),
+    [
+        (3, None, True),
+        (2, None, True),
+        (1, None, False),
+        (0, None, False),
+        (3, GoalLabel.CONFIRMED, True),
+        (2, GoalLabel.CONFIRMED, True),
+        (1, GoalLabel.CONFIRMED, False),
+        (0, GoalLabel.CONFIRMED, False),
+        # A rejected score turns: "it helps" becomes "it does not", and the other way round.
+        (3, GoalLabel.REJECTED, False),
+        (2, GoalLabel.REJECTED, False),
+        (1, GoalLabel.REJECTED, True),
+        (0, GoalLabel.REJECTED, True),
+    ],
+)
+async def test_the_goal_filter_keeps_the_items_that_help_the_goal_after_your_verdict(
+    db: AsyncSession, corpus: Corpus, score: int, label: GoalLabel | None, helps: bool
+) -> None:
+    goal_id = await _goal(db, corpus.owner_id, "learn-postgres")
+    db.add(_score(corpus, corpus["queue"], goal_id, score, label))
+    await db.flush()
+
+    found = await _postgres(db, corpus, Filters(goal_id=goal_id))
+
+    assert found == ([corpus["queue"]] if helps else [])
+    # The same rule as the digest.
+    assert helps == (effective_score(score, label) >= HELPS_FROM)
+
+
+async def test_the_goal_filter_reads_only_the_score_of_that_goal(
+    db: AsyncSession, corpus: Corpus
+) -> None:
+    learn = await _goal(db, corpus.owner_id, "learn-postgres")
+    cook = await _goal(db, corpus.owner_id, "bake-bread")
+    db.add_all(
+        [
+            _score(corpus, corpus["queue"], learn, 3),
+            _score(corpus, corpus["queue"], cook, 0),
+            _score(corpus, corpus["pgvector"], learn, 0),
+            _score(corpus, corpus["pgvector"], cook, 3),
+        ]
+    )
+    await db.flush()
+
+    assert await _postgres(db, corpus, Filters(goal_id=learn)) == [corpus["queue"]]
+    assert await _postgres(db, corpus, Filters(goal_id=cook)) == [corpus["pgvector"]]
