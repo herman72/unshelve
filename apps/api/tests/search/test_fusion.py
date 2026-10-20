@@ -1,5 +1,5 @@
-"""Reciprocal rank fusion: the specification of the M4-2 exercise. Read it from the top: each test
-name is one rule, and the first tests use the lists of note 36."""
+"""Reciprocal rank fusion: its specification. Read it from the top: each test name is one rule,
+and the first tests use the lists of note 36."""
 
 from itertools import pairwise
 

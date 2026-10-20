@@ -109,7 +109,7 @@ pg_trgm has two measures of how close a query is to a title. I measured both on 
 
   Now 23 of 24.
 - **What is not done:**
-  - No fusion yet: that is M4-2, and you write it.
+  - No fusion yet: that is M4-2 ([note 37](37-fusion-and-metrics.md)).
   - No search API and no snippets: M4-3.
   - No limit of distance for the vector retriever: M4-5 measures one.
 
