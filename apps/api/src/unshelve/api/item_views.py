@@ -143,6 +143,17 @@ def _summary_fields(item: Item, tags: list[TagRef], goals: list[GoalScore]) -> d
     }
 
 
+async def summaries(db: AsyncSession, items: Sequence[Item]) -> list[ItemSummary]:
+    """The list shape of ``items``, in their order, with their tags and goal scores: two
+    queries for all of them, not two for each one."""
+    ids = [item.id for item in items]
+    tags, goals = await _tags_of(db, ids), await _goals_of(db, ids)
+    return [
+        ItemSummary(**_summary_fields(item, tags.get(item.id, []), goals.get(item.id, [])))
+        for item in items
+    ]
+
+
 # --- The two reads -----------------------------------------------------------------------
 
 
@@ -176,14 +187,8 @@ async def list_items(db: AsyncSession, owner_id: int, query: ItemListQuery) -> I
     # One row more than the page: if it exists, there is a next page.
     found = (await db.execute(statement.order_by(*order).limit(query.limit + 1))).scalars().all()
     items = found[: query.limit]
-
-    ids = [item.id for item in items]
-    tags, goals = await _tags_of(db, ids), await _goals_of(db, ids)
     return ItemPage(
-        items=[
-            ItemSummary(**_summary_fields(item, tags.get(item.id, []), goals.get(item.id, [])))
-            for item in items
-        ],
+        items=await summaries(db, items),
         next_cursor=_encode_cursor(query.sort, items[-1]) if len(found) > query.limit else None,
     )
 
@@ -262,16 +267,7 @@ async def get_queue(db: AsyncSession, owner_id: int) -> Queue:
             )
         )
     ).all()
-    ids = [item.id for item in items]
-    tags, goals = await _tags_of(db, ids), await _goals_of(db, ids)
-    return Queue(
-        limit=limit,
-        used=len(items),
-        items=[
-            ItemSummary(**_summary_fields(item, tags.get(item.id, []), goals.get(item.id, [])))
-            for item in items
-        ],
-    )
+    return Queue(limit=limit, used=len(items), items=await summaries(db, items))
 
 
 # A page of events ends at one event, and the next page starts after it: newest first, by id.
@@ -377,18 +373,15 @@ async def preview_digest(
         )
     except LookupError as error:
         raise NotFoundError(str(error)) from error
-    ids = [item.id for item, _ in planned.picks]
-    tags, goals = await _tags_of(db, ids), await _goals_of(db, ids)
+    shown = await summaries(db, [item for item, _ in planned.picks])
     return DigestPreview(
         picks=[
             DigestPick(
-                item=ItemSummary(
-                    **_summary_fields(item, tags.get(item.id, []), goals.get(item.id, []))
-                ),
+                item=summary,
                 reason=pick.reason.value,
                 goal_title=None if pick.goal_id is None else planned.goal_titles[pick.goal_id],
             )
-            for item, pick in planned.picks
+            for summary, (_, pick) in zip(shown, planned.picks, strict=True)
         ],
         total_minutes=planned.total_minutes,
         goal_title=planned.goal.title if planned.goal is not None else None,
