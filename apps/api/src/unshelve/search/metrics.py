@@ -7,8 +7,7 @@ that a person checked (docs/learn/37).
 * **nDCG@k**: how close the first k places are to the best possible order, when some items are
   more relevant than others. 1 is the best order.
 
-This module is the M4-2 exercise: the owner of the project writes it against
-``tests/search/test_metrics.py``.
+``tests/search/test_metrics.py`` is their specification.
 
 Rules for each function:
 
@@ -20,6 +19,28 @@ Rules for each function:
 """
 
 from collections.abc import Collection, Mapping, Sequence
+from math import log2
+
+
+def _first_places(ranking: Sequence[int]) -> list[int | None]:
+    """The ranking with each later copy of an id replaced by None. The copy keeps its place, so
+    the places of the items after it do not change, but it can be neither found nor relevant."""
+    seen: set[int] = set()
+    places: list[int | None] = []
+    for item in ranking:
+        places.append(None if item in seen else item)
+        seen.add(item)
+    return places
+
+
+def _check_k(k: int) -> None:
+    if k < 1:
+        raise ValueError(f"k must be 1 or more, not {k}")
+
+
+def _check_relevant(relevant: Collection[int]) -> None:
+    if not relevant:
+        raise ValueError("a query without relevant items cannot be measured")
 
 
 def recall_at_k(ranking: Sequence[int], relevant: Collection[int], k: int) -> float:
@@ -28,13 +49,20 @@ def recall_at_k(ranking: Sequence[int], relevant: Collection[int], k: int) -> fl
     The number of relevant items in the first ``k`` places, divided by the number of all
     relevant items (not by ``k``). From 0 to 1. A ranking shorter than ``k`` is read as it is.
     """
-    raise NotImplementedError("M4-2 exercise")
+    _check_k(k)
+    _check_relevant(relevant)
+    found = {item for item in _first_places(ranking)[:k] if item is not None and item in relevant}
+    return len(found) / len(set(relevant))
 
 
 def reciprocal_rank(ranking: Sequence[int], relevant: Collection[int]) -> float:
     """1 / the place of the first relevant item, with the first place 1. 0 when the ranking
     has no relevant item."""
-    raise NotImplementedError("M4-2 exercise")
+    _check_relevant(relevant)
+    for place, item in enumerate(_first_places(ranking), start=1):
+        if item is not None and item in relevant:
+            return 1 / place
+    return 0.0
 
 
 def mean_reciprocal_rank(queries: Sequence[tuple[Sequence[int], Collection[int]]]) -> float:
@@ -42,7 +70,9 @@ def mean_reciprocal_rank(queries: Sequence[tuple[Sequence[int], Collection[int]]
 
     No queries: ``ValueError``. A query without relevant items: ``ValueError``, as above.
     """
-    raise NotImplementedError("M4-2 exercise")
+    if not queries:
+        raise ValueError("no queries to measure")
+    return sum(reciprocal_rank(ranking, relevant) for ranking, relevant in queries) / len(queries)
 
 
 def ndcg_at_k(ranking: Sequence[int], relevance: Mapping[int, int], k: int = 10) -> float:
@@ -58,4 +88,16 @@ def ndcg_at_k(ranking: Sequence[int], relevance: Mapping[int, int], k: int = 10)
       first. It reads the judgements, not only the items that the ranking found.
     * nDCG@k = DCG@k / IDCG@k, from 0 to 1. IDCG@k = 0 (no grade above 0): ``ValueError``.
     """
-    raise NotImplementedError("M4-2 exercise")
+    _check_k(k)
+    # The best order first: it reads all the judgements, and it decides whether the query can
+    # be measured at all, before anything is divided by it.
+    ideal = sorted(relevance.values(), reverse=True)[:k]
+    idcg = sum(grade / log2(place + 1) for place, grade in enumerate(ideal, start=1))
+    if idcg == 0:
+        raise ValueError("a query without relevant items cannot be measured")
+    dcg = sum(
+        relevance.get(item, 0) / log2(place + 1)
+        for place, item in enumerate(_first_places(ranking)[:k], start=1)
+        if item is not None
+    )
+    return dcg / idcg

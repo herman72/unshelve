@@ -5,8 +5,7 @@ compared: a rank of full text, a strict word similarity and a cosine distance ar
 things. Fusion therefore uses only the positions. An item that is high in several lists comes
 first.
 
-This module is the M4-2 exercise: the owner of the project writes it against
-``tests/search/test_fusion.py``.
+``tests/search/test_fusion.py`` is its specification.
 """
 
 from collections.abc import Sequence
@@ -34,4 +33,20 @@ def reciprocal_rank_fusion(
     * No lists, or only empty lists: an empty result.
     * ``k`` must be 0 or more, and ``limit`` 0 or more (or None): else ``ValueError``.
     """
-    raise NotImplementedError("M4-2 exercise")
+    if k < 0:
+        raise ValueError(f"k must be 0 or more, not {k}")
+    if limit is not None and limit < 0:
+        raise ValueError(f"limit must be 0 or more, not {limit}")
+    scores: dict[int, float] = {}
+    for ranking in rankings:
+        # The ids that this list showed already. A copy keeps its place: the rank goes on
+        # counting, but the copy adds nothing.
+        seen: set[int] = set()
+        for rank, item in enumerate(ranking, start=1):
+            if item in seen:
+                continue
+            seen.add(item)
+            scores[item] = scores.get(item, 0.0) + 1 / (k + rank)
+    # The highest score first; on equal scores, the lower id first.
+    fused = sorted(scores.items(), key=lambda pair: (-pair[1], pair[0]))
+    return fused if limit is None else fused[:limit]
