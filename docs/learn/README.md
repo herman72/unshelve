@@ -50,6 +50,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 36 | [Three retrievers](36-three-retrievers.md) | How full text, trigrams and vectors each find items, why a Persian word with a zero-width non-joiner needs trigrams, and how a measurement chose the trigram threshold | |
 | 37 | [Fusion and metrics](37-fusion-and-metrics.md) | How reciprocal rank fusion joins three ranked lists, and how recall@k, MRR and nDCG@k measure a ranking: the formulas with worked examples, and how the code computes them | |
 | 38 | [The search API](38-search-api.md) | How one request runs the three retrievers and fuses their lists, why a filter acts inside each query, what happens when the embedder fails, and how a snippet shows why an item was found, without HTML | |
+| 39 | [An overview with citations](39-overview-with-citations.md) | How the model answers from the passages of the found items, why native citations cannot invent a quote, how each citation maps back to a chunk, and why the answer keeps no link or image | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 

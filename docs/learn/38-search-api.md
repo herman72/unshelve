@@ -232,4 +232,4 @@ The cost shows only under load. An open transaction holds one of the 15 connecti
 - [Highlighting Results](https://www.postgresql.org/docs/current/textsearch-controls.html#TEXTSEARCH-HEADLINE), PostgreSQL documentation. Read the options `StartSel`, `MaxWords`, `MaxFragments` and `ShortWord`, and the warning that `ts_headline` reads the whole document.
 - [Filtering](https://github.com/pgvector/pgvector#filtering), the pgvector README. Read why a filter comes after the scan of an approximate index. When a filter keeps 10% of the rows, a scan of 40 rows leaves about 4. Our vector search is exact, so the filter is inside the query.
 
-Previous: [37. Fusion and metrics](37-fusion-and-metrics.md) · Back to the [list of notes](README.md)
+Previous: [37. Fusion and metrics](37-fusion-and-metrics.md) · Next: [39. An overview with citations](39-overview-with-citations.md) · Back to the [list of notes](README.md)
