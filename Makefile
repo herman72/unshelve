@@ -3,7 +3,7 @@ SHELL := /bin/bash
 API := apps/api
 COMPOSE := docker compose
 
-.PHONY: help setup hooks db up down logs fmt lint typecheck test openapi openapi-check check
+.PHONY: help setup hooks db up down logs fmt lint typecheck test eval eval-live eval-baseline openapi openapi-check check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -41,6 +41,15 @@ typecheck: ## Type-check Python and TypeScript
 
 test: db ## Run the Python tests
 	cd $(API) && uv run pytest
+
+eval: db ## Measure search on the golden set with the recorded vectors (the gate of CI)
+	cd $(API) && uv run pytest -q tests/evals/test_search_gate.py
+
+eval-live: db ## Record the vectors of the golden set again, with the embedder of .env
+	cd $(API) && uv run --env-file ../../.env pytest -m live -o addopts="" -q tests/evals/test_search_gate.py
+
+eval-baseline: db ## Write the scores of the recorded vectors as the new baseline
+	cd $(API) && UNSHELVE_EVAL_BASELINE=write uv run pytest -q tests/evals/test_search_gate.py
 
 openapi: ## Regenerate openapi.json and the TypeScript types
 	cd $(API) && uv run unshelve openapi
