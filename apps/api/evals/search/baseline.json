@@ -1,7 +1,7 @@
 {
-  "vectors": "fake/hashed-bow-64/64",
+  "vectors": "voyage/voyage-4-large/1024",
   "queries": 38,
-  "recall@10": 0.716228,
-  "nDCG@10": 0.77661,
-  "MRR": 0.855263
+  "recall@10": 1.0,
+  "nDCG@10": 0.973533,
+  "MRR": 1.0
 }
