@@ -95,6 +95,10 @@ class CitingLLM(Protocol):
     ) -> LLMResult[CitedAnswer]: ...
 
 
+class ModelProvider(LLMProvider, CitingLLM, Protocol):
+    """A model that gives both kinds of answer: in a schema, and in text with citations."""
+
+
 class BatchProvider(Protocol):
     """Many questions to a model in one batch, at a lower price, answered later.
 

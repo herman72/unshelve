@@ -10,7 +10,15 @@ import sqlalchemy as sa
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from unshelve.contracts.dto import ImagePart, LLMResult, LLMUsage, TextPart
+from unshelve.contracts.dto import (
+    CitedAnswer,
+    CitedSegment,
+    ImagePart,
+    LLMResult,
+    LLMUsage,
+    SourceText,
+    TextPart,
+)
 from unshelve.contracts.errors import ProviderError, WaitsForBatch
 from unshelve.db.models import LLMBatch, LLMCall
 from unshelve.providers.ledger import CachedLLM, cache_key, cost_usd
@@ -53,6 +61,27 @@ class Counting:
         self.asked.append(text)
         return LLMResult[schema](
             value=synthesize(schema, text),
+            model=self.model,
+            usage=LLMUsage(input_tokens=1_000_000, output_tokens=100_000),
+        )
+
+    async def cite(
+        self,
+        *,
+        task: str,
+        prompt_version: str,
+        system: str,
+        sources: Sequence[SourceText],
+        question: str,
+        max_output_tokens: int,
+    ) -> LLMResult[CitedAnswer]:
+        self.calls += 1
+        if self.fail_with is not None:
+            raise self.fail_with
+        self.asked.append(question)
+        answer = CitedAnswer(segments=[CitedSegment(text=f"{len(sources)} sources say little.")])
+        return LLMResult[CitedAnswer](
+            value=answer,
             model=self.model,
             usage=LLMUsage(input_tokens=1_000_000, output_tokens=100_000),
         )
@@ -339,4 +368,60 @@ async def test_a_task_that_waits_for_no_batch_is_asked_now(committed_db: Session
 
     await _ask(_ledger(committed_db, inner, batch_tasks={"enrich_item"}))
 
+    assert inner.calls == 1
+
+
+# --- Answers with citations -------------------------------------------------------------------
+
+
+async def _cite(
+    llm: CachedLLM,
+    text: str = "Postgres can be a job queue.",
+    question: str = "How can Postgres share jobs?",
+) -> LLMResult[CitedAnswer]:
+    return await llm.cite(
+        task="overview",
+        prompt_version="v1",
+        system="Answer from the sources.",
+        sources=[SourceText(title="Queues", text=text)],
+        question=question,
+        max_output_tokens=500,
+    )
+
+
+async def test_the_same_question_with_citations_is_paid_one_time(committed_db: Sessions) -> None:
+    inner = Counting()
+    llm = _ledger(committed_db, inner)
+
+    first = await _cite(llm)
+    second = await _cite(llm)
+
+    assert inner.calls == 1
+    assert (first.cached, second.cached) == (False, True)
+    assert second.value == first.value
+    (row,) = await _rows(committed_db)
+    assert (row.task, row.cost_usd) == ("overview", Decimal(6))  # $4 in, $2 out
+    assert row.request["question"] == "How can Postgres share jobs?"
+    assert row.request["sources"] == [
+        {"title": "Queues", "context": None, "text": "Postgres can be a job queue."}
+    ]
+
+
+async def test_new_sources_or_new_words_are_a_new_question(committed_db: Sessions) -> None:
+    inner = Counting()
+    llm = _ledger(committed_db, inner)
+
+    await _cite(llm)
+    await _cite(llm, "Postgres can be a job queue with leases.")
+    await _cite(llm, question="Why do leases end?")
+
+    assert inner.calls == 3
+
+
+async def test_a_used_budget_stops_an_answer_with_citations_too(committed_db: Sessions) -> None:
+    inner = Counting()
+    await _ask(_ledger(committed_db, inner, budget_usd=Decimal(5)))  # $6 today
+
+    with pytest.raises(ProviderError, match="budget"):
+        await _cite(_ledger(committed_db, inner, budget_usd=Decimal(5)))
     assert inner.calls == 1
