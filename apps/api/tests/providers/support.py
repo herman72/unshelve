@@ -78,6 +78,33 @@ def error(status: int, kind: str, headers: dict[str, str] | None = None) -> http
     )
 
 
+def cited_answer(body: dict[str, Any]) -> httpx2.Response:
+    """An answer with native citations: it quotes the first sentence of the first document."""
+    first = body["messages"][0]["content"][0]
+    data = first["source"]["data"]
+    end = data.find(". ") + 1 or len(data)
+    answer = message_json("unused")
+    answer["content"] = [
+        {"type": "thinking", "thinking": "", "signature": "sig"},
+        {"type": "text", "text": "The first source says that "},
+        {
+            "type": "text",
+            "text": data[:end].lower(),
+            "citations": [
+                {
+                    "type": "char_location",
+                    "cited_text": data[:end],
+                    "document_index": 0,
+                    "document_title": first.get("title"),
+                    "start_char_index": 0,
+                    "end_char_index": end,
+                }
+            ],
+        },
+    ]
+    return httpx2.Response(200, json=answer)
+
+
 def card_for_schema(body: dict[str, Any]) -> httpx2.Response:
     """A valid answer for the schema of the request."""
     return message(json.dumps(value_for_schema(body)))

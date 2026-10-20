@@ -8,12 +8,19 @@ import httpx2
 import pytest
 from pydantic import BaseModel
 
-from tests.providers.support import PretendAPI, error, message, refusal
-from unshelve.contracts.dto import ImagePart, TextPart
+from tests.providers.support import (
+    PretendAPI,
+    cited_answer,
+    error,
+    message,
+    message_json,
+    refusal,
+)
+from unshelve.contracts.dto import CitedSegment, ImagePart, Quote, SourceText, TextPart
 from unshelve.contracts.errors import ProviderError
-from unshelve.contracts.protocols import LLMProvider
+from unshelve.contracts.protocols import CitingLLM, LLMProvider
 from unshelve.providers.claude import THINKING_ROOM, ClaudeLLM
-from unshelve.testing.conformance import TINY_PNG, LLMProviderConformance
+from unshelve.testing.conformance import TINY_PNG, CitingLLMConformance, LLMProviderConformance
 
 
 class Note(BaseModel):
@@ -33,10 +40,14 @@ async def _ask(llm: ClaudeLLM, *parts: TextPart | ImagePart) -> Note:
     return result.value
 
 
-class TestClaudeLLM(LLMProviderConformance):
+class TestClaudeLLM(LLMProviderConformance, CitingLLMConformance):
     @pytest.fixture
     def llm(self) -> LLMProvider:
         return ClaudeLLM(model="claude-opus-5-5", client=PretendAPI().client())
+
+    @pytest.fixture
+    def citing_llm(self) -> CitingLLM:
+        return ClaudeLLM(model="claude-opus-5-5", client=PretendAPI(cited_answer).client())
 
 
 # --- What goes out ----------------------------------------------------------------------------
@@ -206,3 +217,112 @@ async def test_an_answer_that_does_not_fit_gives_no_card(text: str, stop_reason:
         await _ask(ClaudeLLM(model="claude-opus-5-5", client=api.client()))
 
     assert caught.value.retryable is False
+
+
+# --- An answer with citations -----------------------------------------------------------------
+
+SOURCES = [
+    SourceText(
+        title="Postgres as a job queue",
+        context="Item 1, piece 1 of 2",
+        text="Postgres can be a job queue. SKIP LOCKED lets workers share a table.",
+    ),
+    SourceText(title="Sourdough", text="Sourdough needs time."),
+]
+
+
+async def _cite(llm: ClaudeLLM, sources: list[SourceText] = SOURCES) -> list[CitedSegment]:
+    result = await llm.cite(
+        task="test",
+        prompt_version="1",
+        system="Answer from the sources.",
+        sources=sources,
+        question="How can Postgres share jobs?",
+        max_output_tokens=800,
+    )
+    return result.value.segments
+
+
+async def test_each_source_goes_out_as_a_plain_text_document_with_citations() -> None:
+    api = PretendAPI(cited_answer)
+
+    await _cite(ClaudeLLM(model="claude-opus-5-5", client=api.client()))
+
+    (body,) = api.bodies
+    assert body["system"] == "Answer from the sources."
+    assert body["messages"][0]["content"] == [
+        {
+            "type": "document",
+            "source": {"type": "text", "media_type": "text/plain", "data": SOURCES[0].text},
+            "citations": {"enabled": True},
+            "title": "Postgres as a job queue",
+            "context": "Item 1, piece 1 of 2",
+        },
+        {
+            "type": "document",
+            "source": {"type": "text", "media_type": "text/plain", "data": "Sourdough needs time."},
+            "citations": {"enabled": True},
+            "title": "Sourdough",
+        },
+        {"type": "text", "text": "How can Postgres share jobs?"},
+    ]
+    # Citations and structured output cannot go together: no output format.
+    assert "format" not in body["output_config"]
+    assert body["output_config"]["effort"] == "low"
+    assert body["max_tokens"] == 800 + THINKING_ROOM
+    assert "tools" not in body
+    assert body["fallbacks"] == "default"
+
+
+async def test_a_title_has_at_most_500_characters_and_an_empty_one_is_left_out() -> None:
+    api = PretendAPI(cited_answer)
+    sources = [SourceText(title="x" * 600, text="One."), SourceText(title="  ", text="Two.")]
+
+    await _cite(ClaudeLLM(model="claude-opus-5-5", client=api.client()), sources)
+
+    first, second, _ = api.bodies[0]["messages"][0]["content"]
+    assert first["title"] == "x" * 500
+    assert "title" not in second
+    assert "context" not in second
+
+
+async def test_the_citations_become_quotes_of_the_sources() -> None:
+    llm = ClaudeLLM(model="claude-opus-5-5", client=PretendAPI(cited_answer).client())
+
+    segments = await _cite(llm)
+
+    # The thinking block carries no text of the answer.
+    assert segments == [
+        CitedSegment(text="The first source says that "),
+        CitedSegment(
+            text="postgres can be a job queue.",
+            quotes=[Quote(source=0, start=0, end=28, text="Postgres can be a job queue.")],
+        ),
+    ]
+
+
+async def test_a_cited_answer_that_was_cut_is_no_answer() -> None:
+    def cut(body: dict[str, Any]) -> httpx2.Response:
+        return httpx2.Response(200, json=message_json("Postgres can", stop_reason="max_tokens"))
+
+    llm = ClaudeLLM(model="claude-opus-5-5", client=PretendAPI(cut).client())
+
+    with pytest.raises(ProviderError, match="cut") as caught:
+        await _cite(llm)
+    assert not caught.value.retryable
+
+
+async def test_a_refused_cited_answer_is_no_answer() -> None:
+    declines = PretendAPI(lambda body: refusal("cyber"))
+    llm = ClaudeLLM(model="claude-opus-5-5", client=declines.client())
+
+    with pytest.raises(ProviderError, match="declined"):
+        await _cite(llm)
+
+
+async def test_an_error_of_the_api_for_a_cited_answer_can_pass() -> None:
+    busy = PretendAPI(lambda body: error(529, "overloaded_error"))
+
+    with pytest.raises(ProviderError) as caught:
+        await _cite(ClaudeLLM(model="claude-opus-5-5", client=busy.client()))
+    assert caught.value.retryable
