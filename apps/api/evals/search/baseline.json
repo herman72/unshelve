@@ -1,0 +1,7 @@
+{
+  "vectors": "fake/hashed-bow-64/64",
+  "queries": 38,
+  "recall@10": 0.716228,
+  "nDCG@10": 0.77661,
+  "MRR": 0.855263
+}
