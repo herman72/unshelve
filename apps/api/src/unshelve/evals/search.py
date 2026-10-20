@@ -25,7 +25,7 @@ from unshelve.contracts.enums import ChunkKind, EnrichState
 from unshelve.contracts.protocols import Embedder
 from unshelve.db.models import Chunk, Item, ItemContent
 from unshelve.embed.chunks import card_text, pieces_of
-from unshelve.embed.sets import ensure_set
+from unshelve.embed.sets import activate, ensure_set
 from unshelve.evals.golden import GoldenSet
 from unshelve.search import hybrid
 from unshelve.search.metrics import ndcg_at_k, recall_at_k, reciprocal_rank
@@ -87,8 +87,12 @@ async def load_items(
     session: AsyncSession, owner_id: int, golden: GoldenSet, embedder: Embedder
 ) -> dict[str, int]:
     """Save the items of the golden set for ``owner_id``, with their vectors in the set of
-    ``embedder``. Returns the id of each item by its key. The caller commits, or not."""
+    ``embedder``, and make that set the one that search reads. Returns the id of each item by
+    its key. The caller commits, or not."""
     set_id = await ensure_set(session, embedder.spec)
+    # A new set starts inactive when another set is active, and search would then compare no
+    # vectors at all: the scores would be wrong, with no error.
+    await activate(session, set_id)
     ids: dict[str, int] = {}
     # (item key, kind, position, text, start, end) of each chunk, as the embed step makes it.
     wanted: list[tuple[str, ChunkKind, int, str, int | None, int | None]] = []

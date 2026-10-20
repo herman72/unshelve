@@ -112,6 +112,24 @@ async def test_each_item_gets_its_card_and_its_pieces_as_in_the_pipeline(
     assert {chunk.embedding_set_id for chunk in chunks} == {active}
 
 
+async def test_the_vectors_of_the_evaluation_are_the_set_that_search_reads(
+    db: AsyncSession,
+) -> None:
+    # Another set is active already, as in a database that was used before.
+    other = EmbeddingSet(provider="test", model="older", dim=3, is_active=True)
+    db.add(other)
+    await db.flush()
+    embedder = FakeEmbedder()
+    owner_id = await _owner(db)
+    ids = await search.load_items(db, owner_id, SMALL, embedder)
+
+    report = await search.measure(db, embedder, owner_id, SMALL, ids)
+
+    active = await db.scalar(sa.select(EmbeddingSet.model).where(EmbeddingSet.is_active))
+    assert active == embedder.spec.model
+    assert report.lists["vector"].recall == pytest.approx(1.0)
+
+
 async def test_a_text_that_was_not_recorded_fails_the_evaluation(db: AsyncSession) -> None:
     empty = Replay(Cassette(spec=FakeEmbedder().spec))
 
