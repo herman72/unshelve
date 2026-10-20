@@ -1,0 +1,823 @@
+{
+  "about": "The golden set of search (docs/learn/40). Made-up items and queries. A grade is the judgement of a person: 3 the item answers the query, 2 it is about the topic, 1 it touches it, 0 it does not help. An item without a grade counts as 0.",
+  "items": [
+    {
+      "key": "pg-queue",
+      "title": "Postgres as a job queue",
+      "summary": "How SKIP LOCKED lets several workers take jobs from one table without taking the same job twice.",
+      "key_points": [
+        "SELECT ... FOR UPDATE SKIP LOCKED skips the rows that others hold",
+        "A lease and a reaper give back the jobs of a dead worker",
+        "Handlers must be idempotent: a job can run two times"
+      ],
+      "text": "A job queue needs three things: a place to keep the jobs, a way for a worker to take one job that no other worker takes, and a way to give a job back when its worker dies.\n\nPostgres can do all three with one table. Each job is a row with a state. A worker takes the next job with SELECT ... FOR UPDATE SKIP LOCKED: the rows that another transaction holds are skipped, not waited for. So ten workers can poll the same table, and each one gets a different row.\n\nThe lock alone is not enough. If the worker holds the row lock for the whole job, a long job keeps a transaction open for minutes. Better: take the job in a short transaction, write a lease (the name of the worker and a time until which the job is its own), and commit. The work happens outside any transaction.\n\nA reaper finds the jobs whose lease ended and makes them ready again. This means a job can run two times: once by the worker that was too slow, and once by the next one. So each handler must be idempotent: running it again must not do the work two times.\n\nRetries need a backoff. A job that fails waits longer each time, and after a limit it becomes dead, so that a person can look at it.\n\nThe advantage over a separate broker is the transaction. The job is written in the same transaction as the data that it is about, so a job never points at data that was rolled back.\n\nWatch the table itself. Finished jobs pile up, and each update of a state leaves a dead row version behind. Delete or archive finished jobs on a schedule, and keep an index on the columns that the next query reads: the state and the time after which the job may run.\n\nA queue in the database has limits. Each poll is a query, so a thousand workers polling every second is a thousand queries each second. LISTEN and NOTIFY can wake the workers instead of a short poll interval. And when the jobs are many millions each day, a dedicated broker is the better tool; below that, one table is simpler to run and to debug.",
+      "kind": "article",
+      "site": "example.com",
+      "author": null
+    },
+    {
+      "key": "pg-advisory",
+      "title": "Advisory locks in Postgres",
+      "summary": "Locks that the application names itself, for work that is not tied to one row.",
+      "key_points": [
+        "pg_advisory_lock takes a lock by a number",
+        "A session lock lives until the connection closes"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "pg-mvcc",
+      "title": "How MVCC keeps old row versions",
+      "summary": "Why an update writes a new version of a row, what a snapshot sees, and why VACUUM exists.",
+      "key_points": [
+        "A long transaction keeps old versions alive",
+        "VACUUM removes the versions that nobody can see"
+      ],
+      "text": "Postgres never changes a row in place. An UPDATE writes a new version of the row and marks the old one as dead for the transactions that start later. A DELETE only marks the row.\n\nEach transaction sees a snapshot: the versions that were committed when it started. A long transaction therefore keeps old versions alive, because it can still need them.\n\nVACUUM removes the versions that no transaction can see any more. Autovacuum runs it in the background, when a table has enough dead rows. A table that is updated often and never vacuumed grows: this is called bloat.\n\nThe same design explains why a long open transaction is dangerous in production. It does not only hold its locks. It also stops VACUUM from cleaning up after everybody else, and the tables grow while it is open.\n\nTransaction ids are 32 bits. Postgres freezes old rows so that the counter can wrap around safely; this is the other job of VACUUM. If VACUUM falls behind for a very long time, Postgres stops accepting writes to protect the data: the transaction id wraparound.\n\nIndexes have the same problem as tables. An index entry can point at a dead row version, and a scan must visit the table to check whether the row is visible. A visibility map marks the pages where all rows are visible, so that an index-only scan can skip the table for them.\n\nGood habits follow from this. Keep transactions short. Do not leave a session idle inside a transaction. Watch the oldest transaction in pg_stat_activity, and the number of dead rows in pg_stat_user_tables.",
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "pgvector-hnsw",
+      "title": "HNSW indexes in pgvector",
+      "summary": "An approximate nearest neighbour index: how its graph works, what ef_search does, and why filters are a trap.",
+      "key_points": [
+        "A WHERE clause is applied after the index scan",
+        "Measure recall against an exact search first"
+      ],
+      "text": "An exact nearest neighbour search compares the query vector with every vector. For a few hundred thousand vectors this is fine. For millions it is slow, and an approximate index helps.\n\nHNSW builds a graph in layers. The top layer has few nodes and long links; each lower layer has more nodes and shorter links. A search starts at the top and walks down, always towards the closest node. It finds most of the true nearest neighbours, not all of them: that is the trade-off.\n\nThe parameter ef_search sets how many candidates the search keeps. A larger value finds more of the true neighbours and is slower. With the default of 40, a query returns at most 40 rows.\n\nFiltering is the trap. With an approximate index, the WHERE clause is applied after the index scan. If the filter keeps one row in ten, a scan of 40 candidates leaves about four. pgvector 0.8 added iterative scans, which go on scanning until enough rows pass the filter.\n\nBefore adding an index, measure: recall against an exact search, and latency.\n\nAn HNSW index is built in memory, so the build is fast only when maintenance_work_mem is large enough for the graph. It also grows the table on disk: each vector appears in the graph with its links.\n\nThe other index type of pgvector, IVFFlat, cuts the space into lists around centroids, and a search reads the closest lists. It builds faster and needs less memory, but its quality depends on the data that existed when it was built: train it after the table has its data, and build it again when the data changes a lot.",
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "pgvector-intro",
+      "title": "Vector search inside Postgres",
+      "summary": "Storing embeddings next to the data, and an exact search by cosine distance.",
+      "key_points": [
+        "The vector type and the <=> operator",
+        "Exact search is fine for a few hundred thousand vectors"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "rrf",
+      "title": "Reciprocal rank fusion",
+      "summary": "Joining several ranked lists by the places of their items, not by their scores.",
+      "key_points": [
+        "Each list adds 1 / (k + rank)",
+        "k = 60 makes agreement count more than one first place"
+      ],
+      "text": null,
+      "kind": "paper",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "hybrid-search",
+      "title": "Hybrid search: keywords and vectors together",
+      "summary": "Why a search engine runs a keyword search and a vector search, and joins their results.",
+      "key_points": [
+        "Keywords find exact names and codes",
+        "Vectors find the same meaning in other words"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "bm25",
+      "title": "Why BM25 still works",
+      "summary": "A ranking function from the nineties that is still hard to beat for keyword search.",
+      "key_points": [
+        "Term frequency with saturation",
+        "Long documents are normalised"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "ndcg",
+      "title": "Measuring rankings with nDCG",
+      "summary": "A metric for graded relevance: a good item low in the list counts less, with a logarithmic discount.",
+      "key_points": [
+        "DCG divides each grade by log2 of its place plus one",
+        "IDCG is the best possible order"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "embeddings",
+      "title": "What text embeddings capture",
+      "summary": "How an embedding model puts texts with the same meaning close together.",
+      "key_points": [
+        "Cosine similarity compares directions",
+        "Queries and documents can get different prefixes"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "chunking",
+      "title": "How to cut documents into pieces for retrieval",
+      "summary": "The size of a piece, where to cut it, and why overlap has a cost.",
+      "key_points": [
+        "Cut after a paragraph or a sentence",
+        "Keep the position of each piece"
+      ],
+      "text": "A retrieval system rarely searches whole documents. A long page about many things gets one vector that is about nothing in particular. So documents are cut into pieces, and each piece gets its own vector.\n\nThe size of a piece is a trade-off. A small piece is precise but loses its context: a sentence like \"it is faster\" means nothing alone. A large piece keeps the context but mixes topics.\n\nGood cuts follow the structure of the text: a paragraph, a section, a list. When a paragraph is too long, cut after a sentence. Only a word that is longer than a whole piece is cut inside.\n\nSome systems let pieces overlap, so that a sentence at a border appears in both pieces. Overlap costs storage and makes duplicates in the results; a search must then join them by document.\n\nKeep the position of each piece in the original text. Then a result can show the passage and link to the exact place in the document.\n\nMeasure the effect of each choice with a golden set of questions. A change of the piece size can move recall by many points, in either direction, and intuition is a poor guide. Also check the number of pieces per document: a very long book can make thousands of pieces, and a search then returns many pieces of the same book.",
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "rag-citations",
+      "title": "Making RAG answers cite their sources",
+      "summary": "How an answer that is built from retrieved passages can point at the passage behind each claim.",
+      "key_points": [
+        "The model points and the system copies the quote",
+        "A citation must map to a retrieved passage"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "prompt-injection",
+      "title": "Prompt injection through retrieved pages",
+      "summary": "A retrieved page can carry instructions for the model, for example to add an image whose address leaks data.",
+      "key_points": [
+        "Treat retrieved text as data",
+        "Do not render model-written images or links"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "rust-ownership",
+      "title": "Ownership and borrowing in Rust",
+      "summary": "How the borrow checker allows many readers or one writer, and how lifetimes follow references.",
+      "key_points": [
+        "Each value has one owner",
+        "A mutable borrow is exclusive"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "rust-tokio",
+      "title": "Async Rust with Tokio",
+      "summary": "Futures, the runtime, and spawning tasks that run on a thread pool.",
+      "key_points": [
+        "A future does nothing until it is polled",
+        "tokio::spawn needs a 'static future"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "go-workers",
+      "title": "Go channels and worker pools",
+      "summary": "A pool of goroutines that read jobs from one channel and send results to another.",
+      "key_points": [
+        "Close the jobs channel to stop the workers",
+        "A WaitGroup waits for all of them"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "python-taskgroup",
+      "title": "asyncio task groups in Python 3.11",
+      "summary": "TaskGroup runs tasks together and cancels the others when one of them fails.",
+      "key_points": [
+        "Errors come back as an ExceptionGroup",
+        "No task is left running after the block"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "python-gil",
+      "title": "The GIL and free-threaded Python",
+      "summary": "Why CPython had a global interpreter lock, and what the free-threaded build changes.",
+      "key_points": [
+        "Threads did not run Python code in parallel",
+        "The free-threaded build removes the lock"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "k8s-probes",
+      "title": "Kubernetes liveness and readiness probes",
+      "summary": "A readiness probe takes a pod out of the traffic; a liveness probe restarts it.",
+      "key_points": [
+        "Do not check dependencies in a liveness probe",
+        "Give slow starts a startup probe"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "k8s-autoscaling",
+      "title": "Autoscaling pods on custom metrics",
+      "summary": "Scaling the number of workers by the length of a queue instead of by CPU.",
+      "key_points": [
+        "The HorizontalPodAutoscaler reads an external metric",
+        "Scale down slowly"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "k8s-operators",
+      "title": "Kubernetes operators explained",
+      "summary": "An operator is a controller that runs a piece of software the way a person would.",
+      "key_points": [
+        "A custom resource describes the wanted state",
+        "The control loop moves the real state towards it"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "terraform-state",
+      "title": "Terraform state locking",
+      "summary": "Why two applies at the same moment can break the state, and how a lock prevents it.",
+      "key_points": [
+        "The S3 backend can lock with a lock file",
+        "Never edit the state by hand"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "lora",
+      "title": "LoRA: fine-tuning with low-rank adapters",
+      "summary": "Fine-tuning a large model by training two thin matrices instead of all the weights.",
+      "key_points": [
+        "The original weights stay frozen",
+        "QLoRA keeps them in 4 bits"
+      ],
+      "text": "Fine-tuning all the weights of a large language model needs as much memory as training it. LoRA avoids this. It freezes the original weights and learns a small update for some matrices: the product of two thin matrices, of rank 8 or 16.\n\nOnly these small matrices are trained, so the optimizer state is tiny, and one GPU can tune a model that it could not train. After training, the update can be added into the weights, so the model runs at the same speed as before.\n\nQLoRA goes further: it keeps the frozen weights in 4 bits. The quality stays close to a full fine-tune on many tasks.\n\nThe rank is the main knob. A higher rank can learn more, and it needs more memory. For a narrow task, such as a fixed output format, a small rank is often enough.",
+      "kind": "paper",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "attention",
+      "title": "Attention, step by step",
+      "summary": "Queries, keys and values, the softmax over the scores, and why the cost grows with the square of the length.",
+      "key_points": [
+        "Each head can follow a different relation",
+        "Long contexts need caching or windows"
+      ],
+      "text": "Attention lets each token look at the other tokens and decide which ones matter for it. Each token makes three vectors: a query, a key and a value. The score of a pair is the dot product of the query of one token and the key of the other, divided by the square root of the size.\n\nA softmax turns the scores into weights, and the output of a token is the weighted sum of the values. Multi-head attention does this several times in parallel with smaller vectors: each head can follow a different relation, such as the previous word or the subject of the verb.\n\nThe cost grows with the square of the length of the text, because every pair is scored. Long contexts therefore need tricks: caching the keys and values of earlier tokens, or attention that only looks at a window.",
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "eval-llm",
+      "title": "Evaluating LLM apps with golden sets",
+      "summary": "Measuring an application before a release: a fixed set of questions with checked answers, run on each change.",
+      "key_points": [
+        "Keep the golden set small and judged by a person",
+        "Replay recorded model calls to keep the test free"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "calibration",
+      "title": "Calibrating classifier probabilities",
+      "summary": "When a model says 80%, it should be right eight times in ten; how to check it and how to fix it.",
+      "key_points": [
+        "A reliability diagram shows the gap",
+        "Temperature scaling is the simplest fix"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "idempotency",
+      "title": "Idempotency keys for payment APIs",
+      "summary": "How a client can retry a payment request without charging the customer two times.",
+      "key_points": [
+        "The client sends a unique key with each request",
+        "The server stores the answer under the key"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "outbox",
+      "title": "The transactional outbox pattern",
+      "summary": "Publishing an event and changing the data in one transaction, with a relay that sends the event later.",
+      "key_points": [
+        "The event goes into an outbox table",
+        "Consumers must handle duplicates"
+      ],
+      "text": "A service writes to its database and must also publish an event. If it writes first and publishes second, a crash between the two loses the event. If it publishes first, a crash can publish an event about data that was never committed.\n\nThe transactional outbox solves this. The service writes the event into an outbox table, in the same transaction as the data. A separate relay reads the outbox and publishes the events, then marks them as sent.\n\nThe relay can publish an event two times, for example when it crashes after publishing and before marking. So consumers must handle duplicates: each event has an id, and a consumer remembers the ids that it has seen.\n\nThe pattern turns two writes into one atomic write plus a retry loop. It is the same idea as a job queue in the same database: the work is recorded in the transaction that makes it necessary.\n\nThe relay can be a polling loop over the outbox table, or a reader of the write-ahead log of the database (change data capture). Polling is simple and adds load; reading the log adds no queries but needs another moving part.\n\nKeep the outbox small: delete the events after they are sent, or partition the table by day and drop old partitions.",
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "leases",
+      "title": "Leases and fencing tokens",
+      "summary": "Why a lock with a timeout is not safe alone, and how a fencing token makes it safe.",
+      "key_points": [
+        "A paused client can outlive its lease",
+        "The storage refuses an old token"
+      ],
+      "text": "A distributed lock with a timeout is a lease: a client holds it until a moment, and then it expires. Leases are safe only if a client that lost its lease cannot do harm.\n\nThe classic failure: a client takes the lease, then pauses for a long garbage collection. The lease expires, a second client takes it and writes. The first client wakes up, still believes that it holds the lease, and writes too.\n\nA fencing token prevents this. Each new lease gets a larger number. The storage remembers the largest token that it has seen, and it refuses a write with a smaller one. So the paused client is fenced out, even though it does not know that its lease ended.\n\nThe token must be checked by the resource itself. A check by the client is not enough, because the client is the part that can be wrong.\n\nClocks make it worse. A lease is measured in time, and the clocks of two machines drift. A client must stop well before its lease ends, with a margin for drift and for the pause of a garbage collection.\n\nThe same pattern appears in leader election. A new leader gets a larger term number, and the followers refuse messages of an older term.",
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "sse",
+      "title": "Server-sent events or WebSockets?",
+      "summary": "For updates from the server to the browser, server-sent events are simpler than WebSockets.",
+      "key_points": [
+        "SSE is plain HTTP and reconnects by itself",
+        "WebSockets are for traffic in both directions"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "nextjs-cache",
+      "title": "Caching in the Next.js app router",
+      "summary": "The four caches of the app router, and how to make a page dynamic again.",
+      "key_points": [
+        "Fetch requests are cached by default in older versions",
+        "revalidatePath clears a page"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "sqlite-wal",
+      "title": "SQLite in WAL mode",
+      "summary": "With the write-ahead log, readers do not block the writer, and the writer does not block readers.",
+      "key_points": [
+        "Writes go to a separate log file first",
+        "A checkpoint moves them into the database"
+      ],
+      "text": null,
+      "kind": "article",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "sourdough",
+      "title": "Sourdough at home",
+      "summary": "Flour, water, salt and time: keeping a starter alive and baking a first loaf.",
+      "key_points": [
+        "Feed the starter every day",
+        "A long cold rise gives more taste"
+      ],
+      "text": null,
+      "kind": "post",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "coffee",
+      "title": "Pour-over coffee ratios",
+      "summary": "How much coffee for how much water, and how the grind changes the taste.",
+      "key_points": [
+        "Start with 60 grams of coffee for one litre of water",
+        "A finer grind extracts more"
+      ],
+      "text": null,
+      "kind": "post",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "half-marathon",
+      "title": "Training for a first half marathon",
+      "summary": "A twelve-week plan: easy runs, one long run each week, and rest.",
+      "key_points": [
+        "Most runs should be easy",
+        "Add at most ten percent each week"
+      ],
+      "text": null,
+      "kind": "post",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "fa-ml-books",
+      "title": "معرفی کتاب\u200cهای یادگیری ماشین",
+      "summary": "A list of good books for starting machine learning, in Persian.",
+      "key_points": [
+        "Books for beginners and for practice"
+      ],
+      "text": "این فهرست کتاب\u200cهای خوب برای شروع یادگیری ماشین را معرفی می\u200cکند. برای هر کتاب سطح آن و پیش\u200cنیازها آمده است.",
+      "kind": "post",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "fa-db-books",
+      "title": "کتابهای پایگاه داده",
+      "summary": "Persian notes about books on databases and SQL.",
+      "key_points": [
+        "Books on SQL and on the design of databases"
+      ],
+      "text": null,
+      "kind": "post",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "fa-deep-learning",
+      "title": "معرف\u064a \u0643تاب \u064aادگ\u064aر\u064a عم\u064aق",
+      "summary": "A Persian review of a book on deep learning, typed on an Arabic keyboard.",
+      "key_points": [
+        "Neural networks from the start"
+      ],
+      "text": null,
+      "kind": "post",
+      "site": null,
+      "author": null
+    },
+    {
+      "key": "fa-postgres",
+      "title": "آموزش پستگرس",
+      "summary": "A Persian tutorial for Postgres: tables, indexes and transactions.",
+      "key_points": [
+        "From installation to the first queries"
+      ],
+      "text": null,
+      "kind": "post",
+      "site": null,
+      "author": null
+    }
+  ],
+  "queries": [
+    {
+      "q": "SKIP LOCKED",
+      "what": "an exact technical term",
+      "grades": {
+        "pg-queue": 3,
+        "pg-advisory": 1
+      }
+    },
+    {
+      "q": "postgres job queue",
+      "what": "plain keywords",
+      "grades": {
+        "pg-queue": 3,
+        "outbox": 1,
+        "go-workers": 1,
+        "k8s-autoscaling": 1
+      }
+    },
+    {
+      "q": "queues",
+      "what": "another form of a word (stemming)",
+      "grades": {
+        "pg-queue": 3,
+        "go-workers": 1,
+        "k8s-autoscaling": 1
+      }
+    },
+    {
+      "q": "postgress",
+      "what": "a typo",
+      "grades": {
+        "pg-queue": 2,
+        "pg-advisory": 2,
+        "pg-mvcc": 2,
+        "pgvector-intro": 1,
+        "fa-postgres": 1
+      }
+    },
+    {
+      "q": "how do several workers avoid taking the same task",
+      "what": "the same meaning in other words",
+      "grades": {
+        "pg-queue": 3,
+        "go-workers": 2,
+        "leases": 2,
+        "idempotency": 1
+      }
+    },
+    {
+      "q": "nearest neighbour index for embeddings in a database",
+      "what": "the same meaning in other words",
+      "grades": {
+        "pgvector-hnsw": 3,
+        "pgvector-intro": 2,
+        "embeddings": 1
+      }
+    },
+    {
+      "q": "combine keyword and vector results",
+      "what": "two topics in one question",
+      "grades": {
+        "rrf": 3,
+        "hybrid-search": 3,
+        "bm25": 1
+      }
+    },
+    {
+      "q": "graded relevance metric with a log discount",
+      "what": "a description of a thing, not its name",
+      "grades": {
+        "ndcg": 3,
+        "eval-llm": 1
+      }
+    },
+    {
+      "q": "keep old versions of rows for snapshots",
+      "what": "a description of a thing, not its name",
+      "grades": {
+        "pg-mvcc": 3,
+        "sqlite-wal": 1
+      }
+    },
+    {
+      "q": "borrow checker",
+      "what": "a term from a summary",
+      "grades": {
+        "rust-ownership": 3,
+        "rust-tokio": 1
+      }
+    },
+    {
+      "q": "kubernets operater",
+      "what": "two typos",
+      "grades": {
+        "k8s-operators": 3,
+        "k8s-probes": 1,
+        "k8s-autoscaling": 1
+      }
+    },
+    {
+      "q": "کتابهای یادگیری ماشین",
+      "what": "Persian without the zero-width non-joiner",
+      "grades": {
+        "fa-ml-books": 3,
+        "fa-deep-learning": 2
+      }
+    },
+    {
+      "q": "کتاب\u200cهای پایگاه داده",
+      "what": "Persian with the zero-width non-joiner",
+      "grades": {
+        "fa-db-books": 3,
+        "fa-postgres": 1
+      }
+    },
+    {
+      "q": "یادگیری عمیق",
+      "what": "Persian letters for a title typed with Arabic letters",
+      "grades": {
+        "fa-deep-learning": 3,
+        "fa-ml-books": 1
+      }
+    },
+    {
+      "q": "prompt injection exfiltration image",
+      "what": "several exact terms",
+      "grades": {
+        "prompt-injection": 3,
+        "rag-citations": 1
+      }
+    },
+    {
+      "q": "fine-tune a large model cheaply",
+      "what": "the same meaning in other words",
+      "grades": {
+        "lora": 3,
+        "attention": 1
+      }
+    },
+    {
+      "q": "events in the same transaction as the data",
+      "what": "a description of a thing, not its name",
+      "grades": {
+        "outbox": 3,
+        "pg-queue": 1,
+        "idempotency": 1
+      }
+    },
+    {
+      "q": "retry a payment without charging twice",
+      "what": "a description of a thing, not its name",
+      "grades": {
+        "idempotency": 3,
+        "outbox": 1,
+        "leases": 1
+      }
+    },
+    {
+      "q": "how many grams of coffee per cup",
+      "what": "a question about something else",
+      "grades": {
+        "coffee": 3
+      }
+    },
+    {
+      "q": "bread starter",
+      "what": "words of the key points",
+      "grades": {
+        "sourdough": 3
+      }
+    },
+    {
+      "q": "split long documents into pieces for search",
+      "what": "the same meaning in other words",
+      "grades": {
+        "chunking": 3,
+        "rag-citations": 1,
+        "embeddings": 1
+      }
+    },
+    {
+      "q": "readiness probe",
+      "what": "a term from a title",
+      "grades": {
+        "k8s-probes": 3
+      }
+    },
+    {
+      "q": "scale workers on queue length",
+      "what": "a description of a thing, not its name",
+      "grades": {
+        "k8s-autoscaling": 3,
+        "go-workers": 1,
+        "pg-queue": 1
+      }
+    },
+    {
+      "q": "free-threaded python without the GIL",
+      "what": "a term from a title",
+      "grades": {
+        "python-gil": 3,
+        "python-taskgroup": 1
+      }
+    },
+    {
+      "q": "task groups",
+      "what": "a term from a title",
+      "grades": {
+        "python-taskgroup": 3,
+        "rust-tokio": 1
+      }
+    },
+    {
+      "q": "terraform lock",
+      "what": "two words, one of them common",
+      "grades": {
+        "terraform-state": 3,
+        "leases": 1,
+        "pg-advisory": 1
+      }
+    },
+    {
+      "q": "fencing token",
+      "what": "a term from a title",
+      "grades": {
+        "leases": 3
+      }
+    },
+    {
+      "q": "attention heads",
+      "what": "a term from a summary",
+      "grades": {
+        "attention": 3,
+        "lora": 1
+      }
+    },
+    {
+      "q": "calibrated probabilities",
+      "what": "a form of a word from a title",
+      "grades": {
+        "calibration": 3,
+        "eval-llm": 1
+      }
+    },
+    {
+      "q": "measure an LLM app before a release",
+      "what": "a description of a thing, not its name",
+      "grades": {
+        "eval-llm": 3,
+        "ndcg": 1,
+        "calibration": 1
+      }
+    },
+    {
+      "q": "live updates from the server to the browser",
+      "what": "the same meaning in other words",
+      "grades": {
+        "sse": 3,
+        "nextjs-cache": 0
+      }
+    },
+    {
+      "q": "app router cache",
+      "what": "a term from a title",
+      "grades": {
+        "nextjs-cache": 3
+      }
+    },
+    {
+      "q": "write ahead log",
+      "what": "a term without its hyphen",
+      "grades": {
+        "sqlite-wal": 3,
+        "pg-mvcc": 1
+      }
+    },
+    {
+      "q": "half marathon plan",
+      "what": "a question about something else",
+      "grades": {
+        "half-marathon": 3
+      }
+    },
+    {
+      "q": "reaper for expired leases",
+      "what": "a detail that only the text has",
+      "grades": {
+        "pg-queue": 3,
+        "leases": 1
+      }
+    },
+    {
+      "q": "garbage collection pause",
+      "what": "a detail that only the text has",
+      "grades": {
+        "leases": 3
+      }
+    },
+    {
+      "q": "transaction id wraparound",
+      "what": "a detail that only the text has",
+      "grades": {
+        "pg-mvcc": 3
+      }
+    },
+    {
+      "q": "iterative index scans",
+      "what": "a detail that only the text has",
+      "grades": {
+        "pgvector-hnsw": 3
+      }
+    }
+  ]
+}
