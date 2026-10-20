@@ -11,17 +11,21 @@ of one owner, the best first. Reciprocal rank fusion (M4-2) joins their lists in
 
 ``u_norm()`` makes the query and the stored text equal for the forms that Arabic and Persian
 keyboards type differently (docs/learn/03). Each retriever sees only the items of the owner, and
-no merged copy: the lists show the older item instead.
+no merged copy: the lists show the older item instead. ``Filters`` narrow the items further,
+inside the query: a filter acts before the list is cut at its limit, not after.
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from unshelve.contracts.dto import EmbeddingSpec
-from unshelve.db.models import Chunk, EmbeddingSet, Item, ItemContent
+from unshelve.contracts.enums import GoalLabel, ItemKind, ItemStatus
+from unshelve.db.models import Chunk, EmbeddingSet, Item, ItemContent, ItemGoal, ItemTag, Tag
 from unshelve.embed.sets import find_set
+from unshelve.resurface.selection import HELPS_FROM
 
 # Each retriever returns at most this many ids. Fusion reads the top of each list.
 LIMIT = 50
@@ -31,12 +35,67 @@ LIMIT = 50
 # zero-width non-joiner (0.55), and it drops "search" for "research" (0.45).
 
 
-def _visible(owner_id: int) -> sa.ColumnElement[bool]:
-    return sa.and_(Item.owner_id == owner_id, Item.duplicate_of_id.is_(None))
+@dataclass(frozen=True, slots=True)
+class Filters:
+    """What a search may return. An empty field does not filter.
+
+    * ``statuses`` and ``kinds``: one of these values.
+    * ``tags``: each of these tags (slugs). Two tags find the items that have both.
+    * ``goal_id``: the items that help this goal: a score of 2 or 3 after your verdict. A
+      rejected score turns, as in the digest (``resurface.selection.effective_score``).
+    """
+
+    statuses: frozenset[ItemStatus] = frozenset()
+    kinds: frozenset[ItemKind] = frozenset()
+    tags: frozenset[str] = frozenset()
+    goal_id: int | None = None
+
+
+NO_FILTERS = Filters()
+
+
+def _helps_the_goal(goal_id: int) -> sa.ColumnElement[bool]:
+    # A confirmed score, or one without a verdict, stands. A rejected 2 or 3 says "does not
+    # help"; a rejected 0 or 1 says "helps".
+    return sa.exists().where(
+        ItemGoal.item_id == Item.id,
+        ItemGoal.goal_id == goal_id,
+        sa.or_(
+            sa.and_(
+                ItemGoal.label.is_distinct_from(GoalLabel.REJECTED), ItemGoal.score >= HELPS_FROM
+            ),
+            sa.and_(ItemGoal.label == GoalLabel.REJECTED, ItemGoal.score < HELPS_FROM),
+        ),
+    )
+
+
+def _visible(owner_id: int, filters: Filters = NO_FILTERS) -> sa.ColumnElement[bool]:
+    conditions = [Item.owner_id == owner_id, Item.duplicate_of_id.is_(None)]
+    if filters.statuses:
+        conditions.append(Item.status.in_(sorted(filters.statuses)))
+    if filters.kinds:
+        conditions.append(Item.kind.in_(sorted(filters.kinds)))
+    for slug in sorted(filters.tags):
+        conditions.append(
+            sa.exists().where(
+                ItemTag.item_id == Item.id,
+                ItemTag.tag_id == Tag.id,
+                Tag.owner_id == owner_id,
+                Tag.slug == slug,
+            )
+        )
+    if filters.goal_id is not None:
+        conditions.append(_helps_the_goal(filters.goal_id))
+    return sa.and_(*conditions)
 
 
 async def full_text(
-    session: AsyncSession, owner_id: int, query: str, *, limit: int = LIMIT
+    session: AsyncSession,
+    owner_id: int,
+    query: str,
+    *,
+    filters: Filters = NO_FILTERS,
+    limit: int = LIMIT,
 ) -> list[int]:
     """The items whose card or text has the words of the query, the closest first.
 
@@ -53,7 +112,7 @@ async def full_text(
         sa.select(Item.id, card_rank, text_rank)
         .outerjoin(ItemContent, ItemContent.item_id == Item.id)
         .where(
-            _visible(owner_id),
+            _visible(owner_id, filters),
             sa.or_(Item.fts.op("@@")(words), ItemContent.fts.op("@@")(words)),
         )
         .order_by(card_rank.desc(), text_rank.desc(), Item.id)
@@ -63,7 +122,12 @@ async def full_text(
 
 
 async def trigram(
-    session: AsyncSession, owner_id: int, query: str, *, limit: int = LIMIT
+    session: AsyncSession,
+    owner_id: int,
+    query: str,
+    *,
+    filters: Filters = NO_FILTERS,
+    limit: int = LIMIT,
 ) -> list[int]:
     """The items whose title has a word close to the words of the query, the closest first."""
     normalised = sa.func.u_norm(query)
@@ -71,7 +135,7 @@ async def trigram(
     closeness = sa.func.strict_word_similarity(normalised, title).label("closeness")
     rows = await session.execute(
         sa.select(Item.id, closeness)
-        .where(_visible(owner_id), normalised.op("<<%")(title))
+        .where(_visible(owner_id, filters), normalised.op("<<%")(title))
         .order_by(closeness.desc(), Item.id)
         .limit(limit)
     )
@@ -96,6 +160,7 @@ async def vector(
     set_id: int,
     query_vector: Sequence[float],
     *,
+    filters: Filters = NO_FILTERS,
     limit: int = LIMIT,
 ) -> list[int]:
     """The items with a vector close to the query vector, the closest first.
@@ -111,7 +176,7 @@ async def vector(
         sa.select(Chunk.item_id, distance)
         .join(Item, Item.id == Chunk.item_id)
         .where(
-            _visible(owner_id),
+            _visible(owner_id, filters),
             Chunk.owner_id == owner_id,
             Chunk.embedding_set_id == set_id,
             # A vector of another length cannot be compared (pgvector refuses it).
