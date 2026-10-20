@@ -1,5 +1,5 @@
-"""The metrics of search: the specification of the M4-2 exercise. Read it from the top: each test
-name is one rule, with the numbers computed by hand in note 37."""
+"""The metrics of search: their specification. Read it from the top: each test name is one rule,
+with the numbers computed by hand in note 37."""
 
 from math import log2
 
