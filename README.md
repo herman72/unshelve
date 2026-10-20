@@ -62,7 +62,10 @@ You need Docker, [uv](https://docs.astral.sh/uv/), Node.js 20.9 or newer and pnp
 make setup   # install Python and Node dependencies
 make up      # build and start the stack: web on :3000, API on :8000
 make check   # lint, type check, tests and the API contract check
+make eval    # measure search on the golden set: recall@10, nDCG@10 and MRR of each list
 ```
+
+CI fails when the recall@10 or the nDCG@10 of search differs from `apps/api/evals/search/baseline.json`. `make eval-live` records the vectors of the golden set with the embedder of `.env`, and `make eval-baseline` writes the new numbers; [the note about measuring search](docs/learn/40-measuring-search.md) explains them.
 
 The stack runs with fake providers and recorded pages by default, so it needs no accounts and no keys. Copy `.env.example` to `.env` to connect a Telegram bot and real providers.
 

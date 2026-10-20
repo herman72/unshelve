@@ -193,4 +193,4 @@ The second citation of the test is different. Document 0 exists, but its charact
 - [Citations](https://platform.claude.com/docs/en/build-with-claude/citations), Claude documentation. Read "Choosing a document type" (plain text against custom content) and "Feature compatibility" (why no structured output).
 - [Exfiltration attacks](https://simonwillison.net/tags/exfiltration-attacks/), Simon Willison. Read one of the posts about a Markdown image that leaks data, and look for the second form of an image that a filter missed.
 
-Previous: [38. The search API](38-search-api.md) · Back to the [list of notes](README.md)
+Previous: [38. The search API](38-search-api.md) · Next: [40. Measuring search](40-measuring-search.md) · Back to the [list of notes](README.md)
