@@ -7,7 +7,9 @@
 // contracts/states.py, a queue of 5 slots, and no move for a merged copy. The goals too: a slug
 // from the title, a clash is a 409, at most 10 active goals, a new version for a new meaning,
 // and one focus. The preview of a digest has three made-up picks, and it keeps them in order
-// while they fit the reading time; the choice itself is tested in the API.
+// while they fit the reading time; the choice itself is tested in the API. Search finds words
+// in the titles, the summaries and a few saved texts, and fuses three lists as the real API
+// does. The ranking itself is tested in the API.
 //
 //     node e2e/fixture-api.mjs 3901
 //
@@ -26,6 +28,10 @@ import { createServer } from "node:http";
 /** @typedef {import("@unshelve/api-client").components["schemas"]["GoalOut"]} GoalOut */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["GoalScore"]} GoalScore */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["DigestPick"]} DigestPick */
+/** @typedef {import("@unshelve/api-client").components["schemas"]["ItemKind"]} ItemKind */
+/** @typedef {import("@unshelve/api-client").components["schemas"]["SearchHit"]} SearchHit */
+/** @typedef {import("@unshelve/api-client").components["schemas"]["SearchPage"]} SearchPage */
+/** @typedef {import("@unshelve/api-client").components["schemas"]["SnippetPart"]} SnippetPart */
 
 const port = Number(process.argv[2] ?? 3901);
 
@@ -320,6 +326,13 @@ let lastMove = new Map();
 let digestMinutes = [];
 /** For a test: the digest has nothing to bring back. */
 let emptyDigest = false;
+/** @type {Record<string, string | string[] | null>[]} the query of each search, in order */
+let searches = [];
+/** For a test: what the embedder did, as the API reports it. */
+/** @type {SearchPage["vector_search"]} */
+let vectorSearch = "used";
+/** For a test: fewer hits on a page than the 20 of the API, so that a second page exists. */
+let searchPageSize = 20;
 
 /**
  * The made-up picks of a digest: the item for the focus goal, a recent item, a random pick.
@@ -337,6 +350,134 @@ function digestPicks() {
     const item = items.find((candidate) => candidate.id === id);
     return item ? [{ item: summaryOf(item), reason, goal_title }] : [];
   });
+}
+
+/**
+ * The saved text of some items, as the worker keeps it (item_contents). Search finds the words
+ * of a query in it, as in the title and the summary. The text of item 5 has markup in it: the
+ * pages must show it as characters.
+ *
+ * @type {Record<number, string>}
+ */
+const TEXTS = {
+  1:
+    "Each worker claims a job with SKIP LOCKED and holds a lease on it. A reaper finds the " +
+    "jobs whose lease ended and gives them to the next worker.",
+  2: "هر کار یک اجاره دارد. وقتی اجاره تمام شود، کارگر دیگری آن را برمی‌دارد.",
+  5: "Saved from a page with markup: <img src=x onerror=alert(1)> and <b>bold</b> stay text.",
+};
+
+/**
+ * Words that find an item by its meaning only: the pretend vector search. A real embedder finds
+ * a text about locks for "contention" without the word; these lists stand in for it.
+ *
+ * @type {Record<number, string[]>}
+ */
+const MEANINGS = {
+  1: ["contention", "concurrency"],
+  2: ["contention"],
+};
+
+/** The words of a query, as the pretend search compares them. @param {string} q */
+function wordsOf(q) {
+  return q.toLowerCase().split(/\s+/).filter(Boolean);
+}
+
+/**
+ * The text in parts: each word that starts with a word of the query is a hit, as the snippets
+ * of the real API mark "leases" for "lease". Other text stays together in one part.
+ *
+ * @param {string} text
+ * @param {string[]} words
+ * @returns {SnippetPart[]}
+ */
+function partsOf(text, words) {
+  /** @type {SnippetPart[]} */
+  const parts = [];
+  // split with a group keeps the separators: the words are at the odd places.
+  text.split(/([\p{L}\p{M}\p{N}]+)/u).forEach((piece, index) => {
+    if (!piece) return;
+    const hit = index % 2 === 1 && words.some((word) => piece.toLowerCase().startsWith(word));
+    const last = parts.at(-1);
+    if (last && !last.hit && !hit) last.text += piece;
+    else parts.push({ text: piece, hit });
+  });
+  return parts;
+}
+
+/** @param {string | null | undefined} text @param {string[]} words */
+function hasWord(text, words) {
+  return partsOf(text ?? "", words).some((part) => part.hit);
+}
+
+/** The first sentence of a text: the passage that the pretend API shows. @param {string} text */
+function firstSentence(text) {
+  return /^[^.!?]*[.!?]/u.exec(text)?.[0] ?? text;
+}
+
+/**
+ * The pretend hybrid search: three lists, each in the order of the ids, fused with reciprocal
+ * rank fusion as in the real API (k = 60). Words: a word of the query in the title, the summary
+ * or the saved text. Spelling: in the title. Meaning: in MEANINGS or in the summary, unless the
+ * embedder is switched off for a test.
+ *
+ * @param {string[]} words
+ * @param {(item: ItemDetail) => boolean} keep the filters
+ * @returns {SearchHit[]}
+ */
+function searchHits(words, keep) {
+  const found = items.filter((item) => item.duplicate_of_id === null && keep(item));
+  const lists = {
+    fts: found.filter((item) =>
+      [item.title, item.summary, TEXTS[item.id]].some((text) => hasWord(text, words)),
+    ),
+    trigram: found.filter((item) => hasWord(item.title, words)),
+    vector:
+      vectorSearch === "used"
+        ? found.filter(
+            (item) =>
+              (MEANINGS[item.id] ?? []).some((meaning) => words.includes(meaning)) ||
+              hasWord(item.summary, words),
+          )
+        : [],
+  };
+  /** @param {ItemDetail[]} list @param {ItemDetail} item */
+  const placeIn = (list, item) => (list.includes(item) ? list.indexOf(item) + 1 : null);
+  const hits = found.flatMap((item) => {
+    const ranks = {
+      fts: placeIn(lists.fts, item),
+      trigram: placeIn(lists.trigram, item),
+      vector: placeIn(lists.vector, item),
+    };
+    const places = [ranks.fts, ranks.trigram, ranks.vector].filter((place) => place !== null);
+    if (places.length === 0) return [];
+    const score = places.reduce((sum, place) => sum + 1 / (60 + place), 0);
+    return [{ item: summaryOf(item), ranks, score, snippet: snippetOf(item, words, ranks) }];
+  });
+  // The best score first; a tie goes to the smaller id, as in the real API.
+  return hits.sort((one, other) => other.score - one.score || one.item.id - other.item.id);
+}
+
+/**
+ * The snippet of a hit, chosen as the real API chooses it: the words in the text, else the
+ * words in the summary, else the passage closest in meaning for an item that only the vector
+ * list found. Null for a hit of the title: the title already shows why.
+ *
+ * @param {ItemDetail} item
+ * @param {string[]} words
+ * @param {SearchHit["ranks"]} ranks
+ * @returns {SearchHit["snippet"]}
+ */
+function snippetOf(item, words, ranks) {
+  const text = TEXTS[item.id];
+  if (text && hasWord(text, words)) return { source: "text", parts: partsOf(text, words) };
+  if (item.summary && hasWord(item.summary, words)) {
+    return { source: "summary", parts: partsOf(item.summary, words) };
+  }
+  if (text && ranks.fts === null && ranks.vector !== null) {
+    return { source: "passage", parts: [{ text: firstSentence(text), hit: false }] };
+  }
+  return null;
 }
 
 /**
@@ -391,10 +532,21 @@ const server = createServer(async (request, response) => {
     lastMove = new Map();
     digestMinutes = [];
     emptyDigest = false;
+    searches = [];
+    vectorSearch = "used";
+    searchPageSize = 20;
     return send(response, 200, {});
   }
   if (request.method === "GET" && path === "/__calls") {
-    return send(response, 200, { reprocessed, moves, verdicts, digestMinutes });
+    const calls = { reprocessed, moves, verdicts, digestMinutes, searches };
+    return send(response, 200, calls);
+  }
+  if (request.method === "POST" && path === "/__search") {
+    // For a test: the embedder fails, or a page holds fewer hits.
+    const body = await jsonBody(request);
+    vectorSearch = /** @type {SearchPage["vector_search"]} */ (body.vector_search ?? vectorSearch);
+    searchPageSize = Number(body.page_size ?? searchPageSize);
+    return send(response, 200, {});
   }
   if (request.method === "POST" && path === "/__digest") {
     emptyDigest = Boolean((await jsonBody(request)).empty);
@@ -467,6 +619,41 @@ const server = createServer(async (request, response) => {
       picks,
       total_minutes: minutes - left,
       goal_title: "Database internals",
+    });
+  }
+
+  if (request.method === "GET" && path === "/api/v1/search") {
+    // As in the real API: the query is required, and a status or a kind must exist.
+    const q = (url.searchParams.get("q") ?? "").trim();
+    const statuses = url.searchParams.getAll("status");
+    const kinds = url.searchParams.getAll("kind");
+    const goal = url.searchParams.get("goal_id");
+    const cursor = url.searchParams.get("cursor");
+    searches.push({ q, status: statuses, kind: kinds, goal_id: goal, cursor });
+    const known = statuses.every((status) => STATUSES.includes(/** @type {ItemStatus} */ (status)));
+    if (!q || q.length > 500 || !known) {
+      return problem(response, 422, "Unprocessable Content", "the query is not valid");
+    }
+    const start = cursor === null ? 0 : Number(/^p(\d+)$/.exec(cursor)?.[1] ?? NaN);
+    if (Number.isNaN(start)) {
+      return problem(response, 422, "Unprocessable Content", "the cursor is not valid");
+    }
+    const hits = searchHits(wordsOf(q), (item) => {
+      // A goal counts with a score of 2 or 3, unless you rejected the score.
+      const helps = item.goals.some(
+        (score) => String(score.goal_id) === goal && score.score >= 2 && score.label !== "rejected",
+      );
+      return (
+        (statuses.length === 0 || statuses.includes(item.status)) &&
+        (kinds.length === 0 || kinds.includes(item.kind)) &&
+        (goal === null || helps)
+      );
+    });
+    const end = start + searchPageSize;
+    return send(response, 200, {
+      items: hits.slice(start, end),
+      next_cursor: end < hits.length ? `p${end}` : null,
+      vector_search: vectorSearch,
     });
   }
 

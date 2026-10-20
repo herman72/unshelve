@@ -67,3 +67,25 @@ export async function addEvent(
 ): Promise<void> {
   await request.post(`${API_URL}/__events/${itemId}`, { data: event });
 }
+
+type SearchCall = {
+  q: string;
+  status: string[];
+  kind: string[];
+  goal_id: string | null;
+  cursor: string | null;
+};
+
+/** The query of each search that the pretend API got, in order. */
+export async function searches(request: APIRequestContext): Promise<SearchCall[]> {
+  const answer = await request.get(`${API_URL}/__calls`);
+  return ((await answer.json()) as { searches: SearchCall[] }).searches;
+}
+
+/** For the next searches: what the embedder does, and how many hits a page holds (20). */
+export async function changeSearch(
+  request: APIRequestContext,
+  settings: { vector_search?: "used" | "no_vectors" | "failed"; page_size?: number },
+): Promise<void> {
+  await request.post(`${API_URL}/__search`, { data: settings });
+}
