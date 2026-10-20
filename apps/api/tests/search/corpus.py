@@ -4,12 +4,16 @@ The vectors have three dimensions, one for each topic: queues, vectors and Rust.
 embedder makes vectors of hundreds of dimensions; the SQL is the same.
 """
 
+import asyncio
+import math
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from unshelve.auth import store as auth
+from unshelve.contracts.dto import EmbeddingSpec
 from unshelve.contracts.enums import ChunkKind, EnrichState
 from unshelve.db.models import Chunk, EmbeddingSet, Item, ItemContent
 
@@ -18,6 +22,61 @@ QUEUES, VECTORS = (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)
 # Rust is a little closer to queues than vectors are: the card of pgvector is the farthest
 # vector, so a search that took the farthest piece of an item would rank pgvector last.
 RUST = (0.2, 0.0, 1.0)
+
+# The spec of the active set of the corpus.
+TOPICS = EmbeddingSpec(provider="test", model="topics", dim=3)
+# The words that pull the vector of a query towards a topic.
+TOPIC_WORDS = {
+    "postgres": QUEUES,
+    "queue": QUEUES,
+    "queues": QUEUES,
+    "worker": QUEUES,
+    "vector": VECTORS,
+    "vectors": VECTORS,
+    "embedding": VECTORS,
+    "rust": RUST,
+    "ownership": RUST,
+}
+
+
+class TopicEmbedder:
+    """A pretend embedder for the corpus. The vector of a query is the sum of the topics of its
+    words; a query without a topic word points between the three topics. It counts its calls,
+    and on request it fails, is slow, or runs ``on_call`` first."""
+
+    def __init__(
+        self,
+        *,
+        spec: EmbeddingSpec = TOPICS,
+        error: Exception | None = None,
+        delay: float = 0.0,
+        on_call: Callable[[], None] | None = None,
+    ) -> None:
+        self.spec = spec
+        self.error = error
+        self.delay = delay
+        self.on_call = on_call
+        self.calls = 0
+
+    async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return [await self.embed_query(text) for text in texts]
+
+    async def embed_query(self, text: str) -> list[float]:
+        self.calls += 1
+        if self.on_call is not None:
+            self.on_call()
+        if self.delay:
+            await asyncio.sleep(self.delay)
+        if self.error is not None:
+            raise self.error
+        vector = [0.0, 0.0, 0.0]
+        for word in text.lower().split():
+            for axis, value in enumerate(TOPIC_WORDS.get(word, (0.0, 0.0, 0.0))):
+                vector[axis] += value
+        if not any(vector):
+            vector = [1.0, 1.0, 1.0]
+        norm = math.sqrt(sum(value * value for value in vector))
+        return [value / norm for value in vector]
 
 
 @dataclass(frozen=True)
