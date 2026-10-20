@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from unshelve.contracts.dto import (
     BatchAnswer,
     BatchQuestion,
+    CitedAnswer,
     EmbeddingSpec,
     Extracted,
     FetchResult,
@@ -17,6 +18,7 @@ from unshelve.contracts.dto import (
     LLMResult,
     MediaRef,
     SourceRef,
+    SourceText,
     TextPart,
 )
 
@@ -70,6 +72,27 @@ class LLMProvider(Protocol):
         schema: type[T],
         max_output_tokens: int,
     ) -> LLMResult[T]: ...
+
+
+class CitingLLM(Protocol):
+    """An answer to ``question`` from the given ``sources`` alone, in which each statement can
+    point at the parts of the sources that support it (the native citations of the provider).
+
+    The answer is free text, not a schema: the model writes the citations between its words,
+    which structured output does not allow. ``task`` and ``prompt_version`` identify the call
+    for caching, as in ``LLMProvider``. Each quote points inside ``sources``.
+    """
+
+    async def cite(
+        self,
+        *,
+        task: str,
+        prompt_version: str,
+        system: str,
+        sources: Sequence[SourceText],
+        question: str,
+        max_output_tokens: int,
+    ) -> LLMResult[CitedAnswer]: ...
 
 
 class BatchProvider(Protocol):

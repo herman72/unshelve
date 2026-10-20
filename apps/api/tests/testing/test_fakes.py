@@ -5,10 +5,17 @@ from enum import StrEnum
 import pytest
 from pydantic import BaseModel
 
-from unshelve.contracts.dto import SourceRef, TextPart
-from unshelve.contracts.protocols import BlobStore, Embedder, ExtractContext, LLMProvider
+from unshelve.contracts.dto import CitedAnswer, CitedSegment, Quote, SourceRef, SourceText, TextPart
+from unshelve.contracts.protocols import (
+    BlobStore,
+    CitingLLM,
+    Embedder,
+    ExtractContext,
+    LLMProvider,
+)
 from unshelve.testing.conformance import (
     BlobStoreConformance,
+    CitingLLMConformance,
     EmbedderConformance,
     ExtractorCase,
     ExtractorConformance,
@@ -50,10 +57,54 @@ class TestFakeFetcher(FetcherConformance):
         )
 
 
-class TestFakeLLM(LLMProviderConformance):
+class TestFakeLLM(LLMProviderConformance, CitingLLMConformance):
     @pytest.fixture
     def llm(self) -> LLMProvider:
         return FakeLLM()
+
+    @pytest.fixture
+    def citing_llm(self) -> CitingLLM:
+        return FakeLLM()
+
+
+async def _cite(llm: FakeLLM, *texts: str) -> CitedAnswer:
+    sources = [SourceText(title=f"Item {n}", text=text) for n, text in enumerate(texts, start=1)]
+    result = await llm.cite(
+        task="test",
+        prompt_version="1",
+        system="Answer.",
+        sources=sources,
+        question="What is it?",
+        max_output_tokens=100,
+    )
+    return result.value
+
+
+async def test_the_fake_quotes_the_first_sentence_of_the_first_three_sources() -> None:
+    answer = await _cite(FakeLLM(), "  One. Two.", "Three? Four.", "Five", "Six.")
+
+    assert answer.segments == [
+        CitedSegment(text="Item 1: "),
+        CitedSegment(text="One.", quotes=[Quote(source=0, start=2, end=6, text="One.")]),
+        CitedSegment(text="Item 2: "),
+        CitedSegment(text="Three?", quotes=[Quote(source=1, start=0, end=6, text="Three?")]),
+        CitedSegment(text="Item 3: "),
+        CitedSegment(text="Five", quotes=[Quote(source=2, start=0, end=4, text="Five")]),
+    ]
+
+
+async def test_the_fake_says_when_no_source_can_be_quoted() -> None:
+    answer = await _cite(FakeLLM(), "   ")
+
+    assert answer.segments == [CitedSegment(text="The sources do not answer the question.")]
+
+
+async def test_a_scripted_cited_answer_comes_back_as_it_is() -> None:
+    scripted = CitedAnswer(segments=[CitedSegment(text="See ![x](https://example.com/x.png).")])
+    llm = FakeLLM(cited_responder=lambda call, sources: scripted)
+
+    assert await _cite(llm, "One.") == scripted
+    assert llm.calls[0].text == "What is it?\nOne."
 
 
 class TestEchoExtractor(ExtractorConformance):
