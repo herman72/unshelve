@@ -1,27 +1,27 @@
 # 40. Measuring search
 
-> Pull request: [#101](https://github.com/herman72/unshelve/pull/101) · Code: [`evals/golden.py`](../../apps/api/src/unshelve/evals/golden.py), [`evals/cassette.py`](../../apps/api/src/unshelve/evals/cassette.py), [`evals/search.py`](../../apps/api/src/unshelve/evals/search.py) · Data: [`apps/api/evals/search/`](../../apps/api/evals/search/) · Tests: [`tests/evals/`](../../apps/api/tests/evals/)
+> Pull requests: [#101](https://github.com/herman72/unshelve/pull/101), [#102](https://github.com/herman72/unshelve/pull/102) (the real vectors) · Code: [`evals/golden.py`](../../apps/api/src/unshelve/evals/golden.py), [`evals/cassette.py`](../../apps/api/src/unshelve/evals/cassette.py), [`evals/search.py`](../../apps/api/src/unshelve/evals/search.py) · Data: [`apps/api/evals/search/`](../../apps/api/evals/search/) · Tests: [`tests/evals/`](../../apps/api/tests/evals/)
 
 ## In one minute
 
 `make eval` prints this:
 
 ```text
-search on the golden set: 39 items, 38 queries; vectors of fake/hashed-bow-64 (64 numbers)
+search on the golden set: 39 items, 38 queries; vectors of voyage/voyage-4-large (1024 numbers)
 list        recall@10  nDCG@10    MRR
 full text       0.349    0.475  0.553
 trigram         0.294    0.402  0.474
-vector          0.646    0.510  0.487
-fused           0.716    0.777  0.855
+vector          1.000    0.963  0.987
+fused           1.000    0.974  1.000
 the 5 weakest queries (nDCG@10 of the fused list):
-  0.000  'reaper for expired leases'  (a detail that only the text has)
-  0.249  'fine-tune a large model cheaply'  (the same meaning in other words)
-  0.278  'combine keyword and vector results'  (two topics in one question)
-  0.439  'retry a payment without charging twice'  (a description of a thing, not its name)
-  0.458  'nearest neighbour index for embeddings in a database'  (the same meaning in other words)
+  0.797  'reaper for expired leases'  (a detail that only the text has)
+  0.899  'postgres job queue'  (plain keywords)
+  0.906  'split long documents into pieces for search'  (the same meaning in other words)
+  0.909  'graded relevance metric with a log discount'  (a description of a thing, not its name)
+  0.917  'events in the same transaction as the data'  (a description of a thing, not its name)
 ```
 
-Each retriever alone finds a part of the answers. The fused list finds more than each of them: recall@10 is 0.716, against 0.349 for full text alone. This is the reason for reciprocal rank fusion ([note 37](37-fusion-and-metrics.md)), now in numbers.
+Full text alone finds about a third of the relevant items (recall@10 0.349): it needs the words. The vectors of Voyage find each of them in the first 10 places. The fused list puts them in the best order: nDCG@10 0.974, against 0.963 for the vector list alone. This is the reason for reciprocal rank fusion ([note 37](37-fusion-and-metrics.md)), now in numbers.
 
 The same numbers are a gate. CI runs the evaluation with the other tests, and it fails when the fused recall@10 or nDCG@10 is not the number of the committed baseline.
 
@@ -72,7 +72,7 @@ So the vectors are recorded one time and replayed. A *cassette* ([`vectors.json`
 
 **A text that the cassette does not hold stops the run.** Then the golden set changed, or the text of a card changed, and `make eval-live` must record again. Nothing can change the input of the embedder in silence.
 
-**The vectors are half-precision floats in base64.** One number takes 2 bytes. The 86 vectors of the fake embedder (64 numbers each) take 21 KB. With Voyage (1,024 numbers each), they would take about 235 KB, below the 500 KB that the commit hook allows. The recorder rounds each vector in the same way before it uses it, so a live run and its replay rank the items the same.
+**The vectors are half-precision floats in base64.** One number takes 2 bytes. The 86 vectors of Voyage (1,024 numbers each) take 241 KB, below the 500 KB that the commit hook allows. As decimal text, they would take about three times as much. The recorder rounds each vector in the same way before it uses it, so a live run and its replay rank the items the same.
 
 The name comes from VCR.py, a tool that records HTTP calls into "cassettes" and plays them back in tests.
 
@@ -93,14 +93,15 @@ The gate is a test, [`test_search_gate.py`](../../apps/api/tests/evals/test_sear
 **A drop fails.** To check the gate itself, I removed the trigram list from the fusion and ran it:
 
 ```text
-AssertionError: recall@10 dropped from 0.716228 to 0.667982
-  nDCG@10 dropped from 0.776610 to 0.681291
+AssertionError: nDCG@10 dropped from 0.973533 to 0.971169
 ```
+
+recall@10 did not move. Section 5 explains why.
 
 **A rise fails too.** A better number must be written into the baseline. Otherwise the baseline stays at the old number, and a later change could lose the gain again with no failure. The message says what to do, for example:
 
 ```text
-nDCG@10 rose from 0.776610 to 0.790000: write the new baseline with make eval-baseline, and commit it
+nDCG@10 rose from 0.973533 to 0.980000: write the new baseline with make eval-baseline, and commit it
 ```
 
 The replay is exact: the same vectors, and ties broken by the item id. So the gate allows a difference of only 0.000001 (for the last bits of a float). One query that moves one place changes a mean by far more.
@@ -111,11 +112,31 @@ The replay is exact: the same vectors, and ties broken by the item id. So the ga
 | `make eval-live` | Records the vectors again, with the embedder of `.env`. |
 | `make eval-baseline` | Writes the scores of the recorded vectors as the new baseline. |
 
-## 5. What the first run found
+## 5. What the runs found
 
-**"reaper for expired leases" scores 0.** The text of the job queue says "A reaper finds the jobs whose lease ended". Full text asks for each word of the query, and "expired" is not in the text. The fake embedder knows words, not meanings, so the vector list does not help either. A real embedder may find it; full text that needs only some of the words could find it too. Each of these is now a change that can be measured, not guessed.
+**Real vectors help most where the words differ.** The first recording was of a fake embedder that only counts words. The fused nDCG@10 of some queries, with each one:
 
-**Questions in other words are weak with the fake embedder.** "fine-tune a large model cheaply" scores 0.249. Full text needs each word, and no item has "cheaply". The fake embedder only counts words, folded into 64 numbers. So three shared words ("fine", "large", "model") do not lift the LoRA item to the top. A real embedder compares meanings: this is the reason to record the real vectors (section "Try it yourself").
+| Query | Fake vectors | Voyage |
+|---|---|---|
+| reaper for expired leases | 0.000 | 0.797 |
+| fine-tune a large model cheaply | 0.249 | 0.964 |
+| combine keyword and vector results | 0.278 | 1.000 |
+| nearest neighbour index for embeddings in a database | 0.458 | 1.000 |
+
+The text of the job queue says "A reaper finds the jobs whose lease ended". Full text asks for each word of the query, and "expired" is not in the text. The vectors of Voyage know that "expired" and "ended" are close; the fake vectors did not.
+
+**A metric at its ceiling cannot fall.** With the vectors of Voyage, recall@10 is 1.000. Three changes that make the order worse all leave it at 1.000:
+
+| Change | recall@10 | nDCG@10 |
+|---|---|---|
+| None (the baseline) | 1.000 | 0.973533 |
+| No trigram in the fusion | 1.000 | 0.971169 |
+| `RRF_K = 0` | 1.000 | 0.972854 |
+| Only the vector list | 1.000 | 0.962847 |
+
+The golden set has 39 items, so the first 10 places hold a quarter of it. A relevant item must fall out of them before recall@10 can change. Now only nDCG@10 can see a change, and it fails the gate in each case. A harder golden set would let recall@10 work again: more items on the same topics, so that a relevant item has close neighbours that are not relevant.
+
+**One measurement found a mistake in the harness.** I compared the two recordings in one database. The second embedding set started inactive, so search compared no vectors, and each score of the second recording was wrong, with no error. The gate itself was right, because each test starts from an empty database. Now `load_items` activates its own set, and a test checks it.
 
 ## A choice that we made
 
@@ -137,13 +158,14 @@ The replay is exact: the same vectors, and ties broken by the item id. So the ga
 
 ## What a senior engineer checks here
 
-- **Can the gate fail?** Yes: a planted regression (no trigram in the fusion) drops recall@10 from 0.716 to 0.668, and the test fails.
+- **Can the gate fail?** Yes: a planted regression (no trigram in the fusion) drops nDCG@10 from 0.973533 to 0.971169, and the test fails.
+- **Can each metric still move?** recall@10 is at its ceiling (1.000) with the vectors of Voyage, so it can no longer fail. Look at the numbers, not only at the green check.
 - **Is the run the same each time?** The vectors are recorded and rounded, ties go by the item id, and the gate allows only the last bits of a float.
 - **Is the golden set large enough?** No golden set is. With 38 queries, one query changes a mean by up to 1/38 = 0.026. The gate is an alarm for a change, not a benchmark against other systems.
 - **Are the grades independent of the system?** Write the grades from the question and the item, before you look at what search returns. Grades written from the results only teach the system its own mistakes.
 - **Can the tests of the harness fail?** I put 24 typical mistakes into the evaluation code, one at a time. Before the run, my list showed two gaps in the tests. No test had two queries with the same words. And the full-text list and the trigram list of the small set had the same numbers, so a swap of the two could pass. The first run found two more. A test of a misspelt field passed for the wrong reason, and the small set had no item with the grade 0. Four tests close them. Now each of the 24 mistakes fails a test.
 - **What is not done:**
-  - The cassette holds the vectors of the fake embedder. The real ones need one run of `make eval-live` with your Voyage key.
+  - The golden set is easy for real vectors: recall@10 is at its ceiling. More items on the same topics would make it harder.
   - No evaluation of the overview ([note 39](39-overview-with-citations.md)): whether each citation supports its sentence.
   - No evaluation of the relevance scores against your verdicts ([note 33](33-labels-and-golden-set.md)).
 
@@ -156,14 +178,14 @@ The replay is exact: the same vectors, and ties broken by the item id. So the ga
 make eval
 ```
 
-3. Record the real vectors. `UNSHELVE_EMBEDDER=voyage` and `VOYAGE_API_KEY` must be in `.env`. The run embeds 86 short texts, far below the free tokens of a Voyage account:
+3. After a change of the golden set or of the embedder, record the vectors again. `UNSHELVE_EMBEDDER=voyage` and `VOYAGE_API_KEY` must be in `.env`. The run embeds 86 short texts in about 17 seconds, far below the free tokens of a Voyage account:
 
 ```bash
 make eval-live
 make eval-baseline
 ```
 
-The gate now measures your embedder. Commit `vectors.json` and `baseline.json`.
+Then commit `vectors.json` and `baseline.json`.
 
 ## Exercise (10 minutes)
 
@@ -180,11 +202,11 @@ Which metric changes, and which one stays the same? Why can one of them not see 
 <summary>The answer</summary>
 
 ```text
-fused           0.716    0.771  0.855
-AssertionError: nDCG@10 dropped from 0.776610 to 0.771267
+fused           1.000    0.973  1.000
+AssertionError: nDCG@10 dropped from 0.973533 to 0.972854
 ```
 
-recall@10 stays at 0.716, and the MRR stays at 0.855. Only nDCG@10 drops.
+recall@10 stays at 1.000, and the MRR stays at 1.000. Only nDCG@10 drops.
 
 With k = 0, one first place counts much more than agreement ([note 37](37-fusion-and-metrics.md)), so the order of the fused list changes. But the same items stay in the first 10 places, so recall@10 cannot see it: it counts the items, not their order. The first relevant item of each query also stays at its place, so the MRR does not move. nDCG@10 reads the order of all 10 places, and the order got worse. That is why the gate checks two metrics: each one sees what the other cannot.
 
