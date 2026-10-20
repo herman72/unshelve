@@ -18,11 +18,19 @@ from dataclasses import dataclass
 import pytest
 from pydantic import BaseModel
 
-from unshelve.contracts.dto import BatchQuestion, Extracted, ImagePart, SourceRef, TextPart
+from unshelve.contracts.dto import (
+    BatchQuestion,
+    Extracted,
+    ImagePart,
+    SourceRef,
+    SourceText,
+    TextPart,
+)
 from unshelve.contracts.errors import FetchError
 from unshelve.contracts.protocols import (
     BatchProvider,
     BlobStore,
+    CitingLLM,
     Embedder,
     ExtractContext,
     Extractor,
@@ -178,6 +186,51 @@ class _Card(BaseModel):
     title: str
     tags: list[str]
     minutes: int
+
+
+# Two sources for a cited answer: the first one answers the question, the second does not.
+CITED_SOURCES = [
+    SourceText(
+        title="Postgres as a job queue",
+        context="A saved article",
+        text="Postgres can be a job queue. SKIP LOCKED lets workers share one table of jobs.",
+    ),
+    SourceText(title="Sourdough", text="Sourdough needs flour, water, salt and time."),
+]
+
+
+class CitingLLMConformance:
+    @pytest.fixture
+    def citing_llm(self) -> CitingLLM:
+        raise NotImplementedError
+
+    async def _cite(self, citing_llm: CitingLLM) -> list[tuple[int, int, int, str]]:
+        result = await citing_llm.cite(
+            task="conformance",
+            prompt_version="1",
+            system="Answer from the sources alone, and cite them.",
+            sources=CITED_SOURCES,
+            question="How can Postgres share jobs between workers?",
+            max_output_tokens=400,
+        )
+        assert result.model
+        assert result.usage.input_tokens > 0
+        assert result.usage.output_tokens > 0
+        assert "".join(segment.text for segment in result.value.segments).strip()
+        return [
+            (quote.source, quote.start, quote.end, quote.text)
+            for segment in result.value.segments
+            for quote in segment.quotes
+        ]
+
+    async def test_a_cited_answer_quotes_its_sources(self, citing_llm: CitingLLM) -> None:
+        assert await self._cite(citing_llm)
+
+    async def test_each_quote_is_a_part_of_its_source(self, citing_llm: CitingLLM) -> None:
+        for source, start, end, text in await self._cite(citing_llm):
+            assert 0 <= source < len(CITED_SOURCES)
+            assert 0 <= start < end <= len(CITED_SOURCES[source].text)
+            assert text == CITED_SOURCES[source].text[start:end]
 
 
 class LLMProviderConformance:

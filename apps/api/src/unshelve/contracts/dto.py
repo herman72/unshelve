@@ -129,6 +129,40 @@ class LLMResult[T: BaseModel](Dto):
     cached: bool = False  # served from llm_calls without a provider call
 
 
+# --- An answer with citations --------------------------------------------------------------
+
+
+class SourceText(Dto):
+    """A text that a cited answer may quote. ``title`` and ``context`` help the model to read
+    it, but only ``text`` can be quoted."""
+
+    title: str
+    context: str | None = None
+    text: str = Field(min_length=1)
+
+
+class Quote(Dto):
+    """A part of one source that supports a statement: the characters ``start`` (from 0) up to
+    ``end`` (not included) of the source with the index ``source`` (from 0)."""
+
+    source: int = Field(ge=0)
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
+    text: str
+
+
+class CitedSegment(Dto):
+    """One piece of the answer, in order, and the quotes that support it. A piece without a
+    quote is text of the model alone."""
+
+    text: str
+    quotes: list[Quote] = []
+
+
+class CitedAnswer(Dto):
+    segments: list[CitedSegment]
+
+
 class BatchQuestion(Dto):
     """One question of a batch. ``custom_id`` names it in the answers: its cache key."""
 

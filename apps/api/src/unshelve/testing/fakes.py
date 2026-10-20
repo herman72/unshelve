@@ -15,6 +15,8 @@ from pydantic import BaseModel
 from unshelve.contracts.dto import (
     BatchAnswer,
     BatchQuestion,
+    CitedAnswer,
+    CitedSegment,
     EmbeddingSpec,
     Extracted,
     FetchResult,
@@ -22,7 +24,9 @@ from unshelve.contracts.dto import (
     LLMResult,
     LLMUsage,
     MediaRef,
+    Quote,
     SourceRef,
+    SourceText,
     TextPart,
 )
 from unshelve.contracts.enums import ItemKind
@@ -206,14 +210,21 @@ class FakeLLMCall:
 
 
 Responder = Callable[[FakeLLMCall, type[BaseModel]], BaseModel | None]
+# A scripted cited answer for the sources of a call, or None for the answer of the fake.
+CitedResponder = Callable[[FakeLLMCall, Sequence[SourceText]], CitedAnswer | None]
 
 
 @dataclass
 class FakeLLM:
     """Returns schema-valid output for any schema. ``responder`` can script specific tasks;
-    when it returns None, the output is synthesized from the input."""
+    when it returns None, the output is synthesized from the input.
+
+    ``cite`` quotes the first sentence of each of the first three sources, after the title of
+    each one. ``cited_responder`` can script a different answer.
+    """
 
     responder: Responder | None = None
+    cited_responder: CitedResponder | None = None
     calls: list[FakeLLMCall] = field(default_factory=list[FakeLLMCall])
     model: ClassVar[str] = "fake-llm"
 
@@ -244,6 +255,58 @@ class FakeLLM:
             output_tokens=min(len(_words(value.model_dump_json())), max_output_tokens),
         )
         return LLMResult[schema](value=value, model=self.model, usage=usage)
+
+    async def cite(
+        self,
+        *,
+        task: str,
+        prompt_version: str,
+        system: str,
+        sources: Sequence[SourceText],
+        question: str,
+        max_output_tokens: int,
+    ) -> LLMResult[CitedAnswer]:
+        text = "\n".join([question, *(source.text for source in sources)])
+        call = FakeLLMCall(task, prompt_version, system, text, 0)
+        self.calls.append(call)
+        scripted = self.cited_responder(call, sources) if self.cited_responder else None
+        value = scripted or _first_sentences(sources)
+        written = " ".join(segment.text for segment in value.segments)
+        usage = LLMUsage(
+            input_tokens=len(_words(system)) + len(_words(text)),
+            output_tokens=min(len(_words(written)), max_output_tokens),
+        )
+        return LLMResult[CitedAnswer](value=value, model=self.model, usage=usage)
+
+
+def _first_sentence(text: str) -> tuple[int, int]:
+    """The characters of the first sentence of ``text``: from its first letter up to its first
+    full stop, question mark or exclamation mark before a space, or to the end."""
+    start, end = len(text) - len(text.lstrip()), len(text.rstrip())
+    if start >= end:  # only white space: no sentence
+        return 0, 0
+    for index in range(start, end):
+        if text[index] in ".!?" and (index + 1 == end or text[index + 1].isspace()):
+            return start, index + 1
+    return start, end
+
+
+def _first_sentences(sources: Sequence[SourceText]) -> CitedAnswer:
+    segments: list[CitedSegment] = []
+    for index, source in enumerate(sources[:3]):
+        start, end = _first_sentence(source.text)
+        if start == end:
+            continue
+        sentence = source.text[start:end]
+        segments += [
+            CitedSegment(text=f"{source.title}: "),
+            CitedSegment(
+                text=sentence, quotes=[Quote(source=index, start=start, end=end, text=sentence)]
+            ),
+        ]
+    return CitedAnswer(
+        segments=segments or [CitedSegment(text="The sources do not answer the question.")]
+    )
 
 
 # --- Batches of questions ----------------------------------------------------------------
