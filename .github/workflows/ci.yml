@@ -79,6 +79,25 @@ jobs:
       # download. The config builds the app for the pretend API and starts both.
       - run: pnpm --filter @unshelve/web test:e2e
 
+  web-dev:
+    name: Web (each page under next dev, against a pretend API)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # next dev logs errors that the production build of web-e2e cannot show, for example a
+      # clock read in a stage of the render that a prerender would see. The spec fails on each
+      # route error in its log and on each error in the browser console.
+      - run: pnpm --filter @unshelve/web test:dev
+      - name: Log of next dev
+        if: failure()
+        run: cat apps/web/test-results/next-dev.log
+
   contract:
     name: API contract is up to date
     runs-on: ubuntu-latest
