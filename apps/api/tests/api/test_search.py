@@ -3,8 +3,7 @@
 The first test is the contract: the exact shape that the web app reads.
 """
 
-from collections.abc import AsyncGenerator, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
@@ -12,53 +11,16 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tests.api.support import problem_body
-from tests.search.corpus import Corpus, TopicEmbedder, seed
-from unshelve.api.app import create_app
-from unshelve.api.deps import SESSION_COOKIE
+from tests.api.support import ClientWith, problem_body
+from tests.search.corpus import Corpus, TopicEmbedder
 from unshelve.api.schemas import ItemSummary
-from unshelve.auth import store as auth
-from unshelve.config import Settings
 from unshelve.contracts.enums import ItemStatus
 from unshelve.contracts.errors import ProviderError
-from unshelve.contracts.protocols import Embedder
 from unshelve.db.models import Item, ItemTag, Tag
 
 SEARCH = "/api/v1/search"
 
 Sessions = async_sessionmaker[AsyncSession]
-ClientWith = Callable[[Embedder], AbstractAsyncContextManager[httpx.AsyncClient]]
-
-
-@pytest.fixture
-async def corpus(committed_db: Sessions) -> Corpus:
-    async with committed_db() as db:
-        corpus = await seed(db)
-        await db.commit()
-    return corpus
-
-
-@pytest.fixture
-def client_with(private_database_url: str, committed_db: Sessions, corpus: Corpus) -> ClientWith:
-    """A client signed in as the owner of the corpus, for an app with this embedder."""
-
-    @asynccontextmanager
-    async def factory(embedder: Embedder) -> AsyncGenerator[httpx.AsyncClient]:
-        async with committed_db() as db:
-            secret = await auth.open_session(db, corpus.owner_id)
-            await db.commit()
-        settings = Settings(env="test", database_url=private_database_url)
-        app = create_app(settings, embedder=embedder)
-        async with (
-            app.router.lifespan_context(app),
-            httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://test"
-            ) as client,
-        ):
-            client.cookies.set(SESSION_COOKIE, secret)
-            yield client
-
-    return factory
 
 
 @pytest.fixture

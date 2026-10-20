@@ -11,10 +11,10 @@ from unshelve.api import ops
 from unshelve.api.errors import install_error_handlers
 from unshelve.api.routes import api_router
 from unshelve.config import Settings, get_settings
-from unshelve.contracts.protocols import Embedder
+from unshelve.contracts.protocols import CitingLLM, Embedder
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.log import configure_logging
-from unshelve.services import build_embedder, close_embedder
+from unshelve.services import build_embedder, build_model, close_embedder
 
 API_PREFIX = "/api/v1"
 
@@ -24,8 +24,14 @@ def _operation_id(route: APIRoute) -> str:
     return route.name
 
 
-def create_app(settings: Settings | None = None, *, embedder: Embedder | None = None) -> FastAPI:
-    """The API. ``embedder`` is for the tests; the app builds its own from the settings."""
+def create_app(
+    settings: Settings | None = None,
+    *,
+    embedder: Embedder | None = None,
+    llm: CitingLLM | None = None,
+) -> FastAPI:
+    """The API. ``embedder`` and ``llm`` are for the tests; the app builds its own from the
+    settings."""
     settings = settings or get_settings()
     configure_logging(level=settings.log_level, json=settings.log_json)
 
@@ -36,7 +42,12 @@ def create_app(settings: Settings | None = None, *, embedder: Embedder | None = 
         app.state.session_factory = create_session_factory(engine)
         # Search makes the vector of each query with the embedder of the stored vectors.
         app.state.embedder = embedder or build_embedder(settings)
+        # An overview asks the model through the ledger: the cache, the costs and the budget.
+        model = build_model(settings, app.state.session_factory) if llm is None else None
+        app.state.llm = llm or model
         yield
+        if model is not None:
+            await model.aclose()
         if embedder is None:
             await close_embedder(app.state.embedder)
         await engine.dispose()

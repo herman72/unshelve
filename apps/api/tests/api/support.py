@@ -1,7 +1,8 @@
 """Helpers shared by the API tests."""
 
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 import httpx
 from fastapi import FastAPI
@@ -9,6 +10,7 @@ from fastapi.routing import APIRoute, iter_route_contexts
 
 from unshelve.api.app import create_app
 from unshelve.config import Settings
+from unshelve.contracts.protocols import CitingLLM, Embedder
 
 # Nothing listens on port 1. These tests never need a database, so if one of them reaches for
 # it, the test fails at once instead of quietly using the development database.
@@ -67,3 +69,12 @@ def problem_body(response: httpx.Response, status: int) -> dict[str, Any]:
     assert isinstance(body["title"], str)
     assert body["title"]
     return body
+
+
+class ClientWith(Protocol):
+    """A client signed in as the owner of the corpus of tests/search, for an app with this
+    embedder and this model (the model of the settings when None)."""
+
+    def __call__(
+        self, embedder: Embedder, llm: CitingLLM | None = None
+    ) -> AbstractAsyncContextManager[httpx.AsyncClient]: ...

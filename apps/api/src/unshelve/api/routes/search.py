@@ -5,8 +5,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from unshelve.api import search_views
-from unshelve.api.deps import CurrentUserDep, DbDep, EmbedderDep, current_user
-from unshelve.api.errors import NotImplementedYetError, problems
+from unshelve.api.deps import CitingLLMDep, CurrentUserDep, DbDep, EmbedderDep, current_user
+from unshelve.api.errors import problems
 from unshelve.api.schemas import Overview, OverviewRequest, SearchPage, SearchQuery
 
 router = APIRouter(tags=["search"], dependencies=[Depends(current_user)])
@@ -27,7 +27,18 @@ async def search_items(
     return await search_views.search(db, embedder, user.id, query)
 
 
-@router.post("/search/overview", responses=problems(401, 422))
-async def create_overview(body: OverviewRequest) -> Overview:
-    """An answer built only from saved items. Every statement points at its sources."""
-    raise NotImplementedYetError
+@router.post("/search/overview", responses=problems(401, 422, 503))
+async def create_overview(
+    body: OverviewRequest,
+    user: CurrentUserDep,
+    db: DbDep,
+    embedder: EmbedderDep,
+    llm: CitingLLMDep,
+) -> Overview:
+    """An answer built only from saved items. Every statement points at its sources.
+
+    The model reads the passages of the best items, and each citation names one retrieved
+    piece of one item. The same question on the same items is answered from the ledger, at no
+    cost. When the model cannot answer (no key, the daily budget is used), the answer is a 503.
+    """
+    return await search_views.answer(db, embedder, llm, user.id, body)
