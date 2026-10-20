@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { EmptyState } from "@/components/empty-state";
 import { Loading } from "@/components/loading";
+import { OverviewPanel } from "@/components/overview-panel";
 import { PageHeader } from "@/components/page-header";
 import { SearchForm } from "@/components/search-form";
 import { SearchHitCard } from "@/components/search-hit";
@@ -54,8 +55,8 @@ async function SearchPanel({ searchParams }: SearchProps) {
           the old form on the page (docs/learn/41). The form puts its key inside. */}
       <SearchForm search={search} goals={goals.kind === "data" ? goals.data.items : []} />
       {results ? (
-        // The key is the search without its cursor. A new search shows the fallback at once;
-        // the next page of the same search keeps the results until the new ones come.
+        // The key is the search without its cursor. A new search shows the fallback at once,
+        // and the overview starts again; the next page of the same search keeps both.
         <Suspense key={searchHref(search)} fallback={<Loading label="Searching…" />}>
           <SearchResults search={search} results={results} />
         </Suspense>
@@ -96,6 +97,11 @@ async function SearchResults({
   return (
     <>
       <VectorNote state={vector_search} />
+      <OverviewPanel
+        q={search.q}
+        status={search.status}
+        narrowed={search.kind !== null || search.goalId !== null}
+      />
       <section aria-labelledby="results-title">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h2 id="results-title" className="text-base font-semibold">
