@@ -1,9 +1,11 @@
 """Claude, through the official Anthropic SDK. It implements ``LLMProvider``.
 
-One call gives one answer in the schema of the caller: the API constrains the output to the
-JSON schema (structured output), and the SDK validates it with Pydantic (``messages.parse``).
-The call has no tools, so a page that asks the model to do something has nothing to do it
-with.
+One call of ``generate`` gives one answer in the schema of the caller: the API constrains the
+output to the JSON schema (structured output), and the SDK validates it with Pydantic
+(``messages.parse``). One call of ``cite`` gives an answer in free text with native citations:
+each source is a plain text document, and the API says which characters of it support each
+part of the answer. The calls have no tools, so a page that asks the model to do something has
+nothing to do it with.
 
 Each failure becomes a ``ProviderError`` that says if a second try can help. The SDK itself
 tries a 429, a 5xx or a network error two times; the longer waits are for the job queue.
@@ -14,10 +16,27 @@ from collections.abc import Sequence
 from typing import Literal
 
 import anthropic
-from anthropic.types.beta import BetaImageBlockParam, BetaOutputConfigParam, BetaTextBlockParam
+from anthropic.types.beta import (
+    BetaCitationCharLocation,
+    BetaImageBlockParam,
+    BetaMessage,
+    BetaOutputConfigParam,
+    BetaRequestDocumentBlockParam,
+    BetaTextBlock,
+    BetaTextBlockParam,
+)
 from pydantic import BaseModel, ValidationError
 
-from unshelve.contracts.dto import ImagePart, LLMResult, LLMUsage, TextPart
+from unshelve.contracts.dto import (
+    CitedAnswer,
+    CitedSegment,
+    ImagePart,
+    LLMResult,
+    LLMUsage,
+    Quote,
+    SourceText,
+    TextPart,
+)
 from unshelve.contracts.errors import ProviderError
 
 # Claude Opus 5.5 and Claude Haiku 5.5 always think a little, and the thinking counts toward
@@ -45,6 +64,8 @@ _FIX_BY_HAND = (
     anthropic.NotFoundError,
 )
 _NO_CREDIT = 402  # "billing_error": the account has no credit
+# The API takes a document title of 1 to 500 characters.
+TITLE_LIMIT = 500
 
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
 ImageType = Literal["image/jpeg", "image/png", "image/gif", "image/webp"]
@@ -103,21 +124,100 @@ class ClaudeLLM:
             raise ProviderError(
                 f"the answer does not fit {schema.__name__}", retryable=False
             ) from error
-        if message.stop_reason == "refusal":
-            category = message.stop_details.category if message.stop_details else None
-            raise ProviderError(f"the model declined ({category})", retryable=False)
+        _check_refusal(message)
         if message.parsed_output is None:
             raise ProviderError(f"no answer ({message.stop_reason})", retryable=False)
-        usage = message.usage
         return LLMResult[schema](
-            value=message.parsed_output,
-            model=message.model,
-            usage=LLMUsage(
-                input_tokens=usage.input_tokens + (usage.cache_creation_input_tokens or 0),
-                output_tokens=usage.output_tokens,
-                cache_read_tokens=usage.cache_read_input_tokens or 0,
-            ),
+            value=message.parsed_output, model=message.model, usage=_usage(message)
         )
+
+    async def cite(
+        self,
+        *,
+        task: str,
+        prompt_version: str,
+        system: str,
+        sources: Sequence[SourceText],
+        question: str,
+        max_output_tokens: int,
+    ) -> LLMResult[CitedAnswer]:
+        fallback = self.model in FALLBACK_MODELS
+        # The sources first, then the question: the documentation of citations does the same.
+        content: list[BetaRequestDocumentBlockParam | BetaTextBlockParam] = [
+            *(document_of(source) for source in sources),
+            {"type": "text", "text": question},
+        ]
+        config: BetaOutputConfigParam = {"effort": self._effort}
+        try:
+            # No output format: citations and structured output cannot go together (a 400).
+            message = await self._client.beta.messages.create(
+                model=self.model,
+                max_tokens=max_output_tokens + THINKING_ROOM,
+                system=system,
+                messages=[{"role": "user", "content": content}],
+                output_config=config,
+                betas=[FALLBACK_BETA] if fallback else anthropic.omit,
+                fallbacks="default" if fallback else anthropic.omit,
+            )
+        except anthropic.APIError as error:
+            raise provider_error(error) from error
+        _check_refusal(message)
+        if message.stop_reason == "max_tokens":
+            raise ProviderError("the answer was cut at its length limit", retryable=False)
+        # Thinking blocks and the blocks of a fallback carry no text of the answer.
+        segments = [
+            CitedSegment(text=block.text, quotes=_quotes(block))
+            for block in message.content
+            if isinstance(block, BetaTextBlock)
+        ]
+        return LLMResult[CitedAnswer](
+            value=CitedAnswer(segments=segments), model=message.model, usage=_usage(message)
+        )
+
+
+def _check_refusal(message: BetaMessage) -> None:
+    if message.stop_reason == "refusal":
+        category = message.stop_details.category if message.stop_details else None
+        raise ProviderError(f"the model declined ({category})", retryable=False)
+
+
+def _usage(message: BetaMessage) -> LLMUsage:
+    usage = message.usage
+    return LLMUsage(
+        input_tokens=usage.input_tokens + (usage.cache_creation_input_tokens or 0),
+        output_tokens=usage.output_tokens,
+        cache_read_tokens=usage.cache_read_input_tokens or 0,
+    )
+
+
+def document_of(source: SourceText) -> BetaRequestDocumentBlockParam:
+    """A source as a plain text document with citations. The API cuts it into sentences, and a
+    citation quotes one sentence or more, by their characters."""
+    document: BetaRequestDocumentBlockParam = {
+        "type": "document",
+        "source": {"type": "text", "media_type": "text/plain", "data": source.text},
+        "citations": {"enabled": True},
+    }
+    # The API refuses an empty title or context, and a title of more than 500 characters.
+    if title := source.title.strip()[:TITLE_LIMIT]:
+        document["title"] = title
+    if source.context:
+        document["context"] = source.context
+    return document
+
+
+def _quotes(block: BetaTextBlock) -> list[Quote]:
+    # Each source is a plain text document, so each citation has a range of characters.
+    return [
+        Quote(
+            source=citation.document_index,
+            start=citation.start_char_index,
+            end=citation.end_char_index,
+            text=citation.cited_text,
+        )
+        for citation in block.citations or []
+        if isinstance(citation, BetaCitationCharLocation)
+    ]
 
 
 def provider_error(error: anthropic.APIError) -> ProviderError:
