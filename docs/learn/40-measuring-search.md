@@ -207,4 +207,4 @@ With k = 0, one first place counts much more than agreement ([note 37](37-fusion
 - [VCR.py](https://vcrpy.readthedocs.io/en/latest/), documentation. Read the first page: how a cassette records HTTP calls one time and replays them in each test.
 - [Your AI Product Needs Evals](https://hamel.dev/blog/posts/evals/), Hamel Husain. Read the parts about unit tests and about looking at your data. They show why a small set of judged examples finds most problems.
 
-Previous: [39. An overview with citations](39-overview-with-citations.md) · Back to the [list of notes](README.md)
+Previous: [39. An overview with citations](39-overview-with-citations.md) · Next: [41. The search page](41-search-page.md) · Back to the [list of notes](README.md)
