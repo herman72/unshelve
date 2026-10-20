@@ -11,6 +11,7 @@ from unshelve.api.errors import UnauthorizedError
 from unshelve.auth import store
 from unshelve.auth.store import SessionUser
 from unshelve.config import Settings
+from unshelve.contracts.protocols import Embedder
 
 SESSION_COOKIE = "unshelve_session"
 
@@ -50,6 +51,13 @@ async def get_db(request: Request) -> AsyncGenerator[AsyncSession]:
 
 
 DbDep = Annotated[AsyncSession, Depends(get_db)]
+
+
+def get_embedder(request: Request) -> Embedder:
+    return cast(Embedder, request.app.state.embedder)
+
+
+EmbedderDep = Annotated[Embedder, Depends(get_embedder)]
 
 
 async def current_user(secret: SessionSecretDep, db: DbDep) -> SessionUser:

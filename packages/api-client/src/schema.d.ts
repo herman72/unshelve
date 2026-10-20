@@ -477,6 +477,9 @@ export interface paths {
         /**
          * Search Items
          * @description Hybrid search: keyword, trigram and vector results, fused into one ranking.
+         *
+         *     Each hit has a snippet that shows why it was found, and its place in the list of each
+         *     retriever. When the embedder fails, the words still answer, and vector_search says so.
          */
         get: operations["search_items"];
         put?: never;
@@ -1146,10 +1149,13 @@ export interface components {
         SearchHit: {
             item: components["schemas"]["ItemSummary"];
             ranks: components["schemas"]["RetrieverRanks"];
-            /** Score */
+            /**
+             * Score
+             * @description Reciprocal rank fusion: the sum of 1 / (60 + position).
+             */
             score: number;
-            /** Snippet */
-            snippet: string | null;
+            /** @description Null when the title or the summary already shows why: a hit of the title, or an item whose summary is closest in meaning. */
+            snippet: components["schemas"]["Snippet"] | null;
         };
         /** SearchPage */
         SearchPage: {
@@ -1160,6 +1166,12 @@ export interface components {
              * @description Pass as ?cursor= to get the next page. Null on the last page.
              */
             next_cursor?: string | null;
+            /**
+             * Vector Search
+             * @description used: the search compared meanings too. no_vectors: the active set of vectors was not made by this embedder, or no set exists yet, so meanings were not compared. failed: the embedder did not answer in time; the words still did.
+             * @enum {string}
+             */
+            vector_search: "used" | "no_vectors" | "failed";
         };
         /** SimilarItem */
         SimilarItem: {
@@ -1171,6 +1183,33 @@ export interface components {
         SimilarItems: {
             /** Items */
             items: components["schemas"]["SimilarItem"][];
+        };
+        /**
+         * Snippet
+         * @description A short passage that shows why search found the item.
+         */
+        Snippet: {
+            /** Parts */
+            parts: components["schemas"]["SnippetPart"][];
+            /**
+             * Source
+             * @description text: the words of the query in the saved text. summary: the words in the summary. passage: the piece of the text closest in meaning; it has no hits.
+             * @enum {string}
+             */
+            source: "text" | "summary" | "passage";
+        };
+        /** SnippetPart */
+        SnippetPart: {
+            /**
+             * Hit
+             * @description A word of the query, or another form of it: show it marked.
+             */
+            hit: boolean;
+            /**
+             * Text
+             * @description Plain text from the item. Show it as text, never as HTML.
+             */
+            text: string;
         };
         /** Stats */
         Stats: {
@@ -2408,10 +2447,15 @@ export interface operations {
     search_items: {
         parameters: {
             query: {
+                /** @description The words to find, as in a web search: "a phrase", this or that, -word. */
                 q: string;
+                /** @description One of these statuses. */
                 status?: components["schemas"]["ItemStatus"][] | null;
+                /** @description One of these kinds. */
                 kind?: components["schemas"]["ItemKind"][] | null;
+                /** @description Each of these tags: two tags find the items that have both. */
                 tag?: string[] | null;
+                /** @description Only the items that help this goal: a score of 2 or 3 after your verdict (a rejected score turns). An unknown goal finds nothing. */
                 goal_id?: number | null;
                 limit?: number;
                 cursor?: string | null;

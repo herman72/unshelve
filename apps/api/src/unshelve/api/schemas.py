@@ -289,11 +289,19 @@ class LabelRequest(Request):
 
 
 class SearchQuery(Request):
-    q: Annotated[str, StringConstraints(min_length=1, max_length=500, strip_whitespace=True)]
-    status: list[ItemStatus] | None = None
-    kind: list[ItemKind] | None = None
-    tag: list[Slug] | None = None
-    goal_id: int | None = None
+    q: Annotated[str, StringConstraints(min_length=1, max_length=500, strip_whitespace=True)] = (
+        Field(description='The words to find, as in a web search: "a phrase", this or that, -word.')
+    )
+    status: list[ItemStatus] | None = Field(default=None, description="One of these statuses.")
+    kind: list[ItemKind] | None = Field(default=None, description="One of these kinds.")
+    tag: list[Slug] | None = Field(
+        default=None, description="Each of these tags: two tags find the items that have both."
+    )
+    goal_id: int | None = Field(
+        default=None,
+        description="Only the items that help this goal: a score of 2 or 3 after your verdict "
+        "(a rejected score turns). An unknown goal finds nothing.",
+    )
     limit: int = Field(default=20, ge=1, le=50)
     cursor: str | None = None
 
@@ -306,15 +314,37 @@ class RetrieverRanks(Response):
     vector: int | None
 
 
+class SnippetPart(Response):
+    text: str = Field(description="Plain text from the item. Show it as text, never as HTML.")
+    hit: bool = Field(description="A word of the query, or another form of it: show it marked.")
+
+
+class Snippet(Response):
+    """A short passage that shows why search found the item."""
+
+    source: Literal["text", "summary", "passage"] = Field(
+        description="text: the words of the query in the saved text. summary: the words in the "
+        "summary. passage: the piece of the text closest in meaning; it has no hits."
+    )
+    parts: list[SnippetPart]
+
+
 class SearchHit(Response):
     item: ItemSummary
-    score: float
-    snippet: str | None
+    score: float = Field(description="Reciprocal rank fusion: the sum of 1 / (60 + position).")
+    snippet: Snippet | None = Field(
+        description="Null when the title or the summary already shows why: a hit of the title, "
+        "or an item whose summary is closest in meaning."
+    )
     ranks: RetrieverRanks
 
 
 class SearchPage(Page[SearchHit]):
-    pass
+    vector_search: Literal["used", "no_vectors", "failed"] = Field(
+        description="used: the search compared meanings too. no_vectors: the active set of "
+        "vectors was not made by this embedder, or no set exists yet, so meanings were not "
+        "compared. failed: the embedder did not answer in time; the words still did."
+    )
 
 
 class OverviewRequest(Request):

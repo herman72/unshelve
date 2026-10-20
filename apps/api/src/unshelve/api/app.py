@@ -11,8 +11,10 @@ from unshelve.api import ops
 from unshelve.api.errors import install_error_handlers
 from unshelve.api.routes import api_router
 from unshelve.config import Settings, get_settings
+from unshelve.contracts.protocols import Embedder
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.log import configure_logging
+from unshelve.services import build_embedder, close_embedder
 
 API_PREFIX = "/api/v1"
 
@@ -22,7 +24,8 @@ def _operation_id(route: APIRoute) -> str:
     return route.name
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, embedder: Embedder | None = None) -> FastAPI:
+    """The API. ``embedder`` is for the tests; the app builds its own from the settings."""
     settings = settings or get_settings()
     configure_logging(level=settings.log_level, json=settings.log_json)
 
@@ -31,7 +34,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_engine(settings.database_url)
         app.state.engine = engine
         app.state.session_factory = create_session_factory(engine)
+        # Search makes the vector of each query with the embedder of the stored vectors.
+        app.state.embedder = embedder or build_embedder(settings)
         yield
+        if embedder is None:
+            await close_embedder(app.state.embedder)
         await engine.dispose()
 
     app = FastAPI(

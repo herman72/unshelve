@@ -100,14 +100,19 @@ def embedder_spec(settings: Settings) -> EmbeddingSpec:
     return FakeEmbedder().spec
 
 
+async def close_embedder(embedder: Embedder) -> None:
+    """Close the connections of an embedder that ``build_embedder`` made."""
+    if isinstance(embedder, VoyageEmbedder):
+        await embedder.aclose()
+
+
 async def close_services(services: Services) -> None:
     """Close the connections that ``build_services`` opened."""
     if isinstance(services.fetcher, LiveFetcher):
         await services.fetcher.aclose()
     if isinstance(services.llm, CachedLLM):
         await services.llm.aclose()
-    if isinstance(services.embedder, VoyageEmbedder):
-        await services.embedder.aclose()
+    await close_embedder(services.embedder)
     if services.bot is not None:
         await services.bot.session.close()
     if isinstance(services.files, TelegramFiles):
