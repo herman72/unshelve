@@ -163,4 +163,4 @@ A higher threshold cannot fix both: the wanted match (0.55) is lower than the un
 - [pg_trgm](https://www.postgresql.org/docs/current/pgtrgm.html#PGTRGM-FUNCS-OPS), PostgreSQL documentation. Read the table of functions and operators: `word_similarity`, `strict_word_similarity` and their operators.
 - [Ranking search results](https://www.postgresql.org/docs/current/textsearch-controls.html#TEXTSEARCH-RANKING), PostgreSQL documentation. Read about the weights A to D and the normalisation of `ts_rank`.
 
-Previous: [35. Sending the digest](35-sending-the-digest.md) · Back to the [list of notes](README.md)
+Previous: [35. Sending the digest](35-sending-the-digest.md) · Next: [37. Fusion and metrics](37-fusion-and-metrics.md) · Back to the [list of notes](README.md)
