@@ -1,9 +1,11 @@
 import type { components } from "@unshelve/api-client";
+import type { ItemSummary } from "@/components/item-card";
 import type { ItemStatus } from "@/lib/reading-status";
 
 export type SearchPage = components["schemas"]["SearchPage"];
 export type SearchHit = components["schemas"]["SearchHit"];
 export type Snippet = components["schemas"]["Snippet"];
+export type Overview = components["schemas"]["Overview"];
 export type ItemKind = components["schemas"]["ItemKind"];
 export type VectorSearch = SearchPage["vector_search"];
 
@@ -162,3 +164,41 @@ export const SNIPPET_FROM: Record<Snippet["source"], string> = {
   summary: "In the summary",
   passage: "The closest passage in meaning",
 };
+
+/** A source of an overview: an item that the model read, and what the answer quotes from it. */
+export type Source = {
+  number: number;
+  itemId: number;
+  item: ItemSummary | null;
+  quotes: string[];
+};
+
+/**
+ * The sources of an overview with their numbers, and the numbers that each segment cites.
+ *
+ * The numbers follow the items that the model read, the best first, so [1] is the same item
+ * wherever it stands. A segment cites an item once, also with two quotes from it. An item that
+ * a citation names but the list of sources lacks still gets a number: a citation is never lost.
+ */
+export function numberSources(overview: Overview): { sources: Source[]; cites: number[][] } {
+  const byItem = new Map<number, Source>();
+  const sourceOf = (itemId: number, item: ItemSummary | null): Source => {
+    let source = byItem.get(itemId);
+    if (source === undefined) {
+      source = { number: byItem.size + 1, itemId, item, quotes: [] };
+      byItem.set(itemId, source);
+    }
+    return source;
+  };
+  for (const item of overview.sources) sourceOf(item.id, item);
+  const cites = overview.segments.map((segment) => {
+    const numbers: number[] = [];
+    for (const citation of segment.citations) {
+      const source = sourceOf(citation.item_id, null);
+      if (!source.quotes.includes(citation.quote)) source.quotes.push(citation.quote);
+      if (!numbers.includes(source.number)) numbers.push(source.number);
+    }
+    return numbers;
+  });
+  return { sources: [...byItem.values()], cites };
+}

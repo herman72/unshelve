@@ -9,7 +9,7 @@
 // and one focus. The preview of a digest has three made-up picks, and it keeps them in order
 // while they fit the reading time; the choice itself is tested in the API. Search finds words
 // in the titles, the summaries and a few saved texts, and fuses three lists as the real API
-// does. The ranking itself is tested in the API.
+// does; the overview cites the items that search found. The ranking itself is tested in the API.
 //
 //     node e2e/fixture-api.mjs 3901
 //
@@ -31,6 +31,7 @@ import { createServer } from "node:http";
 /** @typedef {import("@unshelve/api-client").components["schemas"]["ItemKind"]} ItemKind */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["SearchHit"]} SearchHit */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["SearchPage"]} SearchPage */
+/** @typedef {import("@unshelve/api-client").components["schemas"]["Overview"]} Overview */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["SnippetPart"]} SnippetPart */
 
 const port = Number(process.argv[2] ?? 3901);
@@ -328,11 +329,16 @@ let digestMinutes = [];
 let emptyDigest = false;
 /** @type {Record<string, string | string[] | null>[]} the query of each search, in order */
 let searches = [];
+/** @type {Record<string, unknown>[]} the body of each request for an overview, in order */
+let overviews = [];
 /** For a test: what the embedder did, as the API reports it. */
 /** @type {SearchPage["vector_search"]} */
 let vectorSearch = "used";
 /** For a test: fewer hits on a page than the 20 of the API, so that a second page exists. */
 let searchPageSize = 20;
+/** For a test: the detail of a 503, as when the model has no key or the budget is used. */
+/** @type {string | null} */
+let overviewFailure = null;
 
 /**
  * The made-up picks of a digest: the item for the focus goal, a recent item, a random pick.
@@ -481,6 +487,25 @@ function snippetOf(item, words, ranks) {
 }
 
 /**
+ * The answer of the pretend model: one sentence from each item that it read, in the order of
+ * search, each one citing its item. An item without a text or a summary is read but not cited.
+ *
+ * @param {SearchHit[]} hits
+ * @returns {Overview["segments"]}
+ */
+function overviewSegments(hits) {
+  const cited = hits.flatMap(({ item }) => {
+    const passage = TEXTS[item.id] ?? item.summary;
+    if (!passage) return [];
+    const quote = firstSentence(passage);
+    const citation = { item_id: item.id, chunk_id: item.id * 10 + 1, quote };
+    return [{ text: `${quote} `, citations: [citation] }];
+  });
+  if (cited.length === 0) return [];
+  return [{ text: "From your saved items:\n", citations: [] }, ...cited];
+}
+
+/**
  * @param {import("node:http").ServerResponse} response
  * @param {number} status
  * @param {unknown} body
@@ -533,12 +558,14 @@ const server = createServer(async (request, response) => {
     digestMinutes = [];
     emptyDigest = false;
     searches = [];
+    overviews = [];
     vectorSearch = "used";
     searchPageSize = 20;
+    overviewFailure = null;
     return send(response, 200, {});
   }
   if (request.method === "GET" && path === "/__calls") {
-    const calls = { reprocessed, moves, verdicts, digestMinutes, searches };
+    const calls = { reprocessed, moves, verdicts, digestMinutes, searches, overviews };
     return send(response, 200, calls);
   }
   if (request.method === "POST" && path === "/__search") {
@@ -546,6 +573,11 @@ const server = createServer(async (request, response) => {
     const body = await jsonBody(request);
     vectorSearch = /** @type {SearchPage["vector_search"]} */ (body.vector_search ?? vectorSearch);
     searchPageSize = Number(body.page_size ?? searchPageSize);
+    return send(response, 200, {});
+  }
+  if (request.method === "POST" && path === "/__overview") {
+    // For a test: the model cannot answer, and the API says why.
+    overviewFailure = /** @type {string | null} */ ((await jsonBody(request)).failure ?? null);
     return send(response, 200, {});
   }
   if (request.method === "POST" && path === "/__digest") {
@@ -653,6 +685,32 @@ const server = createServer(async (request, response) => {
     return send(response, 200, {
       items: hits.slice(start, end),
       next_cursor: end < hits.length ? `p${end}` : null,
+      vector_search: vectorSearch,
+    });
+  }
+
+  if (request.method === "POST" && path === "/api/v1/search/overview") {
+    const body = await jsonBody(request);
+    overviews.push(body);
+    const q = typeof body.q === "string" ? body.q.trim() : "";
+    const statuses = /** @type {string[] | null} */ (body.status ?? null);
+    const limit = body.limit ?? 12;
+    const known = (statuses ?? []).every((status) =>
+      STATUSES.includes(/** @type {ItemStatus} */ (status)),
+    );
+    if (!q || q.length > 500 || !known || typeof limit !== "number" || limit < 1 || limit > 30) {
+      return problem(response, 422, "Unprocessable Content", "the body is not valid");
+    }
+    if (overviewFailure) return problem(response, 503, "Service Unavailable", overviewFailure);
+    const hits = searchHits(
+      wordsOf(q),
+      (item) => statuses === null || statuses.includes(item.status),
+    ).slice(0, limit);
+    const segments = overviewSegments(hits);
+    return send(response, 200, {
+      segments,
+      // The items that the model read: none, when it could read none.
+      sources: segments.length === 0 ? [] : hits.map((hit) => hit.item),
       vector_search: vectorSearch,
     });
   }

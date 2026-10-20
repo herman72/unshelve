@@ -82,10 +82,21 @@ export async function searches(request: APIRequestContext): Promise<SearchCall[]
   return ((await answer.json()) as { searches: SearchCall[] }).searches;
 }
 
+/** The body of each request for an overview that the pretend API got, in order. */
+export async function overviews(request: APIRequestContext): Promise<Record<string, unknown>[]> {
+  const answer = await request.get(`${API_URL}/__calls`);
+  return ((await answer.json()) as { overviews: Record<string, unknown>[] }).overviews;
+}
+
 /** For the next searches: what the embedder does, and how many hits a page holds (20). */
 export async function changeSearch(
   request: APIRequestContext,
   settings: { vector_search?: "used" | "no_vectors" | "failed"; page_size?: number },
 ): Promise<void> {
   await request.post(`${API_URL}/__search`, { data: settings });
+}
+
+/** For the next overviews: the model cannot answer, and the API says why with a 503. */
+export async function failOverview(request: APIRequestContext, detail: string): Promise<void> {
+  await request.post(`${API_URL}/__overview`, { data: { failure: detail } });
 }

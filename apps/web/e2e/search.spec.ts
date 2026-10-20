@@ -1,5 +1,12 @@
 import { expect, type Page, test } from "@playwright/test";
-import { changeSearch, resetApi, searches } from "./support";
+import {
+  changeItem,
+  changeSearch,
+  failOverview,
+  overviews,
+  resetApi,
+  searches,
+} from "./support";
 
 // The pretend API (e2e/fixture-api.mjs) searches its made-up items: words in the titles, the
 // summaries and a few saved texts, and a short list of words for each item in place of its
@@ -13,6 +20,7 @@ test.beforeEach(async ({ request }) => {
 const results = (page: Page) => page.getByRole("region", { name: "Results" });
 const hits = (page: Page) => results(page).getByRole("article");
 const hitTitles = (page: Page) => results(page).getByRole("heading", { level: 3 });
+const overview = (page: Page) => page.getByRole("region", { name: "Overview" });
 
 test("the page asks for words before it searches", async ({ page, request }) => {
   await page.goto("/search");
@@ -128,6 +136,11 @@ test("the filters go to the API, and the form keeps them", async ({ page, reques
   await expect(form.getByRole("checkbox", { name: "Done" })).not.toBeChecked();
   await expect(form.getByRole("combobox", { name: "Kind" })).toHaveValue("pdf");
   await expect(form.getByRole("combobox", { name: "Goal" })).toHaveValue("1");
+  // The overview cannot filter by kind or goal, and it says so.
+  await expect(overview(page)).toContainText(
+    "It reads items of every kind and goal: of your filters, only the status applies.",
+  );
+
   // Back shows the earlier search, and one form that shows it too.
   await page.goBack();
   await expect(page).toHaveURL(/\/search\?q=postgres$/);
@@ -147,6 +160,7 @@ test("a search without hits says so, and the form shows each filter it used", as
   await expect(
     page.getByText("Nothing you saved matches that search. Try other words, or fewer filters."),
   ).toBeVisible();
+  await expect(overview(page)).toHaveCount(0);
   const goal = page.getByRole("search").getByRole("combobox", { name: "Goal" });
   await expect(goal).toHaveValue("99");
   await expect(goal.locator("option:checked")).toHaveText("Goal 99, not found");
@@ -199,4 +213,118 @@ test("more results open the next page of the same search", async ({ page, reques
   await page.getByRole("link", { name: "Back to the best results" }).click();
   await expect(page).toHaveURL(/\/search\?q=postgres&status=inbox$/);
   await expect(hitTitles(page)).toHaveText(["Leases for Job Queues in Postgres"]);
+});
+
+test("the overview cites its sources, and each number leads to the quote", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/search?q=item");
+  const panel = overview(page);
+  // Nothing is asked of the model before the click: an overview costs money.
+  expect(await overviews(request)).toEqual([]);
+
+  await panel.getByRole("button", { name: "Write an overview" }).click();
+
+  // Item 5 is cited. Its saved text has markup in it, and the answer shows it as characters.
+  await expect(panel).toContainText(
+    "From your saved items: Saved from a page with markup: <img src=x onerror=alert(1)> and " +
+      "<b>bold</b> stay text.",
+  );
+  await expect(panel.locator("img, b")).toHaveCount(0);
+  await expect(panel.getByRole("link", { name: /^Source/ })).toHaveText(["[1]"]);
+  await expect(panel.getByRole("link", { name: "Source 1" })).toHaveAttribute("href", "#source-1");
+  // The focus moves to the answer, where the button was.
+  await expect(panel.locator("[tabindex='-1']")).toBeFocused();
+  expect(await overviews(request)).toEqual([{ q: "item", status: null, limit: 12 }]);
+
+  // The model read both items, the best first. Item 1000 has no text: read, but not cited.
+  const sources = panel.getByRole("list").getByRole("listitem");
+  await expect(sources).toHaveCount(2);
+  await expect(sources.nth(0).getByRole("link")).toHaveText("A note with a strange address");
+  await expect(sources.nth(0).getByRole("link")).toHaveAttribute("href", "/items/5");
+  await expect(sources.nth(0).locator("blockquote")).toHaveText(
+    "Saved from a page with markup: <img src=x onerror=alert(1)> and <b>bold</b> stay text.",
+  );
+  await expect(sources.nth(1)).toHaveText("[2] Item one thousand");
+
+  await panel.getByRole("link", { name: "Source 1" }).click();
+  await expect(page).toHaveURL(/#source-1$/);
+  await expect(sources.nth(0)).toBeInViewport();
+
+  // A new search starts the overview again from its button.
+  await page.getByRole("searchbox").fill("postgres");
+  await page.getByRole("searchbox").press("Enter");
+  await expect(hitTitles(page)).toHaveCount(2);
+  await expect(panel.getByRole("button", { name: "Write an overview" })).toBeVisible();
+  await expect(panel).not.toContainText("From your saved items");
+});
+
+test("the next page of the same search keeps the overview", async ({ page, request }) => {
+  await changeSearch(request, { page_size: 1 });
+  await page.goto("/search?q=postgres");
+  await overview(page).getByRole("button", { name: "Write an overview" }).click();
+  await expect(overview(page)).toContainText("From your saved items:");
+
+  await page.getByRole("link", { name: "More results" }).click();
+
+  await expect(hitTitles(page)).toHaveText(["صف کارها در پستگرس"]);
+  // The key of the results is the search without its cursor: the panel stays, with its answer.
+  await expect(overview(page)).toContainText("From your saved items:");
+  expect(await overviews(request)).toHaveLength(1);
+});
+
+test("each number stands after its statement, also after a Persian one", async ({ page }) => {
+  await page.goto("/search?q=postgres");
+  await overview(page).getByRole("button", { name: "Write an overview" }).click();
+  await expect(overview(page).getByRole("link", { name: /^Source/ })).toHaveText(["[1]", "[2]"]);
+
+  // The answer: an English statement [1], then a Persian statement [2], on one line.
+  const [statement, number] = await overview(page).evaluate((panel) => {
+    const answer = panel.querySelector("p[dir=auto]");
+    const walker = document.createTreeWalker(answer ?? panel, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.textContent?.includes("اجاره")) range.selectNodeContents(node);
+    }
+    const marker = panel.querySelector("a[aria-label='Source 2']");
+    const box = (rect: DOMRect) => ({ left: rect.left, right: rect.right, top: rect.top });
+    return [box(range.getBoundingClientRect()), box(marker!.getBoundingClientRect())];
+  });
+  // In this left-to-right paragraph, [2] comes after the Persian statement: on its right.
+  expect(Math.abs(number.top - statement.top)).toBeLessThan(20);
+  expect(number.left).toBeGreaterThanOrEqual(statement.right - 1);
+});
+
+test("the overview says why the model gave no answer, and the results stay", async ({
+  page,
+  request,
+}) => {
+  await failOverview(request, "the model gave no answer: the daily budget of $1.00 is used");
+  await page.goto("/search?q=postgres");
+  const panel = overview(page);
+
+  await panel.getByRole("button", { name: "Write an overview" }).click();
+
+  await expect(panel.getByRole("status")).toHaveText(
+    "The model gave no answer: the daily budget of $1.00 is used. " +
+      "The results below do not need it.",
+  );
+  await expect(panel.getByRole("button", { name: "Try again" })).toBeEnabled();
+  await expect(hitTitles(page)).toHaveCount(2);
+});
+
+test("an overview with nothing to read says so", async ({ page, request }) => {
+  await page.goto("/search?q=postgres&status=inbox");
+  await expect(hitTitles(page)).toHaveCount(2);
+  // In Telegram, or in another tab, both items are archived before the click.
+  await changeItem(request, 1, { status: "archived" });
+  await changeItem(request, 2, { status: "archived" });
+
+  await overview(page).getByRole("button", { name: "Write an overview" }).click();
+
+  await expect(overview(page)).toContainText(
+    "None of your saved items could be read for this question.",
+  );
+  expect(await overviews(request)).toEqual([{ q: "postgres", status: ["inbox"], limit: 12 }]);
 });
