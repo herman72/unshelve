@@ -1834,19 +1834,20 @@
             "$ref": "#/components/schemas/RetrieverRanks"
           },
           "score": {
+            "description": "Reciprocal rank fusion: the sum of 1 / (60 + position).",
             "title": "Score",
             "type": "number"
           },
           "snippet": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/Snippet"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Snippet"
+            "description": "Null when the title or the summary already shows why: a hit of the title, or an item whose summary is closest in meaning."
           }
         },
         "required": [
@@ -1878,10 +1879,21 @@
             ],
             "description": "Pass as ?cursor= to get the next page. Null on the last page.",
             "title": "Next Cursor"
+          },
+          "vector_search": {
+            "description": "used: the search compared meanings too. no_vectors: the active set of vectors was not made by this embedder, or no set exists yet, so meanings were not compared. failed: the embedder did not answer in time; the words still did.",
+            "enum": [
+              "used",
+              "no_vectors",
+              "failed"
+            ],
+            "title": "Vector Search",
+            "type": "string"
           }
         },
         "required": [
-          "items"
+          "items",
+          "vector_search"
         ],
         "title": "SearchPage",
         "type": "object"
@@ -1919,6 +1931,54 @@
           "items"
         ],
         "title": "SimilarItems",
+        "type": "object"
+      },
+      "Snippet": {
+        "description": "A short passage that shows why search found the item.",
+        "properties": {
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/SnippetPart"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "source": {
+            "description": "text: the words of the query in the saved text. summary: the words in the summary. passage: the piece of the text closest in meaning; it has no hits.",
+            "enum": [
+              "text",
+              "summary",
+              "passage"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "parts"
+        ],
+        "title": "Snippet",
+        "type": "object"
+      },
+      "SnippetPart": {
+        "properties": {
+          "hit": {
+            "description": "A word of the query, or another form of it: show it marked.",
+            "title": "Hit",
+            "type": "boolean"
+          },
+          "text": {
+            "description": "Plain text from the item. Show it as text, never as HTML.",
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "hit"
+        ],
+        "title": "SnippetPart",
         "type": "object"
       },
       "Stats": {
@@ -3957,14 +4017,16 @@
     },
     "/api/v1/search": {
       "get": {
-        "description": "Hybrid search: keyword, trigram and vector results, fused into one ranking.",
+        "description": "Hybrid search: keyword, trigram and vector results, fused into one ranking.\n\nEach hit has a snippet that shows why it was found, and its place in the list of each\nretriever. When the embedder fails, the words still answer, and vector_search says so.",
         "operationId": "search_items",
         "parameters": [
           {
+            "description": "The words to find, as in a web search: \"a phrase\", this or that, -word.",
             "in": "query",
             "name": "q",
             "required": true,
             "schema": {
+              "description": "The words to find, as in a web search: \"a phrase\", this or that, -word.",
               "maxLength": 500,
               "minLength": 1,
               "title": "Q",
@@ -3972,6 +4034,7 @@
             }
           },
           {
+            "description": "One of these statuses.",
             "in": "query",
             "name": "status",
             "required": false,
@@ -3987,10 +4050,12 @@
                   "type": "null"
                 }
               ],
+              "description": "One of these statuses.",
               "title": "Status"
             }
           },
           {
+            "description": "One of these kinds.",
             "in": "query",
             "name": "kind",
             "required": false,
@@ -4006,10 +4071,12 @@
                   "type": "null"
                 }
               ],
+              "description": "One of these kinds.",
               "title": "Kind"
             }
           },
           {
+            "description": "Each of these tags: two tags find the items that have both.",
             "in": "query",
             "name": "tag",
             "required": false,
@@ -4027,10 +4094,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Each of these tags: two tags find the items that have both.",
               "title": "Tag"
             }
           },
           {
+            "description": "Only the items that help this goal: a score of 2 or 3 after your verdict (a rejected score turns). An unknown goal finds nothing.",
             "in": "query",
             "name": "goal_id",
             "required": false,
@@ -4043,6 +4112,7 @@
                   "type": "null"
                 }
               ],
+              "description": "Only the items that help this goal: a score of 2 or 3 after your verdict (a rejected score turns). An unknown goal finds nothing.",
               "title": "Goal Id"
             }
           },
