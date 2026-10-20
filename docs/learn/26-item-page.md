@@ -89,6 +89,8 @@ The tests use Playwright: a program that drives a real browser, clicks, and read
 | Two routes only for the tests | `/__reset` gives each test the same items; `/__items/{id}` changes an item while a page is open, so a test can show the 409 |
 | Types in comments | `pnpm typecheck` checks the made-up items against the types of the real API: a field that the API renames fails there |
 
+A second, smaller check opens each page under `next dev` ([`e2e-dev/pages.spec.ts`](../../apps/web/e2e-dev/pages.spec.ts)). `next dev` checks more than the build. It renders each page in stages, as a prerender would see it. When a page does a thing that a prerender must not do, it logs an error, for example for a read of the clock. The check fails on each such line in the log of `next dev`, and on each error in the browser console. Pull request [#104](https://github.com/herman72/unshelve/pull/104) fixed one such error, which the tests of the production build could not see.
+
 ## A choice that we made
 
 How do the tests of the web app get their data?
@@ -116,6 +118,12 @@ To run the tests (they need Google Chrome):
 
 ```bash
 pnpm --filter @unshelve/web test:e2e
+```
+
+To check each page under `next dev` (first stop your own `next dev` of this folder: Next.js allows one):
+
+```bash
+pnpm --filter @unshelve/web test:dev
 ```
 
 ## Exercise (10 minutes)
