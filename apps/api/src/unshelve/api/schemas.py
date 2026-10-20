@@ -348,26 +348,37 @@ class SearchPage(Page[SearchHit]):
 
 
 class OverviewRequest(Request):
-    q: Annotated[str, StringConstraints(min_length=1, max_length=500, strip_whitespace=True)]
-    status: list[ItemStatus] | None = None
+    q: Annotated[str, StringConstraints(min_length=1, max_length=500, strip_whitespace=True)] = (
+        Field(description="The question, in your words.")
+    )
+    status: list[ItemStatus] | None = Field(default=None, description="One of these statuses.")
     limit: int = Field(default=12, ge=1, le=30, description="How many items to read.")
 
 
 class Citation(Response):
     item_id: int
-    quote: str = Field(description="The passage that supports the statement.")
+    chunk_id: int = Field(description="The retrieved piece of the item that the quote is from.")
+    quote: str = Field(description="The passage that supports the statement: plain text.")
 
 
 class OverviewSegment(Response):
-    text: str
-    citations: list[Citation]
+    text: str = Field(
+        description="Plain text of the model, without links or images. Show it as text, never "
+        "as Markdown or HTML."
+    )
+    citations: list[Citation] = Field(description="Empty for text of the model alone.")
 
 
 class Overview(Response):
     """An answer built only from saved items. Every statement points at its sources."""
 
-    segments: list[OverviewSegment]
-    sources: list[ItemSummary]
+    segments: list[OverviewSegment] = Field(
+        description="The answer in order. Empty when no saved item could be read."
+    )
+    sources: list[ItemSummary] = Field(description="The items that the model read, the best first.")
+    vector_search: Literal["used", "no_vectors", "failed"] = Field(
+        description="As in the search: whether the items were also found by meaning."
+    )
 
 
 # --- Resurface ---------------------------------------------------------------------------

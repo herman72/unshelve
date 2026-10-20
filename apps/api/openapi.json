@@ -12,18 +12,24 @@
       },
       "Citation": {
         "properties": {
+          "chunk_id": {
+            "description": "The retrieved piece of the item that the quote is from.",
+            "title": "Chunk Id",
+            "type": "integer"
+          },
           "item_id": {
             "title": "Item Id",
             "type": "integer"
           },
           "quote": {
-            "description": "The passage that supports the statement.",
+            "description": "The passage that supports the statement: plain text.",
             "title": "Quote",
             "type": "string"
           }
         },
         "required": [
           "item_id",
+          "chunk_id",
           "quote"
         ],
         "title": "Citation",
@@ -1481,6 +1487,7 @@
         "description": "An answer built only from saved items. Every statement points at its sources.",
         "properties": {
           "segments": {
+            "description": "The answer in order. Empty when no saved item could be read.",
             "items": {
               "$ref": "#/components/schemas/OverviewSegment"
             },
@@ -1488,16 +1495,28 @@
             "type": "array"
           },
           "sources": {
+            "description": "The items that the model read, the best first.",
             "items": {
               "$ref": "#/components/schemas/ItemSummary"
             },
             "title": "Sources",
             "type": "array"
+          },
+          "vector_search": {
+            "description": "As in the search: whether the items were also found by meaning.",
+            "enum": [
+              "used",
+              "no_vectors",
+              "failed"
+            ],
+            "title": "Vector Search",
+            "type": "string"
           }
         },
         "required": [
           "segments",
-          "sources"
+          "sources",
+          "vector_search"
         ],
         "title": "Overview",
         "type": "object"
@@ -1514,6 +1533,7 @@
             "type": "integer"
           },
           "q": {
+            "description": "The question, in your words.",
             "maxLength": 500,
             "minLength": 1,
             "title": "Q",
@@ -1531,6 +1551,7 @@
                 "type": "null"
               }
             ],
+            "description": "One of these statuses.",
             "title": "Status"
           }
         },
@@ -1543,6 +1564,7 @@
       "OverviewSegment": {
         "properties": {
           "citations": {
+            "description": "Empty for text of the model alone.",
             "items": {
               "$ref": "#/components/schemas/Citation"
             },
@@ -1550,6 +1572,7 @@
             "type": "array"
           },
           "text": {
+            "description": "Plain text of the model, without links or images. Show it as text, never as Markdown or HTML.",
             "title": "Text",
             "type": "string"
           }
@@ -4190,7 +4213,7 @@
     },
     "/api/v1/search/overview": {
       "post": {
-        "description": "An answer built only from saved items. Every statement points at its sources.",
+        "description": "An answer built only from saved items. Every statement points at its sources.\n\nThe model reads the passages of the best items, and each citation names one retrieved\npiece of one item. The same question on the same items is answered from the ledger, at no\ncost. When the model cannot answer (no key, the daily budget is used), the answer is a 503.",
         "operationId": "create_overview",
         "requestBody": {
           "content": {
@@ -4232,6 +4255,16 @@
               }
             },
             "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [

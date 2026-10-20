@@ -502,6 +502,10 @@ export interface paths {
         /**
          * Create Overview
          * @description An answer built only from saved items. Every statement points at its sources.
+         *
+         *     The model reads the passages of the best items, and each citation names one retrieved
+         *     piece of one item. The same question on the same items is answered from the ledger, at no
+         *     cost. When the model cannot answer (no key, the daily budget is used), the answer is a 503.
          */
         post: operations["create_overview"];
         delete?: never;
@@ -561,11 +565,16 @@ export interface components {
         Actor: "user" | "worker" | "system";
         /** Citation */
         Citation: {
+            /**
+             * Chunk Id
+             * @description The retrieved piece of the item that the quote is from.
+             */
+            chunk_id: number;
             /** Item Id */
             item_id: number;
             /**
              * Quote
-             * @description The passage that supports the statement.
+             * @description The passage that supports the statement: plain text.
              */
             quote: string;
         };
@@ -1046,10 +1055,22 @@ export interface components {
          * @description An answer built only from saved items. Every statement points at its sources.
          */
         Overview: {
-            /** Segments */
+            /**
+             * Segments
+             * @description The answer in order. Empty when no saved item could be read.
+             */
             segments: components["schemas"]["OverviewSegment"][];
-            /** Sources */
+            /**
+             * Sources
+             * @description The items that the model read, the best first.
+             */
             sources: components["schemas"]["ItemSummary"][];
+            /**
+             * Vector Search
+             * @description As in the search: whether the items were also found by meaning.
+             * @enum {string}
+             */
+            vector_search: "used" | "no_vectors" | "failed";
         };
         /** OverviewRequest */
         OverviewRequest: {
@@ -1059,16 +1080,28 @@ export interface components {
              * @default 12
              */
             limit: number;
-            /** Q */
+            /**
+             * Q
+             * @description The question, in your words.
+             */
             q: string;
-            /** Status */
+            /**
+             * Status
+             * @description One of these statuses.
+             */
             status?: components["schemas"]["ItemStatus"][] | null;
         };
         /** OverviewSegment */
         OverviewSegment: {
-            /** Citations */
+            /**
+             * Citations
+             * @description Empty for text of the model alone.
+             */
             citations: components["schemas"]["Citation"][];
-            /** Text */
+            /**
+             * Text
+             * @description Plain text of the model, without links or images. Show it as text, never as Markdown or HTML.
+             */
             text: string;
         };
         /**
@@ -2528,6 +2561,15 @@ export interface operations {
             };
             /** @description Unprocessable Content */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
