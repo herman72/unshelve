@@ -1720,6 +1720,9 @@ def test_search_retrievers_prints_what_each_retriever_finds(
         "  1. #1 Postgres as a job queue",
         "vector:",
         no_vectors,
+        # First in two lists: 1/61 + 1/61.
+        "fused:",
+        "  1. #1 0.0328 Postgres as a job queue",
     ]
     # A typo: full text finds nothing, trigram finds the title.
     assert typo.stdout.splitlines()[:4] == [
@@ -1749,9 +1752,11 @@ def test_search_retrievers_reads_the_vectors_of_the_active_set(
 
     assert result.exit_code == 0, result.output
     lines = result.stdout.splitlines()
-    near = lines[lines.index("vector:") + 1 :]
+    near = lines[lines.index("vector:") + 1 : lines.index("fused:")]
+    fused = lines[lines.index("fused:") + 1 :]
     # Both items have vectors; the nearest come back, also when they are not near.
     assert [line.split(".")[0] for line in near] == ["  1", "  2"]
+    assert [line.split(".")[0] for line in fused] == ["  1", "  2"]
 
 
 def test_search_needs_an_owner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

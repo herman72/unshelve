@@ -6,7 +6,7 @@ import math
 import sys
 import time
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -58,7 +58,7 @@ from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
 from unshelve.relevance import golden, rescore
 from unshelve.resurface import plan, weekly
 from unshelve.runtime import shutdown_event, wait_for_shutdown
-from unshelve.search import retrievers
+from unshelve.search import hybrid
 from unshelve.services import (
     build_batches,
     build_embedder,
@@ -1127,72 +1127,77 @@ async def _labels_export(settings: Settings, telegram_user_id: int) -> list[dict
 
 # --- unshelve search ---------------------------------------------------------------------
 
-Found = list[tuple[int, str]]  # the item and its title, the best first
+# What the vector list says when the vector retriever did not take part.
+_NO_VECTOR_LIST = {
+    hybrid.VectorSearch.NO_VECTORS: (
+        "  no vectors of this embedder in the active set: unshelve embeddings status"
+    ),
+    hybrid.VectorSearch.FAILED: "  the embedder did not answer: the fused list has the words only",
+}
+
+
+def _list_of(ranking: hybrid.Ranking, place: Callable[[hybrid.Ranks], int | None]) -> list[int]:
+    """The list of one retriever, read back from the places that the hits keep."""
+    placed = [(rank, hit.item_id) for hit in ranking.hits if (rank := place(hit.ranks)) is not None]
+    return [item_id for _, item_id in sorted(placed)]
 
 
 @search_app.command("retrievers")
 def search_retrievers(
     query: Annotated[str, typer.Argument(help="What to look for, as in a web search.")],
     limit: Annotated[
-        int, typer.Option(min=1, max=50, help="At most this many items for each retriever.")
+        int, typer.Option(min=1, max=50, help="At most this many items in each list.")
     ] = 10,
 ) -> None:
-    """Print what each of the three retrievers finds, the best first (docs/learn/36).
+    """Print what each of the three retrievers finds, and their fused list, the best first
+    (docs/learn/36 and 38).
 
-    Search joins the three lists into one (reciprocal rank fusion). With a live embedder, the
-    query costs one call of the embedder.
+    The fused list is the ranking of the search API. With a live embedder, the query costs one
+    call of the embedder.
     """
     settings = get_settings()
     if settings.owner_telegram_id is None:
         raise _stop("UNSHELVE_OWNER_TELEGRAM_ID is not set. Search needs its owner.")
-    owner = settings.owner_telegram_id
-    for name, found in asyncio.run(_search_retrievers(settings, owner, query, limit)):
+    ranking, titles = asyncio.run(_search(settings, settings.owner_telegram_id, query))
+    lists: list[tuple[str, Callable[[hybrid.Ranks], int | None]]] = [
+        ("full text", lambda ranks: ranks.full_text),
+        ("trigram", lambda ranks: ranks.trigram),
+        ("vector", lambda ranks: ranks.vector),
+    ]
+    for name, place in lists:
         typer.echo(f"{name}:")
-        if found is None:
-            typer.echo(
-                "  no vectors of this embedder in the active set: unshelve embeddings status"
-            )
-        elif not found:
+        if name == "vector" and ranking.vector_search in _NO_VECTOR_LIST:
+            typer.echo(_NO_VECTOR_LIST[ranking.vector_search])
+            continue
+        found = _list_of(ranking, place)[:limit]
+        if not found:
             typer.echo("  nothing")
-        for rank, (item_id, title) in enumerate(found or [], start=1):
-            typer.echo(f"  {rank}. #{item_id} {title}")
+        for rank, item_id in enumerate(found, start=1):
+            typer.echo(f"  {rank}. #{item_id} {titles[item_id]}")
+    typer.echo("fused:")
+    if not ranking.hits:
+        typer.echo("  nothing")
+    for rank, hit in enumerate(ranking.hits[:limit], start=1):
+        typer.echo(f"  {rank}. #{hit.item_id} {hit.score:.4f} {titles[hit.item_id]}")
 
 
-async def _search_retrievers(
-    settings: Settings, owner_telegram_id: int, query: str, limit: int
-) -> list[tuple[str, Found | None]]:
+async def _search(
+    settings: Settings, owner_telegram_id: int, query: str
+) -> tuple[hybrid.Ranking, dict[int, str]]:
     engine = create_engine(settings.database_url)
     services = build_services(settings, create_session_factory(engine))
     try:
         async with services.sessions() as session:
             owner_id = await auth_store.ensure_owner(session, owner_telegram_id)
-            set_id = await retrievers.searchable_set(session, services.embedder.spec)
             await session.commit()
-        # The query vector is made with no transaction open: a provider can be slow.
-        query_vector = await services.embedder.embed_query(query) if set_id is not None else None
-        async with services.sessions() as session:
-            full = await retrievers.full_text(session, owner_id, query, limit=limit)
-            close = await retrievers.trigram(session, owner_id, query, limit=limit)
-            near = (
-                await retrievers.vector(session, owner_id, set_id, query_vector, limit=limit)
-                if set_id is not None and query_vector is not None
-                else None
-            )
+            ranking = await hybrid.search(session, services.embedder, owner_id, query)
             rows = await session.execute(
                 sa.select(Item.id, Item.title, Item.canonical_url).where(
-                    Item.id.in_([*full, *close, *(near or [])])
+                    Item.id.in_([hit.item_id for hit in ranking.hits])
                 )
             )
             titles = {row.id: row.title or row.canonical_url or "(no title)" for row in rows}
-
-        def named(ids: list[int]) -> Found:
-            return [(item_id, titles[item_id]) for item_id in ids]
-
-        return [
-            ("full text", named(full)),
-            ("trigram", named(close)),
-            ("vector", named(near) if near is not None else None),
-        ]
+        return ranking, titles
     finally:
         await close_services(services)
         await engine.dispose()
