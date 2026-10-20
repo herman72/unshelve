@@ -23,7 +23,9 @@ test("the page shows a button for each move that the item has", async ({ page })
   ]);
 
   await page.goto("/items/1000");
-  await expect(page.getByText("Read.", { exact: true })).toBeVisible();
+  await expect(page.locator("p", { hasText: "Read on" })).toHaveText(
+    "Read on 18 October 2026 at 19:00 UTC.",
+  );
   await expect(buttonsOf(page)).toHaveText(["Read it again", "Archive"]);
 });
 
