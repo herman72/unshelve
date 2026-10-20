@@ -1759,6 +1759,45 @@ def test_search_retrievers_reads_the_vectors_of_the_active_set(
     assert [line.split(".")[0] for line in fused] == ["  1", "  2"]
 
 
+def test_search_overview_numbers_each_citation_and_lists_its_quote(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _two_ready_items(private_database_url)  # the fake pipeline: cards and pieces, with vectors
+    env = {"UNSHELVE_DATABASE_URL": private_database_url, "UNSHELVE_OWNER_TELEGRAM_ID": "1"}
+
+    first = _run(monkeypatch, tmp_path, "search", "overview", "vector search", **env)
+    second = _run(monkeypatch, tmp_path, "search", "overview", "vector search", **env)
+
+    assert first.exit_code == 0, first.output
+    lines = first.stdout.splitlines()
+    # The fake quotes the first sentence of the first three sources: the card of the note, the
+    # card of the long text, and its first piece.
+    sources = [line for line in lines if re.match(r"\[\d\] #", line)]
+    assert [line.split(":")[0] for line in sources] == [
+        "[1] #2 a short note about vector search",
+        "[2] #1 part 0 postgres keeps each job in one row and a worker",
+        "[3] #1 part 0 postgres keeps each job in one row and a worker",
+    ]
+    assert sources[2].endswith(": 'Part 0.'")
+    assert re.fullmatch(
+        r"Read 2 items\. fake-llm: \d+ input and \d+ output tokens, \$0\.", lines[-1]
+    )
+    # The same question on the same items: the ledger answers, and the answer is the same.
+    assert second.stdout.splitlines()[-1].endswith("tokens, from the ledger, no cost.")
+    assert [line for line in second.stdout.splitlines() if line.startswith("[")] == sources
+
+
+def test_search_overview_says_when_no_item_can_be_read(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    env = {"UNSHELVE_DATABASE_URL": private_database_url, "UNSHELVE_OWNER_TELEGRAM_ID": "1"}
+
+    result = _run(monkeypatch, tmp_path, "search", "overview", "anything", **env)
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout == "No saved item could be read for this question.\n"
+
+
 def test_search_needs_an_owner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     result = _run(monkeypatch, tmp_path, "search", "retrievers", "x", UNSHELVE_DATABASE_URL=NOWHERE)
 

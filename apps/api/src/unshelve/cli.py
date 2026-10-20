@@ -58,12 +58,13 @@ from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
 from unshelve.relevance import golden, rescore
 from unshelve.resurface import plan, weekly
 from unshelve.runtime import shutdown_event, wait_for_shutdown
-from unshelve.search import hybrid
+from unshelve.search import hybrid, overview
 from unshelve.services import (
     build_batches,
     build_embedder,
     build_model,
     build_services,
+    close_embedder,
     close_services,
     embedder_spec,
 )
@@ -1200,4 +1201,92 @@ async def _search(
         return ranking, titles
     finally:
         await close_services(services)
+        await engine.dispose()
+
+
+# A quote of the list of sources shows at most this many characters.
+_QUOTE_CHARS = 160
+
+
+@search_app.command("overview")
+def search_overview(
+    question: Annotated[str, typer.Argument(help="The question, in your words.")],
+    limit: Annotated[
+        int, typer.Option(min=1, max=30, help="At most this many items to read.")
+    ] = 12,
+) -> None:
+    """Answer a question from your saved items, with a number for each citation
+    (docs/learn/39).
+
+    With a live model (UNSHELVE_PROVIDERS=live), a new question costs one call of the model; the
+    same question on the same items comes from the ledger at no cost. The daily budget holds.
+    """
+    settings = get_settings()
+    if settings.owner_telegram_id is None:
+        raise _stop("UNSHELVE_OWNER_TELEGRAM_ID is not set. Search needs its owner.")
+    try:
+        found, titles = asyncio.run(
+            _overview(settings, settings.owner_telegram_id, question, limit)
+        )
+    except ProviderError as error:
+        raise _stop(f"The model gave no answer: {error}") from error
+    if not found.segments:
+        typer.echo("No saved item could be read for this question.")
+        return
+    # One number for each quote of a chunk, in the order of the answer.
+    numbers: dict[tuple[int, str], int] = {}
+    items_of: dict[int, int] = {}
+    written: list[str] = []
+    for segment in found.segments:
+        marks: list[str] = []
+        for cited in segment.citations:
+            items_of[cited.chunk_id] = cited.item_id
+            number = numbers.setdefault((cited.chunk_id, cited.quote), len(numbers) + 1)
+            marks.append(f" [{number}]")
+        written.append(segment.text + "".join(marks))
+    typer.echo("".join(written).strip())
+    typer.echo("")
+    for (chunk_id, quote), number in sorted(numbers.items(), key=lambda pair: pair[1]):
+        item_id = items_of[chunk_id]
+        shown = quote if len(quote) <= _QUOTE_CHARS else quote[: _QUOTE_CHARS - 1] + "…"
+        typer.echo(f"[{number}] #{item_id} {titles[item_id]}: {shown!r}")
+    typer.echo("")
+    if found.vector_search is hybrid.VectorSearch.FAILED:
+        typer.echo("The embedder did not answer: the items were found by their words only.")
+    answer = found.answer
+    if answer is not None:
+        cost = cost_usd(answer.model, answer.usage)
+        price = f"${cost if cost is not None else '?'}"
+        if answer.cached:
+            price = "from the ledger, no cost"
+        typer.echo(
+            f"Read {len(found.item_ids)} items. {answer.model}: {answer.usage.input_tokens} "
+            f"input and {answer.usage.output_tokens} output tokens, {price}."
+        )
+
+
+async def _overview(
+    settings: Settings, owner_telegram_id: int, question: str, limit: int
+) -> tuple[overview.Overview, dict[int, str]]:
+    engine = create_engine(settings.database_url)
+    sessions = create_session_factory(engine)
+    embedder = build_embedder(settings)
+    model = build_model(settings, sessions)
+    try:
+        async with sessions() as session:
+            owner_id = await auth_store.ensure_owner(session, owner_telegram_id)
+            await session.commit()
+            found = await overview.overview(
+                session, embedder, model, owner_id, question, limit=limit
+            )
+            rows = await session.execute(
+                sa.select(Item.id, Item.title, Item.canonical_url).where(
+                    Item.id.in_(found.item_ids)
+                )
+            )
+            titles = {row.id: row.title or row.canonical_url or "(no title)" for row in rows}
+        return found, titles
+    finally:
+        await model.aclose()
+        await close_embedder(embedder)
         await engine.dispose()
