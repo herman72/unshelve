@@ -49,6 +49,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 35 | [Sending the digest](35-sending-the-digest.md) | How one job sends the digest and the stale prompt each one time, how Archive and Keep work, and why the random pick asks for a verdict | |
 | 36 | [Three retrievers](36-three-retrievers.md) | How full text, trigrams and vectors each find items, why a Persian word with a zero-width non-joiner needs trigrams, and how a measurement chose the trigram threshold | |
 | 37 | [Fusion and metrics](37-fusion-and-metrics.md) | How reciprocal rank fusion joins three ranked lists, and how recall@k, MRR and nDCG@k measure a ranking: the formulas with worked examples, and how the code computes them | |
+| 38 | [The search API](38-search-api.md) | How one request runs the three retrievers and fuses their lists, why a filter acts inside each query, what happens when the embedder fails, and how a snippet shows why an item was found, without HTML | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 

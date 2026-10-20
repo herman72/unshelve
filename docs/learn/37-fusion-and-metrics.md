@@ -298,4 +298,4 @@ In `(-score, id)`, the minus sign reverses only the score. The id keeps its norm
 - [Discounted cumulative gain](https://en.wikipedia.org/wiki/Discounted_cumulative_gain#Normalized_DCG), Wikipedia. Read "Normalized DCG": the same steps as part 4, with another example.
 - [Sorting Techniques](https://docs.python.org/3/howto/sorting.html), the Python documentation. Read "Key Functions" and "Sort Stability and Complex Sorts": the sort key of part 5, and a second way to sort by two parts.
 
-Previous: [36. Three retrievers](36-three-retrievers.md) · Back to the [list of notes](README.md)
+Previous: [36. Three retrievers](36-three-retrievers.md) · Next: [38. The search API](38-search-api.md) · Back to the [list of notes](README.md)
