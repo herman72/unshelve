@@ -3,7 +3,8 @@
 Each call is kept with its cache key, its tokens and its price. The same question is never
 paid two times: a job that runs again gets the stored answer. A question is the model, the
 task, the prompt version, the system prompt, the parts and the schema; a different image
-is a different question, but the ledger keeps only its hash.
+is a different question, but the ledger keeps only its hash. A question with citations is the
+model, the task, the prompt version, the system prompt, the sources and the question.
 
 The same table gives the cost of each day, so a daily budget can stop new calls before
 they cost more. A stored answer needs no budget, and neither does the answer of a batch: you
@@ -16,7 +17,7 @@ a stored answer it raises ``WaitsForBatch``, and a batch answers it later at hal
 import hashlib
 import json
 import time
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -28,9 +29,16 @@ from pydantic import BaseModel
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from unshelve.contracts.dto import ImagePart, LLMResult, LLMUsage, TextPart
+from unshelve.contracts.dto import (
+    CitedAnswer,
+    ImagePart,
+    LLMResult,
+    LLMUsage,
+    SourceText,
+    TextPart,
+)
 from unshelve.contracts.errors import ProviderError, WaitsForBatch
-from unshelve.contracts.protocols import LLMProvider
+from unshelve.contracts.protocols import ModelProvider
 from unshelve.db.models import LLMCall
 
 log = structlog.get_logger()
@@ -96,6 +104,41 @@ def cache_key(
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
+def cited_key(
+    model: str,
+    task: str,
+    prompt_version: str,
+    system: str,
+    sources: Sequence[SourceText],
+    question: str,
+) -> str:
+    asked = {
+        "model": model,
+        "task": task,
+        "prompt_version": prompt_version,
+        "system": system,
+        "sources": [source.model_dump() for source in sources],
+        "question": question,
+        # A question with citations never meets a question with a schema under one key.
+        "answer": "cited",
+    }
+    encoded = json.dumps(asked, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def cited_request_of(
+    system: str, sources: Sequence[SourceText], question: str, max_output_tokens: int
+) -> dict[str, Any]:
+    """A question with citations as the ledger keeps it."""
+    return {
+        "system": system,
+        "sources": [source.model_dump() for source in sources],
+        "question": question,
+        "schema": CitedAnswer.__name__,
+        "max_output_tokens": max_output_tokens,
+    }
+
+
 def request_of(
     system: str,
     parts: Sequence[TextPart | ImagePart],
@@ -150,7 +193,7 @@ class CachedLLM:
 
     def __init__(
         self,
-        inner: LLMProvider,
+        inner: ModelProvider,
         sessions: async_sessionmaker[AsyncSession],
         *,
         model: str,
@@ -183,7 +226,59 @@ class CachedLLM:
         schema: type[T],
         max_output_tokens: int,
     ) -> LLMResult[T]:
-        key = cache_key(self.model, task, prompt_version, system, parts, schema)
+        return await self._answer(
+            cache_key(self.model, task, prompt_version, system, parts, schema),
+            task=task,
+            prompt_version=prompt_version,
+            schema=schema,
+            request=request_of(system, parts, schema, max_output_tokens),
+            ask=lambda: self.inner.generate(
+                task=task,
+                prompt_version=prompt_version,
+                system=system,
+                parts=parts,
+                schema=schema,
+                max_output_tokens=max_output_tokens,
+            ),
+        )
+
+    async def cite(
+        self,
+        *,
+        task: str,
+        prompt_version: str,
+        system: str,
+        sources: Sequence[SourceText],
+        question: str,
+        max_output_tokens: int,
+    ) -> LLMResult[CitedAnswer]:
+        return await self._answer(
+            cited_key(self.model, task, prompt_version, system, sources, question),
+            task=task,
+            prompt_version=prompt_version,
+            schema=CitedAnswer,
+            request=cited_request_of(system, sources, question, max_output_tokens),
+            ask=lambda: self.inner.cite(
+                task=task,
+                prompt_version=prompt_version,
+                system=system,
+                sources=sources,
+                question=question,
+                max_output_tokens=max_output_tokens,
+            ),
+        )
+
+    async def _answer[T: BaseModel](
+        self,
+        key: str,
+        *,
+        task: str,
+        prompt_version: str,
+        schema: type[T],
+        request: dict[str, Any],
+        ask: Callable[[], Awaitable[LLMResult[T]]],
+    ) -> LLMResult[T]:
+        """The stored answer of ``key``, or a new answer of ``ask``, which is then stored."""
         async with self._sessions() as session:
             stored = await session.scalar(sa.select(LLMCall).where(LLMCall.cache_key == key))
             if stored is None and task in self.batch_tasks:
@@ -203,14 +298,7 @@ class CachedLLM:
             )
 
         started = time.monotonic()
-        result = await self.inner.generate(
-            task=task,
-            prompt_version=prompt_version,
-            system=system,
-            parts=parts,
-            schema=schema,
-            max_output_tokens=max_output_tokens,
-        )
+        result = await ask()
         milliseconds = round((time.monotonic() - started) * 1000)
         cost = cost_usd(result.model, result.usage)
         if cost is None:
@@ -221,7 +309,7 @@ class CachedLLM:
                 key=key,
                 task=task,
                 prompt_version=prompt_version,
-                request=request_of(system, parts, schema, max_output_tokens),
+                request=request,
                 result=result,
                 cost=cost or Decimal(0),
                 duration_ms=milliseconds,
