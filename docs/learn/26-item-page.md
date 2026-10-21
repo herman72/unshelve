@@ -91,6 +91,8 @@ The tests use Playwright: a program that drives a real browser, clicks, and read
 
 A second, smaller check opens each page under `next dev` ([`e2e-dev/pages.spec.ts`](../../apps/web/e2e-dev/pages.spec.ts)). `next dev` checks more than the build. It renders each page in stages, as a prerender would see it. When a page does a thing that a prerender must not do, it logs an error, for example for a read of the clock. The check fails on each such line in the log of `next dev`, and on each error in the browser console. Pull request [#104](https://github.com/herman72/unshelve/pull/104) fixed one such error, which the tests of the production build could not see.
 
+The list of pages in that check, `PAGES`, is written by hand, because the page of an item needs a real id. A second test in the same file reads the page files of `src/app`, and it fails when a page has no entry in `PAGES`. So a new page cannot stay out of the check without a failure.
+
 ## A choice that we made
 
 How do the tests of the web app get their data?
