@@ -1,10 +1,12 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import { expect, test } from "@playwright/test";
 import { DEV_LOG } from "./support";
 
 // Each page of the app, with the made-up items of e2e/fixture-api.mjs: item 1 is in the inbox
-// and item 1000 is done. /dev/preview exists only under `next dev`.
+// and item 1000 is done. /dev/preview exists only under `next dev`. A new page needs an entry
+// here: the last test of this file fails when a page of src/app has none.
 const PAGES = [
   "/",
   "/goals",
@@ -55,4 +57,38 @@ test("next dev logs no route error, and the browser no error, on each page", asy
     .filter((line) => ROUTE_ERROR.test(line));
   expect.soft(routeErrors, `route errors in ${DEV_LOG}`).toEqual([]);
   expect(browserErrors, "errors in the browser console").toEqual([]);
+});
+
+const APP_DIR = path.join(__dirname, "..", "src", "app");
+
+/**
+ * The route of each page file of the app, from its folders: src/app/items/[id]/page.tsx is
+ * /items/[id]. A route group, (name), adds no segment; a private folder, _name, has no route.
+ */
+function appRoutes(dir = APP_DIR, route = ""): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isFile()) return /^page\.[jt]sx?$/.test(entry.name) ? [route || "/"] : [];
+    if (!entry.isDirectory() || entry.name.startsWith("_")) return [];
+    const segment = /^\(.+\)$/.test(entry.name) ? "" : `/${entry.name}`;
+    return appRoutes(path.join(dir, entry.name), route + segment);
+  });
+}
+
+/** A pattern for the addresses of a route: [id] is one segment, [...slug] is one or more. */
+function addressesOf(route: string): RegExp {
+  const segments = route.split("/").map((segment) => {
+    if (segment.startsWith("[...")) return ".+";
+    if (segment.startsWith("[")) return "[^/]+";
+    return segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  });
+  return new RegExp(`^${segments.join("/")}$`);
+}
+
+test("the list of pages has an entry for each page of the app", () => {
+  const routes = appRoutes();
+  // A wrong folder would find no page, and then each page would seem to have an entry.
+  expect(routes, `the pages in ${APP_DIR}`).toContain("/");
+  const paths = PAGES.map((page) => new URL(page, "http://localhost").pathname);
+  const missing = routes.filter((route) => !paths.some((p) => addressesOf(route).test(p)));
+  expect(missing, "pages of src/app with no entry in PAGES").toEqual([]);
 });
