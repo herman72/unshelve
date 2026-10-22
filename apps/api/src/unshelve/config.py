@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     web_base_url: str = "http://localhost:3000"
     blob_dir: Path = Path("var/blobs")
 
+    # The public feed (docs/adr/0004): the items that you made public, as one feed.json.
+    # "none" publishes nothing. "file" writes the feed to publish_file.
+    publish_target: Literal["none", "file"] = "none"
+    publish_file: Path = Path("var/public/feed.json")
+
 
 @lru_cache
 def get_settings() -> Settings:

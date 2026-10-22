@@ -39,6 +39,18 @@ async def test_the_blobs_are_files_in_the_folder_of_the_settings(tmp_path: Path)
     assert (tmp_path / key[:2] / key[2:4] / key).exists()
 
 
+async def test_the_feed_goes_to_the_target_of_the_settings(tmp_path: Path) -> None:
+    feed = tmp_path / "public" / "feed.json"
+
+    assert build_services(Settings(env="test"), NO_DATABASE).feed is None
+    services = build_services(
+        Settings(env="test", publish_target="file", publish_file=feed), NO_DATABASE
+    )
+    assert services.feed is not None
+    await services.feed.publish(b"{}\n")
+    assert feed.read_bytes() == b"{}\n"
+
+
 async def test_the_live_fetcher_is_built_from_the_settings_and_closed_at_the_end(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
