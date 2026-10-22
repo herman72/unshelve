@@ -18,6 +18,7 @@ import structlog
 import typer
 import uvicorn
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from unshelve import __version__
 from unshelve.api.app import create_app
@@ -35,8 +36,8 @@ from unshelve.contracts.dto import (
     SourceRef,
     TextPart,
 )
-from unshelve.contracts.errors import ExtractError, FetchError, ProviderError
-from unshelve.contracts.protocols import ExtractContext, Extractor
+from unshelve.contracts.errors import ExtractError, FetchError, ProviderError, PublishError
+from unshelve.contracts.protocols import ExtractContext, Extractor, FeedTarget
 from unshelve.db import migrations
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import Digest, EmbeddingSet, Item, LLMBatch, LLMCall
@@ -53,6 +54,8 @@ from unshelve.providers.batches import ClaudeBatches
 from unshelve.providers.claude import ClaudeLLM
 from unshelve.providers.ledger import CachedLLM, cost_usd
 from unshelve.providers.voyage import VoyageEmbedder
+from unshelve.publish import feed as public_feed
+from unshelve.publish.targets import build_feed_target
 from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
 from unshelve.relevance import golden, rescore
@@ -94,6 +97,10 @@ labels_app = typer.Typer(
 app.add_typer(labels_app, name="labels")
 search_app = typer.Typer(no_args_is_help=True, help="Search your items.")
 app.add_typer(search_app, name="search")
+publish_app = typer.Typer(
+    no_args_is_help=True, help="The public feed: the items that you made public."
+)
+app.add_typer(publish_app, name="publish")
 
 
 def _setup_logging() -> structlog.stdlib.BoundLogger:
@@ -1290,3 +1297,60 @@ async def _overview(
         await model.aclose()
         await close_embedder(embedder)
         await engine.dispose()
+
+
+async def _feed_owner(settings: Settings, sessions: async_sessionmaker[AsyncSession]) -> int:
+    if settings.owner_telegram_id is None:
+        raise _stop("UNSHELVE_OWNER_TELEGRAM_ID is not set. The feed needs its owner.")
+    async with sessions() as session:
+        owner_id = await auth_store.ensure_owner(session, settings.owner_telegram_id)
+        await session.commit()
+    return owner_id
+
+
+async def _public_feed(settings: Settings) -> public_feed.Feed:
+    engine = create_engine(settings.database_url)
+    sessions = create_session_factory(engine)
+    try:
+        return await public_feed.build_feed(sessions, await _feed_owner(settings, sessions))
+    finally:
+        await engine.dispose()
+
+
+async def _publish_now(settings: Settings, target: FeedTarget) -> public_feed.Report:
+    engine = create_engine(settings.database_url)
+    sessions = create_session_factory(engine)
+    try:
+        owner_id = await _feed_owner(settings, sessions)
+        return await public_feed.publish(sessions, owner_id, target)
+    finally:
+        await engine.dispose()
+
+
+@publish_app.command("show")
+def publish_show() -> None:
+    """Print the public feed of now, as the publisher writes it. Nothing is written."""
+    typer.echo(asyncio.run(_public_feed(get_settings())).data.decode(), nl=False)
+
+
+@publish_app.command("run")
+def publish_run() -> None:
+    """Write the public feed of now to the target of UNSHELVE_PUBLISH_TARGET."""
+    settings = get_settings()
+    target = build_feed_target(settings)
+    if target is None:
+        raise _stop(
+            "UNSHELVE_PUBLISH_TARGET is none, so there is nowhere to write the feed. "
+            "Set it to file, and UNSHELVE_PUBLISH_FILE to the path of the feed."
+        )
+    try:
+        report = asyncio.run(_publish_now(settings, target))
+    except PublishError as error:
+        raise _stop(f"Not published: {error}") from error
+    things = f"{report.items} item" if report.items == 1 else f"{report.items} items"
+    where = report.published.where
+    typer.echo(
+        f"Published {things} to {where}."
+        if report.published.changed
+        else f"No change: {where} holds this feed already ({things})."
+    )

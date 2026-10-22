@@ -16,6 +16,7 @@ from typer.testing import CliRunner, Result
 
 from tests.bot.support import PretendTelegram, offline_bot
 from tests.ingest.support import DESKTOP, MACOS, MADE_UP, made_up_with_files
+from tests.publish.support import LEASES_SLUG, OWNER_TELEGRAM_ID, PERSIAN_SLUG, seed_world
 from unshelve import __version__, cli
 from unshelve.auth import store as auth_store
 from unshelve.bot import cards
@@ -128,6 +129,8 @@ def _run(
         "UNSHELVE_CAPTURE_CHAT_IDS",
         "UNSHELVE_EMBEDDER",
         "VOYAGE_API_KEY",
+        "UNSHELVE_PUBLISH_TARGET",
+        "UNSHELVE_PUBLISH_FILE",
     ):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
@@ -1800,6 +1803,78 @@ def test_search_overview_says_when_no_item_can_be_read(
 
 def test_search_needs_an_owner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     result = _run(monkeypatch, tmp_path, "search", "retrievers", "x", UNSHELVE_DATABASE_URL=NOWHERE)
+
+    assert result.exit_code == 1
+    assert "UNSHELVE_OWNER_TELEGRAM_ID is not set" in result.stderr
+
+
+# --- The public feed ---------------------------------------------------------------------
+
+
+def _public_world(database_url: str) -> None:
+    async def seed() -> None:
+        engine = create_engine(database_url)
+        try:
+            await seed_world(create_session_factory(engine))
+        finally:
+            await engine.dispose()
+
+    asyncio.run(seed())
+
+
+def test_publish_show_prints_the_feed_and_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _public_world(private_database_url)
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "publish",
+        "show",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        UNSHELVE_OWNER_TELEGRAM_ID=str(OWNER_TELEGRAM_ID),
+        UNSHELVE_PUBLISH_TARGET="file",
+    )
+
+    assert result.exit_code == 0, result.output
+    items = json.loads(result.stdout)["items"]
+    assert [record["id"] for record in items] == [PERSIAN_SLUG, LEASES_SLUG]
+    assert not (tmp_path / "var").exists()  # the default file of the feed was not written
+
+
+def test_publish_run_writes_the_feed_and_then_sees_no_change(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _public_world(private_database_url)
+    feed = tmp_path / "site" / "feed.json"
+    env = {
+        "UNSHELVE_DATABASE_URL": private_database_url,
+        "UNSHELVE_OWNER_TELEGRAM_ID": str(OWNER_TELEGRAM_ID),
+        "UNSHELVE_PUBLISH_TARGET": "file",
+        "UNSHELVE_PUBLISH_FILE": str(feed),
+    }
+
+    first = _run(monkeypatch, tmp_path, "publish", "run", **env)
+    second = _run(monkeypatch, tmp_path, "publish", "run", **env)
+
+    assert first.exit_code == 0, first.output
+    assert first.stdout == f"Published 2 items to {feed}.\n"
+    assert json.loads(feed.read_bytes())["items"][0]["id"] == PERSIAN_SLUG
+    assert second.stdout == f"No change: {feed} holds this feed already (2 items).\n"
+
+
+def test_publish_run_without_a_target_says_what_to_set(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    result = _run(monkeypatch, tmp_path, "publish", "run", UNSHELVE_DATABASE_URL=NOWHERE)
+
+    assert result.exit_code == 1
+    assert "UNSHELVE_PUBLISH_TARGET is none" in result.stderr
+
+
+def test_publish_show_needs_the_owner(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    result = _run(monkeypatch, tmp_path, "publish", "show", UNSHELVE_DATABASE_URL=NOWHERE)
 
     assert result.exit_code == 1
     assert "UNSHELVE_OWNER_TELEGRAM_ID is not set" in result.stderr

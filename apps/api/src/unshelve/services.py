@@ -19,6 +19,7 @@ from unshelve.providers.batches import ClaudeBatches
 from unshelve.providers.claude import ClaudeLLM
 from unshelve.providers.ledger import CachedLLM
 from unshelve.providers.voyage import VoyageEmbedder, voyage_spec
+from unshelve.publish.targets import build_feed_target
 from unshelve.testing.fakes import FakeBatches, FakeEmbedder, FakeFetcher, FakeLLM
 
 log = structlog.get_logger()
@@ -52,6 +53,7 @@ def build_services(settings: Settings, sessions: async_sessionmaker[AsyncSession
             else None
         ),
         batches=build_batches(settings),
+        feed=build_feed_target(settings),
     )
 
 
