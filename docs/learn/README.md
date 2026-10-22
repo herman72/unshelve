@@ -53,6 +53,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 39 | [An overview with citations](39-overview-with-citations.md) | How the model answers from the passages of the found items, why native citations cannot invent a quote, how each citation maps back to a chunk, and why the answer keeps no link or image | |
 | 40 | [Measuring search](40-measuring-search.md) | How a golden set with grades, recorded vectors and a baseline measure each retriever and the fused list, and why the gate of CI fails on a rise too | |
 | 41 | [The search page](41-search-page.md) | How the filters of a search live in the address, how each hit says why it was found and whether you read it, how the overview numbers its sources, and how one key on two siblings kept an old form on the page | |
+| 42 | [The public feed](42-public-feed.md) | How the items that you make public become one feed.json, why a view and a role keep each private place out of it, also when the code has a mistake, and how a test with markers proves it | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 
