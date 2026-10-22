@@ -105,3 +105,39 @@ async def test_the_publisher_cannot_read_base_tables(db: AsyncSession, table: st
 
     with pytest.raises(ProgrammingError, match="permission denied"):
         await db.execute(sa.text(f"SELECT * FROM {table} LIMIT 1"))  # noqa: S608 - fixed names
+
+
+async def test_the_publisher_has_no_right_on_any_base_table(db: AsyncSession) -> None:
+    # Each table, also one that a later migration adds: none may give the role a right.
+    rights = await db.execute(
+        sa.text(
+            "SELECT table_name, has_table_privilege('unshelve_publisher', "
+            "format('public.%I', table_name), 'SELECT, INSERT, UPDATE, DELETE, TRUNCATE') "
+            "AS granted FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+        )
+    )
+    tables = {row.table_name: row.granted for row in rights}
+
+    assert len(tables) > 20  # the query found the tables, so an empty list cannot pass
+    assert [name for name, granted in tables.items() if granted] == []
+
+
+async def test_the_pub_schema_holds_the_public_view_and_nothing_else(db: AsyncSession) -> None:
+    objects = await db.scalars(
+        sa.text(
+            "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'pub' ORDER BY c.relname"
+        )
+    )
+
+    assert list(objects) == ["items"]
+
+
+async def test_the_publisher_can_only_read_the_public_view(db: AsyncSession) -> None:
+    def right(name: str) -> sa.TextClause:
+        return sa.text(f"SELECT has_table_privilege('unshelve_publisher', 'pub.items', '{name}')")
+
+    assert await db.scalar(right("SELECT")) is True
+    for name in ("INSERT", "UPDATE", "DELETE", "TRUNCATE"):
+        assert await db.scalar(right(name)) is False, name
