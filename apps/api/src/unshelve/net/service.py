@@ -72,32 +72,61 @@ class ServiceClient:
             base_url=base,
             headers={**headers, "accept-encoding": ACCEPT_ENCODING},
             # Each step (connect, write, read) may take the whole time. The request as a whole
-            # may too: ``post_json`` stops it after ``timeout`` seconds.
+            # may too: ``_send`` stops it after ``timeout`` seconds.
             timeout=timeout,
             follow_redirects=False,
             trust_env=False,
             transport=transport,
         )
 
+    @property
+    def host(self) -> str:
+        """The ``Host`` header of each request, as the client sends it: without the default
+        port, and a name in other scripts in its ASCII form. A signature of a request covers
+        this header, so it must be the one that the service gets."""
+        return self._client.base_url.netloc.decode("ascii")
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
     async def post_json(self, path: str, body: object) -> ServiceAnswer:
         """Send ``body`` as JSON to ``path`` of the service, and read the whole answer."""
-        return await self._send("POST", path, body)
+        return await self._send("POST", path, json_body=body)
 
     async def get(self, path: str) -> ServiceAnswer:
         """Ask for ``path`` of the service, and read the whole answer."""
-        return await self._send("GET", path, None)
+        return await self._send("GET", path)
 
-    async def _send(self, method: str, path: str, body: object) -> ServiceAnswer:
+    async def send(
+        self,
+        method: str,
+        path: str,
+        *,
+        headers: Mapping[str, str],
+        content: bytes | None = None,
+    ) -> ServiceAnswer:
+        """Send ``content`` with ``headers`` to ``path`` of the service, and read the whole
+        answer. ``headers`` are for this request only, next to the headers of the client."""
+        return await self._send(method, path, headers=headers, content=content)
+
+    async def _send(
+        self,
+        method: str,
+        path: str,
+        *,
+        json_body: object = None,
+        headers: Mapping[str, str] | None = None,
+        content: bytes | None = None,
+    ) -> ServiceAnswer:
         if not path.startswith("/") or path.startswith("//"):
             # Without the path: the path of a service can hold a secret (the bot token).
             raise ValueError("not a path of the service: a path starts with one '/'")
         try:
             async with (
                 asyncio.timeout(self._timeout),
-                self._client.stream(method, path, json=body) as response,
+                self._client.stream(
+                    method, path, json=json_body, headers=headers, content=content
+                ) as response,
             ):
                 data = await read_body(
                     response.aiter_raw(),
