@@ -82,6 +82,67 @@ async def test_a_get_goes_to_a_path_of_the_service_without_a_body() -> None:
     assert request.content == b""
 
 
+async def test_a_request_sends_its_own_headers_and_bytes() -> None:
+    transport, seen = _recording(body=b"")
+
+    answer = await _client(transport).send(
+        "PUT",
+        "/bucket/feed.json",
+        headers={"content-type": "application/json", "x-amz-date": "20261022T120000Z"},
+        content=b'{"items": []}',
+    )
+
+    assert answer.status == 200
+    [request] = seen
+    assert (request.method, str(request.url)) == (
+        "PUT",
+        "https://api.example.com/bucket/feed.json",
+    )
+    assert request.content == b'{"items": []}'
+    assert request.headers["content-type"] == "application/json"
+    assert request.headers["x-amz-date"] == "20261022T120000Z"
+    # The headers of the client stay.
+    assert request.headers["authorization"] == "Bearer test-key"
+
+
+async def test_the_headers_of_a_request_are_for_that_request_only() -> None:
+    transport, seen = _recording()
+    client = _client(transport)
+
+    await client.send("GET", "/bucket/feed.json", headers={"x-amz-date": "20261022T120000Z"})
+    await client.get("/bucket/feed.json")
+
+    assert [request.headers.get("x-amz-date") for request in seen] == ["20261022T120000Z", None]
+
+
+async def test_a_request_with_its_own_headers_stays_on_the_host_of_the_service() -> None:
+    transport, seen = _recording()
+
+    with pytest.raises(ValueError, match="not a path"):
+        await _client(transport).send("PUT", "//other.example/x", headers={}, content=b"x")
+
+    assert seen == []
+
+
+@pytest.mark.parametrize(
+    ("base", "host"),
+    [
+        ("https://api.example.com", "api.example.com"),
+        ("https://api.example.com:443", "api.example.com"),
+        ("https://api.example.com:8443", "api.example.com:8443"),
+        ("https://bücher.example", "xn--bcher-kva.example"),
+    ],
+)
+async def test_the_host_is_the_host_header_that_the_service_gets(base: str, host: str) -> None:
+    transport, seen = _recording()
+    client = ServiceClient(base, headers={}, timeout=5.0, max_bytes=100, transport=transport)
+
+    await client.get("/x")
+
+    assert client.host == host
+    assert seen[0].headers["host"] == host
+
+
 async def test_a_get_counts_its_answer_against_the_limit_too() -> None:
     transport, _ = _recording(body=b"x" * 10_001)
 
