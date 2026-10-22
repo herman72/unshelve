@@ -16,7 +16,14 @@ from typer.testing import CliRunner, Result
 
 from tests.bot.support import PretendTelegram, offline_bot
 from tests.ingest.support import DESKTOP, MACOS, MADE_UP, made_up_with_files
-from tests.publish.support import LEASES_SLUG, OWNER_TELEGRAM_ID, PERSIAN_SLUG, seed_world
+from tests.publish.support import (
+    LEASES_SLUG,
+    OWNER_TELEGRAM_ID,
+    PERSIAN_SLUG,
+    bare_remote,
+    run_git,
+    seed_world,
+)
 from unshelve import __version__, cli
 from unshelve.auth import store as auth_store
 from unshelve.bot import cards
@@ -131,6 +138,12 @@ def _run(
         "VOYAGE_API_KEY",
         "UNSHELVE_PUBLISH_TARGET",
         "UNSHELVE_PUBLISH_FILE",
+        "UNSHELVE_PUBLISH_GIT_URL",
+        "UNSHELVE_PUBLISH_GIT_BRANCH",
+        "UNSHELVE_PUBLISH_GIT_PATH",
+        "UNSHELVE_PUBLISH_GIT_DIR",
+        "UNSHELVE_PUBLISH_GIT_SSH_KEY",
+        "UNSHELVE_PUBLISH_GIT_KNOWN_HOSTS",
     ):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
@@ -1862,6 +1875,31 @@ def test_publish_run_writes_the_feed_and_then_sees_no_change(
     assert first.stdout == f"Published 2 items to {feed}.\n"
     assert json.loads(feed.read_bytes())["items"][0]["id"] == PERSIAN_SLUG
     assert second.stdout == f"No change: {feed} holds this feed already (2 items).\n"
+
+
+def test_publish_run_pushes_the_feed_to_a_git_repository(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
+) -> None:
+    _public_world(private_database_url)
+    remote = bare_remote(tmp_path)
+
+    result = _run(
+        monkeypatch,
+        tmp_path,
+        "publish",
+        "run",
+        UNSHELVE_DATABASE_URL=private_database_url,
+        UNSHELVE_OWNER_TELEGRAM_ID=str(OWNER_TELEGRAM_ID),
+        UNSHELVE_PUBLISH_TARGET="git",
+        UNSHELVE_PUBLISH_GIT_URL=str(remote),
+        UNSHELVE_PUBLISH_GIT_DIR=str(tmp_path / "work"),
+    )
+
+    assert result.exit_code == 0, result.output
+    commit = run_git("rev-parse", "--short=12", "main", cwd=remote).strip()
+    assert result.stdout == f"Published 2 items to {remote} main:public/feed.json at {commit}.\n"
+    feed = json.loads(run_git("show", "main:public/feed.json", cwd=remote))
+    assert [record["id"] for record in feed["items"]] == [PERSIAN_SLUG, LEASES_SLUG]
 
 
 def test_publish_run_without_a_target_says_what_to_set(
