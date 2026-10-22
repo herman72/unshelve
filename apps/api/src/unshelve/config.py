@@ -78,8 +78,10 @@ class Settings(BaseSettings):
     # The public feed (docs/adr/0004): the items that you made public, as one feed.json.
     # "none" publishes nothing. "file" writes the feed to publish_file. "git" commits it as
     # publish_git_path on the branch publish_git_branch of the repository publish_git_url, and
-    # pushes it (docs/learn/43). Use a deploy key, not a token in the address.
-    publish_target: Literal["none", "file", "git"] = "none"
+    # pushes it (docs/learn/43). Use a deploy key, not a token in the address. "s3" puts it as
+    # the object publish_s3_object into the bucket publish_s3_bucket of an object storage with
+    # the S3 API, such as Amazon S3 or Cloudflare R2 (docs/learn/44).
+    publish_target: Literal["none", "file", "git", "s3"] = "none"
     publish_file: Path = Path("var/public/feed.json")
     publish_git_url: str | None = None
     publish_git_branch: str = "main"
@@ -89,6 +91,14 @@ class Settings(BaseSettings):
     publish_git_dir: Path = Path("var/publish")
     publish_git_ssh_key: Path | None = None
     publish_git_known_hosts: Path | None = None
+    # The address of the object storage (https, a host and nothing after it), the region that
+    # signs each request ("auto" for R2), and a key pair that may write this one object only.
+    publish_s3_endpoint: str | None = None
+    publish_s3_region: str | None = None
+    publish_s3_bucket: str | None = None
+    publish_s3_object: str = "feed.json"
+    publish_s3_access_key_id: str | None = None
+    publish_s3_secret_access_key: SecretStr | None = None
 
 
 @lru_cache

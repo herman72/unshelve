@@ -1,19 +1,30 @@
 """The targets of the public feed (docs/adr/0004). Each one passes ``FeedTargetConformance``.
 
 ``UNSHELVE_PUBLISH_TARGET`` chooses one: ``none`` publishes nothing, ``file`` writes the feed
-to ``UNSHELVE_PUBLISH_FILE``, ``git`` commits it to a repository (``publish/git.py``).
+to ``UNSHELVE_PUBLISH_FILE``, ``git`` commits it to a repository (``publish/git.py``), ``s3``
+puts it into an object storage (``publish/s3.py``).
 """
 
 import asyncio
 import os
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
 
 from unshelve.config import Settings
 from unshelve.contracts.dto import Published
 from unshelve.contracts.errors import PublishError
 from unshelve.contracts.protocols import FeedTarget
+from unshelve.net.sigv4 import Credentials
 from unshelve.publish.git import GitTarget
+from unshelve.publish.s3 import (
+    S3Target,
+    bucket_name,
+    endpoint_address,
+    key_id,
+    object_key,
+    region_name,
+)
 
 # Faults of the settings: a later try fails in the same way.
 _LASTING = (PermissionError, IsADirectoryError, NotADirectoryError)
@@ -94,6 +105,8 @@ def build_feed_target(settings: Settings) -> FeedTarget | None:
             return FileTarget(settings.publish_file)
         case "git":
             return _git_target(settings)
+        case "s3":
+            return _s3_target(settings)
         case "none":
             return None
 
@@ -114,3 +127,39 @@ def _git_target(settings: Settings) -> FeedTarget:
         )
     except ValueError as error:
         return UnusableTarget(f"UNSHELVE_PUBLISH_GIT_PATH: {error}")
+
+
+def _s3_target(settings: Settings) -> FeedTarget:
+    secret = settings.publish_s3_secret_access_key
+    needed = {
+        "ENDPOINT": settings.publish_s3_endpoint or "",
+        "REGION": settings.publish_s3_region or "",
+        "BUCKET": settings.publish_s3_bucket or "",
+        "ACCESS_KEY_ID": settings.publish_s3_access_key_id or "",
+        "SECRET_ACCESS_KEY": secret.get_secret_value() if secret is not None else "",
+    }
+    if missing := [f"UNSHELVE_PUBLISH_S3_{name}" for name, value in needed.items() if not value]:
+        verb = "is" if len(missing) == 1 else "are"
+        return UnusableTarget(
+            f"UNSHELVE_PUBLISH_TARGET is s3, but {', '.join(missing)} {verb} not set"
+        )
+    # Each wrong setting by its name, the first one first.
+    checks: tuple[tuple[str, Callable[[str], str], str], ...] = (
+        ("ENDPOINT", endpoint_address, needed["ENDPOINT"]),
+        ("REGION", region_name, needed["REGION"]),
+        ("BUCKET", bucket_name, needed["BUCKET"]),
+        ("OBJECT", object_key, settings.publish_s3_object),
+        ("ACCESS_KEY_ID", key_id, needed["ACCESS_KEY_ID"]),
+    )
+    for name, check, value in checks:
+        try:
+            check(value)
+        except ValueError as error:
+            return UnusableTarget(f"UNSHELVE_PUBLISH_S3_{name}: {error}")
+    return S3Target(
+        needed["ENDPOINT"],
+        region=needed["REGION"],
+        bucket=needed["BUCKET"],
+        key=settings.publish_s3_object,
+        credentials=Credentials(needed["ACCESS_KEY_ID"], needed["SECRET_ACCESS_KEY"]),
+    )
