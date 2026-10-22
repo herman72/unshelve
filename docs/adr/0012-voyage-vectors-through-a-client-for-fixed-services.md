@@ -34,6 +34,14 @@ Three facts shaped the decision:
 - The numbers of a vector change a little from call to call, because a GPU is not exact: the same text gave a cosine of 0.998 or more, and two different short texts 0.79. A test compares vectors with a tolerance, and the embed step keeps a stored vector instead of making it again.
 - A title or a summary that the owner changes by hand (milestone M2-6) must add an embed job, or the card vector stays old.
 
+## Later: the object storage target (2026-10-22, M5-1c)
+
+The object storage target of the public feed ([note 44](../learn/44-object-storage-target.md)) uses the same client. It needed two more things, and the client has them now: `send()` sends a request with headers and a body of its own, and `host` is the `Host` header that the service gets. Each request is signed with AWS Signature Version 4, and the signature covers both.
+
+- **The address** comes from the settings of the owner (`UNSHELVE_PUBLISH_S3_ENDPOINT`), not from saved content. It must be https, as each address of this client.
+- **The signature** is our own (`net/sigv4.py`, 80 lines of code). Its tests compare it with the answers that AWS publishes: seven cases of the AWS test suite for Signature Version 4, and the GET and PUT examples of S3.
+- **Not boto3:** it would add four packages (the wheel of `botocore` alone is 16.1 MB) and an HTTP client outside `unshelve.net`, the exception that this ADR refuses.
+
 ## Alternatives considered
 
 - **The `voyageai` SDK:** official, but 24 more packages in the worker for one request, each one code that must be updated and trusted.

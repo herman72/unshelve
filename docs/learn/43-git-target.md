@@ -198,4 +198,4 @@ In the stack, the job of the feed would fail as a fault that can pass. The worke
 - [Managing deploy keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys), GitHub documentation. Read "Deploy keys": one repository, read-only by default, write access when you allow it.
 - [GitHub's SSH key fingerprints](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints), GitHub documentation. It has the lines for a `known_hosts` file.
 
-Previous: [42. The public feed](42-public-feed.md) · Back to the [list of notes](README.md)
+Previous: [42. The public feed](42-public-feed.md) · Next: [44. Publishing to object storage](44-object-storage-target.md) · Back to the [list of notes](README.md)
