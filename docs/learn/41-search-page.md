@@ -271,4 +271,4 @@ React matches the children of each parent apart from the children of other paren
 - [Preserving and resetting state](https://react.dev/learn/preserving-and-resetting-state), React documentation. Read "Option 2: Resetting state with a key" and "Resetting a form with a key": the way the form of this page starts again.
 - [Form](https://nextjs.org/docs/app/api-reference/components/form), Next.js documentation. Read "Reference" (an address as the action gives a GET form that navigates) and "Caveats" (the key).
 
-Previous: [40. Measuring search](40-measuring-search.md) · Back to the [list of notes](README.md)
+Previous: [40. Measuring search](40-measuring-search.md) · Next: [42. The public feed](42-public-feed.md) · Back to the [list of notes](README.md)

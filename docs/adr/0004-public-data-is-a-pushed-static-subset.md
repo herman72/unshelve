@@ -18,6 +18,10 @@ A public search endpoint on the main database would need rate limiting, abuse pr
 - Enrichment is goal-agnostic: the model that writes summaries and tags never sees goal text. Tags are public only when `tags.is_public` is set. `note` is private; `public_note` is the only user-written text that can be published.
 - Changing visibility shows the exact public record before the user confirms.
 
+### How the publisher uses the role (2026-10-22, M5-1)
+
+The publisher does not log in as `unshelve_publisher`. It switches to the role for one transaction with `SET LOCAL ROLE`, and the role ends with that transaction. The rights are the same as for a login: the feed query can read `pub.items` and nothing else, so a mistake in it is refused by the database. There is no second password to keep, and the role needs no login on the shared database server. Code that wants private data on purpose could switch back with `RESET ROLE`; such code has the main connection anyway. See [note 42](../learn/42-public-feed.md).
+
 ## Consequences
 
 - A private item cannot be in the feed, because the role that builds the feed cannot read it.
