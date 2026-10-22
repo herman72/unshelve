@@ -1,7 +1,7 @@
 """The targets of the public feed (docs/adr/0004). Each one passes ``FeedTargetConformance``.
 
 ``UNSHELVE_PUBLISH_TARGET`` chooses one: ``none`` publishes nothing, ``file`` writes the feed
-to ``UNSHELVE_PUBLISH_FILE``.
+to ``UNSHELVE_PUBLISH_FILE``, ``git`` commits it to a repository (``publish/git.py``).
 """
 
 import asyncio
@@ -13,6 +13,7 @@ from unshelve.config import Settings
 from unshelve.contracts.dto import Published
 from unshelve.contracts.errors import PublishError
 from unshelve.contracts.protocols import FeedTarget
+from unshelve.publish.git import GitTarget
 
 # Faults of the settings: a later try fails in the same way.
 _LASTING = (PermissionError, IsADirectoryError, NotADirectoryError)
@@ -72,10 +73,44 @@ def _error(action: str, path: Path, error: OSError) -> PublishError:
     )
 
 
+class UnusableTarget:
+    """The target of wrong settings. Each call fails with the reason as a lasting fault: the
+    job of the feed ends with it, and the other jobs of the worker go on."""
+
+    def __init__(self, reason: str) -> None:
+        self._reason = reason
+
+    async def publish(self, data: bytes) -> Published:
+        raise PublishError(self._reason, retryable=False)
+
+    async def read(self) -> bytes | None:
+        raise PublishError(self._reason, retryable=False)
+
+
 def build_feed_target(settings: Settings) -> FeedTarget | None:
     """The target of ``UNSHELVE_PUBLISH_TARGET``, or None when nothing is published."""
     match settings.publish_target:
         case "file":
             return FileTarget(settings.publish_file)
+        case "git":
+            return _git_target(settings)
         case "none":
             return None
+
+
+def _git_target(settings: Settings) -> FeedTarget:
+    if settings.publish_git_url is None:
+        return UnusableTarget(
+            "UNSHELVE_PUBLISH_TARGET is git, but UNSHELVE_PUBLISH_GIT_URL is not set"
+        )
+    try:
+        return GitTarget(
+            settings.publish_git_url,
+            branch=settings.publish_git_branch,
+            path=settings.publish_git_path,
+            workdir=settings.publish_git_dir,
+            ssh_key=settings.publish_git_ssh_key,
+            known_hosts=settings.publish_git_known_hosts,
+        )
+    except ValueError as error:
+        return UnusableTarget(f"UNSHELVE_PUBLISH_GIT_PATH: {error}")

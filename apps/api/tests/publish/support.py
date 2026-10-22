@@ -1,8 +1,11 @@
 """A made-up world for the tests of the public feed: public items, and a marker in each private
 place that the feed must never show (docs/learn/42)."""
 
+import os
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -184,3 +187,39 @@ async def seed_world(sessions: async_sessionmaker[AsyncSession]) -> World:
         )
         await db.commit()
         return World(owner_id, other_owner_id, leases.id, private.id)
+
+
+# --- Git repositories --------------------------------------------------------------------
+
+# The other writers of a repository, such as the person who writes the site. Their git config
+# stays out too, so that a test does the same on each computer.
+_OTHERS = {
+    **os.environ,
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "LC_ALL": "C",
+    "GIT_AUTHOR_NAME": "Someone Else",
+    "GIT_AUTHOR_EMAIL": "else@example.com",
+    "GIT_COMMITTER_NAME": "Someone Else",
+    "GIT_COMMITTER_EMAIL": "else@example.com",
+}
+
+
+def run_git(*args: str, cwd: Path) -> str:
+    done = subprocess.run(  # noqa: S603 - git with the arguments of this test
+        ["git", *args],  # noqa: S607 - the git of this computer, as the target uses
+        cwd=cwd,
+        env=_OTHERS,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return done.stdout
+
+
+def bare_remote(root: Path) -> Path:
+    """An empty bare repository, as on a server. Its HEAD is main, so a clone checks out main."""
+    root.mkdir(parents=True, exist_ok=True)
+    remote = root / "site.git"
+    run_git("init", "--quiet", "--bare", "--initial-branch=main", str(remote), cwd=root)
+    return remote

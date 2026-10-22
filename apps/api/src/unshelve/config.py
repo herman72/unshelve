@@ -76,9 +76,19 @@ class Settings(BaseSettings):
     blob_dir: Path = Path("var/blobs")
 
     # The public feed (docs/adr/0004): the items that you made public, as one feed.json.
-    # "none" publishes nothing. "file" writes the feed to publish_file.
-    publish_target: Literal["none", "file"] = "none"
+    # "none" publishes nothing. "file" writes the feed to publish_file. "git" commits it as
+    # publish_git_path on the branch publish_git_branch of the repository publish_git_url, and
+    # pushes it (docs/learn/43). Use a deploy key, not a token in the address.
+    publish_target: Literal["none", "file", "git"] = "none"
     publish_file: Path = Path("var/public/feed.json")
+    publish_git_url: str | None = None
+    publish_git_branch: str = "main"
+    publish_git_path: str = "public/feed.json"
+    # The working copy of the worker. And the deploy key of ssh, with the host keys of the
+    # server: without them, ssh trusts the key of the server at the first connection.
+    publish_git_dir: Path = Path("var/publish")
+    publish_git_ssh_key: Path | None = None
+    publish_git_known_hosts: Path | None = None
 
 
 @lru_cache
