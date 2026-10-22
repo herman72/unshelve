@@ -24,6 +24,7 @@ from unshelve.contracts.protocols import (
     BatchProvider,
     BlobStore,
     Embedder,
+    FeedTarget,
     Fetcher,
     FileSource,
     LLMProvider,
@@ -150,6 +151,8 @@ class Services:
     files: FileSource | None = None
     # Questions to the model in one batch, at a lower price (UNSHELVE_CARDS=batch).
     batches: BatchProvider | None = None
+    # Where the public feed goes (UNSHELVE_PUBLISH_TARGET). None: nothing is published.
+    feed: FeedTarget | None = None
 
 
 @dataclass(frozen=True, slots=True)

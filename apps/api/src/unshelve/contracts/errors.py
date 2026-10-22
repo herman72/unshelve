@@ -71,3 +71,13 @@ class ProviderError(UnshelveError):
         # Seconds to wait before the next try: the wait of a 429, or the time until the daily
         # budget is new again.
         self.retry_after = retry_after
+
+
+class PublishError(UnshelveError):
+    """A feed target could not store or read the feed."""
+
+    def __init__(self, message: str, *, retryable: bool) -> None:
+        super().__init__(message)
+        # False for a fault of the settings (a folder that cannot be written): a later try
+        # fails in the same way. True for a fault that can pass (a full disk, a network).
+        self.retryable = retryable

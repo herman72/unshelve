@@ -34,6 +34,7 @@ from unshelve.contracts.protocols import (
     Embedder,
     ExtractContext,
     Extractor,
+    FeedTarget,
     Fetcher,
     LLMProvider,
 )
@@ -336,3 +337,38 @@ class ExtractorConformance:
         extracted = await case.extractor.extract(case.matching, case.ctx)
         assert isinstance(extracted, Extracted)
         assert extracted.text.strip()
+
+
+# --- Feed target -------------------------------------------------------------------------
+
+_FEED = b'{\n  "version": 1,\n  "items": []\n}\n'
+# Persian in UTF-8: a target must keep the bytes as they are, not text in another encoding.
+_NEWER_FEED = '{\n  "version": 1,\n  "items": [{"title": "صف کارها"}]\n}\n'.encode()
+
+
+class FeedTargetConformance:
+    @pytest.fixture
+    def target(self) -> FeedTarget:
+        raise NotImplementedError
+
+    async def test_a_new_target_holds_no_feed(self, target: FeedTarget) -> None:
+        assert await target.read() is None
+
+    async def test_read_returns_the_published_bytes(self, target: FeedTarget) -> None:
+        published = await target.publish(_FEED)
+
+        assert published.changed
+        assert published.where
+        assert await target.read() == _FEED
+
+    async def test_the_same_bytes_again_change_nothing(self, target: FeedTarget) -> None:
+        await target.publish(_FEED)
+
+        assert not (await target.publish(_FEED)).changed
+        assert await target.read() == _FEED
+
+    async def test_new_bytes_replace_the_feed(self, target: FeedTarget) -> None:
+        await target.publish(_FEED)
+
+        assert (await target.publish(_NEWER_FEED)).changed
+        assert await target.read() == _NEWER_FEED

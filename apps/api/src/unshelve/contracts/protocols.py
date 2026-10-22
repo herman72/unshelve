@@ -17,6 +17,7 @@ from unshelve.contracts.dto import (
     ImagePart,
     LLMResult,
     MediaRef,
+    Published,
     SourceRef,
     SourceText,
     TextPart,
@@ -127,6 +128,19 @@ class Embedder(Protocol):
     async def embed_documents(self, texts: Sequence[str]) -> list[list[float]]: ...
 
     async def embed_query(self, text: str) -> list[float]: ...
+
+
+class FeedTarget(Protocol):
+    """Where the public feed goes (docs/adr/0004): a file, a git repository or object storage.
+
+    ``publish`` stores the bytes as the feed, and says whether the target held other bytes
+    before. ``read`` returns the feed that the target holds now, or None before the first one.
+    Both raise ``PublishError``.
+    """
+
+    async def publish(self, data: bytes) -> Published: ...
+
+    async def read(self) -> bytes | None: ...
 
 
 class FileSource(Protocol):
