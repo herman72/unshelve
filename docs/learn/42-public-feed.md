@@ -181,7 +181,7 @@ Both refuse a mistake, and a mistake is the risk here. Code that wants private d
 - **Is the filter of the owner tested?** Yes: a public item of a second owner, with a marker.
 - **Can the tests fail?** Yes: 37 typical mistakes, one at a time, in the code and in the view; each one made a named test fail.
 - **What is not done:**
-  - the targets git and object storage (the next two pull requests of #36);
+  - the target object storage (the next pull request of #36); the git target is in [note 43](43-git-target.md);
   - a toggle that queues the job (M5-2);
   - a folder of the stack for the file: in Docker, `UNSHELVE_PUBLISH_FILE` is a path inside the container of the worker.
 
@@ -235,4 +235,4 @@ The role keeps out private rows and private columns. But the item of the other o
 - [CREATE VIEW](https://www.postgresql.org/docs/current/sql-createview.html), PostgreSQL documentation. Read "Notes": by default, a view reads its tables with the rights of its owner, and `security_invoker` changes that.
 - [SET ROLE](https://www.postgresql.org/docs/current/sql-set-role.html), PostgreSQL documentation. Read the description: after `SET ROLE`, each check runs as the named role.
 
-Previous: [41. The search page](41-search-page.md) · Back to the [list of notes](README.md)
+Previous: [41. The search page](41-search-page.md) · Next: [43. Publishing to a git repository](43-git-target.md) · Back to the [list of notes](README.md)
