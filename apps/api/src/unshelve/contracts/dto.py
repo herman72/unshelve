@@ -190,3 +190,13 @@ class EmbeddingSpec(Dto):
     distance: Distance = Distance.COSINE
     doc_prefix: str = ""
     query_prefix: str = ""
+
+
+# --- Publish -----------------------------------------------------------------------------
+
+
+class Published(Dto):
+    """What a feed target did with a feed (docs/adr/0004)."""
+
+    where: str  # the file, the commit or the object: where to look, for the log
+    changed: bool  # False when the target held the same bytes already

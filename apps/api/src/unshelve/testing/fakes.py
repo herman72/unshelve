@@ -24,6 +24,7 @@ from unshelve.contracts.dto import (
     LLMResult,
     LLMUsage,
     MediaRef,
+    Published,
     Quote,
     SourceRef,
     SourceText,
@@ -369,3 +370,22 @@ class EchoExtractor:
 
     async def extract(self, ref: SourceRef, ctx: ExtractContext) -> Extracted:
         return Extracted(kind=ItemKind.NOTE, text=ref.text or ref.url or "", final_url=ref.url)
+
+
+# --- Feed target -------------------------------------------------------------------------
+
+
+class InMemoryFeedTarget:
+    """Keeps each feed that changed, in order: ``feeds[-1]`` is the feed of now."""
+
+    def __init__(self) -> None:
+        self.feeds: list[bytes] = []
+
+    async def publish(self, data: bytes) -> Published:
+        if self.feeds and self.feeds[-1] == data:
+            return Published(where="memory", changed=False)
+        self.feeds.append(data)
+        return Published(where="memory", changed=True)
+
+    async def read(self) -> bytes | None:
+        return self.feeds[-1] if self.feeds else None

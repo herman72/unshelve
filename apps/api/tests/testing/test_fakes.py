@@ -11,6 +11,7 @@ from unshelve.contracts.protocols import (
     CitingLLM,
     Embedder,
     ExtractContext,
+    FeedTarget,
     LLMProvider,
 )
 from unshelve.testing.conformance import (
@@ -19,6 +20,7 @@ from unshelve.testing.conformance import (
     EmbedderConformance,
     ExtractorCase,
     ExtractorConformance,
+    FeedTargetConformance,
     FetcherCase,
     FetcherConformance,
     LLMProviderConformance,
@@ -30,6 +32,7 @@ from unshelve.testing.fakes import (
     FakeLLM,
     FakeLLMCall,
     InMemoryBlobStore,
+    InMemoryFeedTarget,
     synthesize,
 )
 
@@ -44,6 +47,12 @@ class TestInMemoryBlobStore(BlobStoreConformance):
     @pytest.fixture
     def blobs(self) -> BlobStore:
         return InMemoryBlobStore()
+
+
+class TestInMemoryFeedTarget(FeedTargetConformance):
+    @pytest.fixture
+    def target(self) -> FeedTarget:
+        return InMemoryFeedTarget()
 
 
 class TestFakeFetcher(FetcherConformance):
