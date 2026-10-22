@@ -55,6 +55,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 41 | [The search page](41-search-page.md) | How the filters of a search live in the address, how each hit says why it was found and whether you read it, how the overview numbers its sources, and how one key on two siblings kept an old form on the page | |
 | 42 | [The public feed](42-public-feed.md) | How the items that you make public become one feed.json, why a view and a role keep each private place out of it, also when the code has a mistake, and how a test with markers proves it | |
 | 43 | [Publishing to a git repository](43-git-target.md) | How the worker commits the feed into the repository of your site, why each try starts from the server, what happens when two writers push at once, and how a deploy key and pinned host keys keep the push safe | |
+| 44 | [Publishing to object storage](44-object-storage-target.md) | How the worker puts the feed into a bucket of R2 or S3, how a signature proves each request without the secret on the network, how the answers of AWS check our signature, and what the bucket needs from you | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 

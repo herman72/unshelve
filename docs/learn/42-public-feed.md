@@ -133,7 +133,7 @@ The view has one more column, `owner_id`, for the filter below. It is an interna
 2. Otherwise, the bytes go to a temporary file in the same folder, and then the file gets its name in one step. A reader never sees half a feed; a test makes the rename fail and checks that the old feed is still whole.
 3. The file can be read by other users (mode 644), such as the user of a web server.
 
-A target is a protocol of the contracts, as the fetcher and the embedder are. Each target must pass one conformance suite: a fake in memory and the file target pass it now, and a git target and object storage will follow.
+A target is a protocol of the contracts, as the fetcher and the embedder are. Each target must pass one conformance suite: a fake in memory and the file target pass it, and so do the git target ([note 43](43-git-target.md)) and the object storage target ([note 44](44-object-storage-target.md)).
 
 ## 6. The job and the commands
 
@@ -181,7 +181,6 @@ Both refuse a mistake, and a mistake is the risk here. Code that wants private d
 - **Is the filter of the owner tested?** Yes: a public item of a second owner, with a marker.
 - **Can the tests fail?** Yes: 37 typical mistakes, one at a time, in the code and in the view; each one made a named test fail.
 - **What is not done:**
-  - the target object storage (the next pull request of #36); the git target is in [note 43](43-git-target.md);
   - a toggle that queues the job (M5-2);
   - a folder of the stack for the file: in Docker, `UNSHELVE_PUBLISH_FILE` is a path inside the container of the worker.
 
