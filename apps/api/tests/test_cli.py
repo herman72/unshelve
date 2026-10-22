@@ -144,6 +144,12 @@ def _run(
         "UNSHELVE_PUBLISH_GIT_DIR",
         "UNSHELVE_PUBLISH_GIT_SSH_KEY",
         "UNSHELVE_PUBLISH_GIT_KNOWN_HOSTS",
+        "UNSHELVE_PUBLISH_S3_ENDPOINT",
+        "UNSHELVE_PUBLISH_S3_REGION",
+        "UNSHELVE_PUBLISH_S3_BUCKET",
+        "UNSHELVE_PUBLISH_S3_OBJECT",
+        "UNSHELVE_PUBLISH_S3_ACCESS_KEY_ID",
+        "UNSHELVE_PUBLISH_S3_SECRET_ACCESS_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():

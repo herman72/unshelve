@@ -1341,7 +1341,7 @@ def publish_run() -> None:
     if target is None:
         raise _stop(
             "UNSHELVE_PUBLISH_TARGET is none, so there is nowhere to write the feed. "
-            "Set it to file, and UNSHELVE_PUBLISH_FILE to the path of the feed."
+            "Set it to file, git or s3, with the settings of that target (.env.example)."
         )
     try:
         report = asyncio.run(_publish_now(settings, target))
