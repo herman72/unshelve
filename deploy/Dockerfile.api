@@ -11,6 +11,11 @@ ENV PYTHONUNBUFFERED=1 \
 # Same uv version as CI, so the lock file is read by the tool that wrote it.
 COPY --from=ghcr.io/astral-sh/uv:0.9.3 /uv /bin/uv
 
+# git and ssh for the git target of the public feed (docs/learn/43).
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends git openssh-client \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Dependencies first: this layer is rebuilt only when the lock file changes.
