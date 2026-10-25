@@ -74,6 +74,7 @@ type SearchCall = {
   unread: string | null;
   kind: string[];
   goal_id: string | null;
+  tag: string[];
   cursor: string | null;
 };
 

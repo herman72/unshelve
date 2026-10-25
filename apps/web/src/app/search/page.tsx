@@ -78,7 +78,11 @@ async function SearchResults({
   if (state.kind !== "data") return <EmptyState state={state} />;
   const { items: hits, next_cursor: next, vector_search } = state.data;
   const filtered =
-    search.status.length > 0 || search.unread || search.kind !== null || search.goalId !== null;
+    search.status.length > 0 ||
+    search.unread ||
+    search.kind !== null ||
+    search.goalId !== null ||
+    search.tags.length > 0;
 
   if (hits.length === 0) {
     return (
@@ -102,7 +106,7 @@ async function SearchResults({
         q={search.q}
         status={search.status}
         unread={search.unread}
-        narrowed={search.kind !== null || search.goalId !== null}
+        narrowed={search.kind !== null || search.goalId !== null || search.tags.length > 0}
       />
       <section aria-labelledby="results-title">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
@@ -119,7 +123,7 @@ async function SearchResults({
         <ol role="list" className="flex flex-col gap-3">
           {hits.map((hit) => (
             <li key={hit.item.id}>
-              <SearchHitCard hit={hit} />
+              <SearchHitCard hit={hit} search={search} />
             </li>
           ))}
         </ol>

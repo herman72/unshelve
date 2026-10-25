@@ -167,7 +167,7 @@ export function OverviewPanel({
           </p>
           {narrowed && (
             <p className="mt-1 text-sm text-muted">
-              It reads items of every kind and goal: of your filters, only the status and
+              It reads items of every kind, goal and tag: of your filters, only the status and
               “Unread only” apply.
             </p>
           )}
