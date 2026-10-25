@@ -48,6 +48,9 @@ export const KIND_CHOICES = choices<ItemKind>(KIND_NAMES);
 export type Search = {
   q: string;
   status: ItemStatus[];
+  // Only the items without a read time. Not a status: an item keeps its read time when it
+  // leaves "done".
+  unread: boolean;
   kind: ItemKind | null;
   goalId: number | null;
   cursor: string | null;
@@ -76,6 +79,8 @@ export function parseSearch(params: Params): Search {
     q: (values(params.q)[0] ?? "").trim(),
     // In the order of the API, each status once: ?status=done&status=done is one filter.
     status: STATUS_CHOICES.map(({ value }) => value).filter((status) => given.includes(status)),
+    // The box of the form sends unread=true. Any other value leaves the filter off.
+    unread: values(params.unread)[0] === "true",
     kind: values(params.kind).find(isKind) ?? null,
     goalId: ID.test(goal) ? Number(goal) : null,
     cursor: values(params.cursor)[0] || null,
@@ -87,6 +92,7 @@ export function apiQuery(search: Search) {
   return {
     q: search.q,
     ...(search.status.length > 0 && { status: search.status }),
+    ...(search.unread && { unread: true }),
     ...(search.kind !== null && { kind: [search.kind] }),
     ...(search.goalId !== null && { goal_id: search.goalId }),
     ...(search.cursor !== null && { cursor: search.cursor }),
@@ -100,6 +106,7 @@ export function apiQuery(search: Search) {
 export function searchHref(search: Search, cursor: string | null = null): string {
   const params = new URLSearchParams({ q: search.q });
   for (const status of search.status) params.append("status", status);
+  if (search.unread) params.set("unread", "true");
   if (search.kind !== null) params.set("kind", search.kind);
   if (search.goalId !== null) params.set("goal_id", String(search.goalId));
   if (cursor !== null) params.set("cursor", cursor);

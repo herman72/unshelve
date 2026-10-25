@@ -710,15 +710,18 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "GET" && path === "/api/v1/search") {
-    // As in the real API: the query is required, and a status or a kind must exist.
+    // As in the real API: the query is required, a status or a kind must exist, and unread is
+    // a boolean (the web app sends true or nothing).
     const q = (url.searchParams.get("q") ?? "").trim();
     const statuses = url.searchParams.getAll("status");
+    const unread = url.searchParams.get("unread");
     const kinds = url.searchParams.getAll("kind");
     const goal = url.searchParams.get("goal_id");
     const cursor = url.searchParams.get("cursor");
-    searches.push({ q, status: statuses, kind: kinds, goal_id: goal, cursor });
+    searches.push({ q, status: statuses, unread, kind: kinds, goal_id: goal, cursor });
     const known = statuses.every((status) => STATUSES.includes(/** @type {ItemStatus} */ (status)));
-    if (!q || q.length > 500 || !known) {
+    const yesOrNo = unread === null || unread === "true" || unread === "false";
+    if (!q || q.length > 500 || !known || !yesOrNo) {
       return problem(response, 422, "Unprocessable Content", "the query is not valid");
     }
     const start = cursor === null ? 0 : Number(/^p(\d+)$/.exec(cursor)?.[1] ?? NaN);
@@ -732,6 +735,8 @@ const server = createServer(async (request, response) => {
       );
       return (
         (statuses.length === 0 || statuses.includes(item.status)) &&
+        // The read time decides, not the status: an item keeps it when it leaves done.
+        (unread !== "true" || item.read_at === null) &&
         (kinds.length === 0 || kinds.includes(item.kind)) &&
         (goal === null || helps)
       );
@@ -749,17 +754,20 @@ const server = createServer(async (request, response) => {
     overviews.push(body);
     const q = typeof body.q === "string" ? body.q.trim() : "";
     const statuses = /** @type {string[] | null} */ (body.status ?? null);
+    const unread = body.unread ?? false;
     const limit = body.limit ?? 12;
     const known = (statuses ?? []).every((status) =>
       STATUSES.includes(/** @type {ItemStatus} */ (status)),
     );
-    if (!q || q.length > 500 || !known || typeof limit !== "number" || limit < 1 || limit > 30) {
+    const valid = typeof unread === "boolean" && typeof limit === "number";
+    if (!q || q.length > 500 || !known || !valid || limit < 1 || limit > 30) {
       return problem(response, 422, "Unprocessable Content", "the body is not valid");
     }
     if (overviewFailure) return problem(response, 503, "Service Unavailable", overviewFailure);
     const hits = searchHits(
       wordsOf(q),
-      (item) => statuses === null || statuses.includes(item.status),
+      (item) =>
+        (statuses === null || statuses.includes(item.status)) && (!unread || item.read_at === null),
     ).slice(0, limit);
     const segments = overviewSegments(hits);
     return send(response, 200, {

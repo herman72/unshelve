@@ -114,10 +114,12 @@ function OverviewAnswer({ overview }: { overview: Overview }) {
 export function OverviewPanel({
   q,
   status,
+  unread,
   narrowed,
 }: {
   q: string;
   status: ItemStatus[];
+  unread: boolean;
   narrowed: boolean;
 }) {
   const [state, setState] = useState<PanelState>({ kind: "idle" });
@@ -133,7 +135,7 @@ export function OverviewPanel({
     setState({ kind: "writing" });
     try {
       const { data, error, response } = await browserApi.POST("/api/v1/search/overview", {
-        body: { q, status: status.length > 0 ? status : null, unread: false, limit: ITEMS_TO_READ },
+        body: { q, status: status.length > 0 ? status : null, unread, limit: ITEMS_TO_READ },
       });
       setState(
         data
@@ -165,7 +167,8 @@ export function OverviewPanel({
           </p>
           {narrowed && (
             <p className="mt-1 text-sm text-muted">
-              It reads items of every kind and goal: of your filters, only the status applies.
+              It reads items of every kind and goal: of your filters, only the status and
+              “Unread only” apply.
             </p>
           )}
           <button

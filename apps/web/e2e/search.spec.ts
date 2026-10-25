@@ -127,6 +127,7 @@ test("the filters go to the API, and the form keeps them", async ({ page, reques
   expect((await searches(request)).at(-1)).toEqual({
     q: "postgres",
     status: ["inbox"],
+    unread: null,
     kind: ["pdf"],
     goal_id: "1",
     cursor: null,
@@ -138,7 +139,8 @@ test("the filters go to the API, and the form keeps them", async ({ page, reques
   await expect(form.getByRole("combobox", { name: "Goal" })).toHaveValue("1");
   // The overview cannot filter by kind or goal, and it says so.
   await expect(overview(page)).toContainText(
-    "It reads items of every kind and goal: of your filters, only the status applies.",
+    "It reads items of every kind and goal: of your filters, only the status and " +
+      "“Unread only” apply.",
   );
 
   // Back shows the earlier search, and one form that shows it too.
@@ -148,6 +150,58 @@ test("the filters go to the API, and the form keeps them", async ({ page, reques
   await expect(page.getByRole("search")).toHaveCount(1);
   await expect(form.getByRole("checkbox", { name: "Inbox" })).not.toBeChecked();
   await expect(form.getByRole("combobox", { name: "Kind" })).toHaveValue("");
+});
+
+test("unread only leaves out the items that you read, also in the overview", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/search?q=item");
+  await expect(hitTitles(page)).toHaveText(["A note with a strange address", "Item one thousand"]);
+  const form = page.getByRole("search");
+  const unreadOnly = form.getByRole("checkbox", { name: "Unread only" });
+  await expect(unreadOnly).not.toBeChecked();
+
+  await unreadOnly.check();
+  await form.getByRole("button", { name: "Search" }).click();
+
+  // Item 1000 was read on 18 October, so only item 5 is left.
+  await expect(page).toHaveURL(/\/search\?q=item&unread=true&kind=&goal_id=$/);
+  await expect(hitTitles(page)).toHaveText(["A note with a strange address"]);
+  await expect(unreadOnly).toBeChecked();
+  expect((await searches(request)).at(-1)).toEqual({
+    q: "item",
+    status: [],
+    unread: "true",
+    kind: [],
+    goal_id: null,
+    cursor: null,
+  });
+
+  // The overview reads the same items: the model gets nothing that you read.
+  await overview(page).getByRole("button", { name: "Write an overview" }).click();
+  const sources = overview(page).getByRole("list").getByRole("listitem");
+  await expect(sources.getByRole("link")).toHaveText(["A note with a strange address"]);
+  expect(await overviews(request)).toEqual([{ q: "item", status: null, unread: true, limit: 12 }]);
+
+  // Back shows both items again, with the box not ticked.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/search\?q=item$/);
+  await expect(hitTitles(page)).toHaveCount(2);
+  await expect(unreadOnly).not.toBeChecked();
+
+  // Item 1000 is the only match for "thousand": with the box, nothing is left.
+  await page.goto("/search?q=thousand&unread=true");
+  await expect(
+    page.getByText("Nothing you saved matches that search. Try other words, or fewer filters."),
+  ).toBeVisible();
+  await expect(unreadOnly).toBeChecked();
+
+  // Only "true" turns the filter on, as the box sends it: the API gets no other value.
+  await page.goto("/search?q=item&unread=false");
+  await expect(hitTitles(page)).toHaveCount(2);
+  await expect(unreadOnly).not.toBeChecked();
+  expect((await searches(request)).at(-1)).toMatchObject({ q: "item", unread: null });
 });
 
 test("a search without hits says so, and the form shows each filter it used", async ({
@@ -192,26 +246,27 @@ test("the page says when search compared words only", async ({ page, request }) 
 
 test("more results open the next page of the same search", async ({ page, request }) => {
   await changeSearch(request, { page_size: 1 });
-  await page.goto("/search?q=postgres&status=inbox");
+  await page.goto("/search?q=postgres&status=inbox&unread=true");
   await expect(hitTitles(page)).toHaveText(["Leases for Job Queues in Postgres"]);
 
   await page.getByRole("link", { name: "More results" }).click();
 
   // The cursor goes with the same words and filters: the API refuses it for another search.
-  await expect(page).toHaveURL(/\/search\?q=postgres&status=inbox&cursor=p1$/);
+  await expect(page).toHaveURL(/\/search\?q=postgres&status=inbox&unread=true&cursor=p1$/);
   await expect(results(page).getByRole("heading", { level: 2 })).toHaveText("More results");
   await expect(hitTitles(page)).toHaveText(["صف کارها در پستگرس"]);
   await expect(page.getByRole("link", { name: "More results" })).toHaveCount(0);
   expect((await searches(request)).at(-1)).toEqual({
     q: "postgres",
     status: ["inbox"],
+    unread: "true",
     kind: [],
     goal_id: null,
     cursor: "p1",
   });
 
   await page.getByRole("link", { name: "Back to the best results" }).click();
-  await expect(page).toHaveURL(/\/search\?q=postgres&status=inbox$/);
+  await expect(page).toHaveURL(/\/search\?q=postgres&status=inbox&unread=true$/);
   await expect(hitTitles(page)).toHaveText(["Leases for Job Queues in Postgres"]);
 });
 

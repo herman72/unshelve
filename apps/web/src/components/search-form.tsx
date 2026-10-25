@@ -112,6 +112,12 @@ export function SearchForm({
             </div>
           </fieldset>
 
+          {/* Not a status: an item keeps its read time when it leaves "done" (docs/learn/48). */}
+          <label className="inline-flex items-center gap-1.5">
+            <input type="checkbox" name="unread" value="true" defaultChecked={search?.unread} />
+            Unread only
+          </label>
+
           {/* A label around a select would add the chosen option to its name: "Kind Any kind". */}
           <div className="flex flex-col gap-1">
             <label htmlFor="search-kind" className="text-muted">

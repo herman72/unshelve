@@ -77,7 +77,8 @@ async function SearchResults({
   const state = await results;
   if (state.kind !== "data") return <EmptyState state={state} />;
   const { items: hits, next_cursor: next, vector_search } = state.data;
-  const filtered = search.status.length > 0 || search.kind !== null || search.goalId !== null;
+  const filtered =
+    search.status.length > 0 || search.unread || search.kind !== null || search.goalId !== null;
 
   if (hits.length === 0) {
     return (
@@ -100,6 +101,7 @@ async function SearchResults({
       <OverviewPanel
         q={search.q}
         status={search.status}
+        unread={search.unread}
         narrowed={search.kind !== null || search.goalId !== null}
       />
       <section aria-labelledby="results-title">

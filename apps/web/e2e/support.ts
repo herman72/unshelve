@@ -71,6 +71,7 @@ export async function addEvent(
 type SearchCall = {
   q: string;
   status: string[];
+  unread: string | null;
   kind: string[];
   goal_id: string | null;
   cursor: string | null;
