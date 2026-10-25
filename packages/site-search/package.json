@@ -13,5 +13,8 @@
   "devDependencies": {
     "@types/node": "^20",
     "typescript": "^5"
+  },
+  "dependencies": {
+    "minisearch": "7.2.0"
   }
 }
