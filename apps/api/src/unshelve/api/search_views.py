@@ -19,6 +19,7 @@ from unshelve.api.schemas import (
     OverviewRequest,
     OverviewSegment,
     RetrieverRanks,
+    SearchFields,
     SearchHit,
     SearchPage,
     SearchQuery,
@@ -72,7 +73,9 @@ def _decode_cursor(cursor: str, query: SearchQuery) -> int:
 # --- The page ----------------------------------------------------------------------------
 
 
-def filters_of(query: SearchQuery) -> Filters:
+def filters_of(query: SearchFields) -> Filters:
+    """The filters of a search or of an overview: one function for both, so the overview reads
+    the items that the search finds with the same fields."""
     return Filters(
         statuses=frozenset(query.status or ()),
         kinds=frozenset(query.kind or ()),
@@ -136,10 +139,9 @@ async def search(
 async def answer(
     db: AsyncSession, embedder: Embedder, llm: CitingLLM, owner_id: int, body: OverviewRequest
 ) -> Overview:
-    filters = Filters(statuses=frozenset(body.status or ()), unread=body.unread)
     try:
         found = await overview.overview(
-            db, embedder, llm, owner_id, body.q, filters, limit=body.limit
+            db, embedder, llm, owner_id, body.q, filters_of(body), limit=body.limit
         )
     except ProviderError as error:
         # The model, its key or the daily budget: the search itself works, the answer does not.
