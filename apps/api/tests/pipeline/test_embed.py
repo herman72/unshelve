@@ -14,7 +14,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from unshelve.auth import store as auth
 from unshelve.config import Settings
 from unshelve.contracts.dto import CaptureEnvelope
-from unshelve.contracts.enums import Actor, CaptureSource, ChunkKind, EnrichState, JobKind, JobState
+from unshelve.contracts.enums import (
+    Actor,
+    CaptureSource,
+    ChunkKind,
+    EnrichState,
+    JobKind,
+    JobState,
+    Visibility,
+)
 from unshelve.contracts.errors import ProviderError
 from unshelve.contracts.jobs import ClaimedJob, EmbedItemPayload, JobContext, Services
 from unshelve.db.models import Chunk, EmbeddingSet, Event, Item, ItemContent, Job
@@ -466,3 +474,91 @@ async def test_a_failed_new_card_removes_the_vector_of_the_old_card_only(
     body = await _vectors(services.sessions, item_id)
     assert [(c.id, c.kind) for c in body] == [(c.id, c.kind) for c in body_before]
     assert [event.type for event in await _events(services.sessions, item_id)] == ["embed_failed"]
+
+
+# --- A public item -----------------------------------------------------------------------
+
+
+async def _publish_jobs(sessions: Sessions) -> list[Job]:
+    async with sessions() as db:
+        found = await db.scalars(
+            sa.select(Job).where(Job.kind == JobKind.PUBLISH_FEED, Job.state == JobState.PENDING)
+        )
+        return list(found.all())
+
+
+async def _make_public(sessions: Sessions, item_id: int) -> None:
+    await _change(
+        sessions,
+        item_id,
+        visibility=Visibility.PUBLIC,
+        public_slug=f"item-{item_id}",
+        published_at=NOON,
+    )
+
+
+async def _process_again(services: Services, item_id: int) -> None:
+    """Send the item back to the start, as "Process again" does, and run each job."""
+    async with services.sessions() as db:
+        item = await db.get_one(Item, item_id)
+        await resolve.restart_item(db, item.owner_id, item_id)
+        await db.commit()
+    await _run_all(services)
+
+
+async def test_a_public_item_that_is_ready_again_queues_the_publish_job(
+    services: Services,
+) -> None:
+    # A new run writes a new card: the public record of the item changes.
+    item_id = await _save(services.sessions, LONG_TEXT)
+    await _run_all(services)
+    await _make_public(services.sessions, item_id)
+
+    await _process_again(services, item_id)
+
+    owner_id = (await _item(services.sessions, item_id)).owner_id
+    [job] = await _publish_jobs(services.sessions)
+    assert (job.payload, job.dedupe_key) == ({"owner_id": owner_id}, f"feed:{owner_id}")
+
+
+async def test_a_public_item_that_is_ready_without_vectors_queues_the_publish_job_too(
+    services: Services,
+) -> None:
+    item_id = await _save(services.sessions, LONG_TEXT)
+    await _run_all(services)
+    await _make_public(services.sessions, item_id)
+    # Without stored vectors, the step must ask the embedder, and the embedder fails.
+    async with services.sessions() as db:
+        await db.execute(sa.delete(Chunk).where(Chunk.item_id == item_id))
+        await db.commit()
+    failing = RecordingEmbedder(error=ProviderError("the embedder is gone", retryable=False))
+
+    await _process_again(_with(services, failing), item_id)
+
+    assert failing.calls
+    assert (await _item(services.sessions, item_id)).enrich_state is EnrichState.READY
+    assert len(await _publish_jobs(services.sessions)) == 1
+
+
+async def test_a_private_item_that_is_ready_again_queues_no_publish_job(
+    services: Services,
+) -> None:
+    item_id = await _save(services.sessions, LONG_TEXT)
+    await _run_all(services)
+
+    await _process_again(services, item_id)
+
+    assert await _publish_jobs(services.sessions) == []
+
+
+async def test_new_vectors_of_a_ready_public_item_queue_no_publish_job(
+    services: Services,
+) -> None:
+    # Vectors are not in the public record, so the feed does not change.
+    item_id = await _save(services.sessions, LONG_TEXT)
+    await _run_all(services)
+    await _make_public(services.sessions, item_id)
+
+    await _embed_again(_with(services, RecordingEmbedder(dim=32)), item_id)
+
+    assert await _publish_jobs(services.sessions) == []
