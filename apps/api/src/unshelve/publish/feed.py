@@ -68,12 +68,15 @@ _PUB_ITEMS = sa.table(
 type Record = dict[str, object]
 
 
-async def read_records(session: AsyncSession, owner_id: int) -> list[Record]:
-    """The public records of ``owner_id``, the newest first.
+async def read_records(
+    session: AsyncSession, owner_id: int, *, slug: str | None = None
+) -> list[Record]:
+    """The public records of ``owner_id``, the newest first; with ``slug``, only that one.
 
     It switches the session to the publisher role until its transaction ends (``SET LOCAL
-    ROLE``). So call it last in a transaction, and end the transaction right after it:
-    ``build_feed`` does both.
+    ROLE``), or until a savepoint before it is rolled back. So call it last in a transaction or
+    a savepoint, and end that right after it: ``build_feed`` and the preview of
+    ``publish/visibility.py`` do so.
     """
     await session.execute(sa.text(f"SET LOCAL ROLE {PUBLISHER_ROLE}"))
     # The view holds the public items of every owner: this filter keeps the ones of one.
@@ -82,6 +85,8 @@ async def read_records(session: AsyncSession, owner_id: int) -> list[Record]:
         .where(_PUB_ITEMS.c.owner_id == owner_id)
         .order_by(_PUB_ITEMS.c.published_at.desc(), _PUB_ITEMS.c.id)
     )
+    if slug is not None:
+        query = query.where(_PUB_ITEMS.c.id == slug)
     rows = await session.execute(query)
     return [_record(row) for row in rows.mappings()]
 
@@ -89,9 +94,14 @@ async def read_records(session: AsyncSession, owner_id: int) -> list[Record]:
 def _record(row: RowMapping) -> Record:
     record: Record = {name: row[name] for name in FIELDS}
     published: datetime = row["published_at"]  # never NULL: a public item has one
-    # One form for each time: UTC, to the second. The same item always gives the same text.
-    record["published_at"] = published.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    record["published_at"] = time_text(published)
     return record
+
+
+def time_text(moment: datetime) -> str:
+    """The one form of a time in the feed: UTC, to the second. The same time gives the same
+    text, whatever the time zone it came in."""
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def feed_bytes(records: Sequence[Record]) -> bytes:
