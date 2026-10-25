@@ -180,4 +180,4 @@ The lesson: a test whose inputs are always in one form cannot see a mistake in t
 - [S3 API compatibility](https://developers.cloudflare.com/r2/api/s3/api/), Cloudflare R2 documentation. Read "Bucket region": the region of R2 is `auto`.
 - [The test suite of Signature Version 4](https://github.com/awslabs/aws-c-auth/tree/main/tests/aws-signing-test-suite/v4), in awslabs/aws-c-auth: the cases that our tests use, each with its canonical request and signature.
 
-Previous: [43. Publishing to a git repository](43-git-target.md) · Back to the [list of notes](README.md)
+Previous: [43. Publishing to a git repository](43-git-target.md) · Next: [45. Publishing an item, with its preview](45-publishing-an-item.md) · Back to the [list of notes](README.md)
