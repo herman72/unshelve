@@ -1077,8 +1077,21 @@ export interface components {
              */
             vector_search: "used" | "no_vectors" | "failed";
         };
-        /** OverviewRequest */
+        /**
+         * OverviewRequest
+         * @description The question and the filters of a search: the model reads the best items of that search.
+         */
         OverviewRequest: {
+            /**
+             * Goal Id
+             * @description Only the items that help this goal: a score of 2 or 3 after your verdict (a rejected score turns). An unknown goal finds nothing.
+             */
+            goal_id?: number | null;
+            /**
+             * Kind
+             * @description One of these kinds.
+             */
+            kind?: components["schemas"]["ItemKind"][] | null;
             /**
              * Limit
              * @description How many items to read.
@@ -1096,8 +1109,13 @@ export interface components {
              */
             status?: components["schemas"]["ItemStatus"][] | null;
             /**
+             * Tag
+             * @description Each of these tags: two tags find the items that have both.
+             */
+            tag?: string[] | null;
+            /**
              * Unread
-             * @description true: only the items that you have not read, as in the search.
+             * @description true: only the items that you have not read, those without read_at. An item keeps read_at when it leaves done, so this is not a status filter. false: read and unread items.
              * @default false
              */
             unread: boolean;

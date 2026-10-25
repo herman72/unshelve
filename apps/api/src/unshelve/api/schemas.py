@@ -302,10 +302,14 @@ class LabelRequest(Request):
 # --- Search ------------------------------------------------------------------------------
 
 
-class SearchQuery(Request):
-    q: Annotated[str, StringConstraints(min_length=1, max_length=500, strip_whitespace=True)] = (
-        Field(description='The words to find, as in a web search: "a phrase", this or that, -word.')
-    )
+SearchWords = Annotated[str, StringConstraints(min_length=1, max_length=500, strip_whitespace=True)]
+
+
+class SearchFields(Request):
+    """The words and the filters of a search. The search and the overview both take them, so
+    the overview reads the best items of the list that the search gives for the same fields."""
+
+    q: SearchWords
     status: list[ItemStatus] | None = Field(default=None, description="One of these statuses.")
     kind: list[ItemKind] | None = Field(default=None, description="One of these kinds.")
     tag: list[Slug] | None = Field(
@@ -321,6 +325,12 @@ class SearchQuery(Request):
         description="true: only the items that you have not read, those without read_at. An "
         "item keeps read_at when it leaves done, so this is not a status filter. false: read "
         "and unread items.",
+    )
+
+
+class SearchQuery(SearchFields):
+    q: SearchWords = Field(
+        description='The words to find, as in a web search: "a phrase", this or that, -word.'
     )
     limit: int = Field(default=20, ge=1, le=50)
     cursor: str | None = None
@@ -367,14 +377,10 @@ class SearchPage(Page[SearchHit]):
     )
 
 
-class OverviewRequest(Request):
-    q: Annotated[str, StringConstraints(min_length=1, max_length=500, strip_whitespace=True)] = (
-        Field(description="The question, in your words.")
-    )
-    status: list[ItemStatus] | None = Field(default=None, description="One of these statuses.")
-    unread: bool = Field(
-        default=False, description="true: only the items that you have not read, as in the search."
-    )
+class OverviewRequest(SearchFields):
+    """The question and the filters of a search: the model reads the best items of that search."""
+
+    q: SearchWords = Field(description="The question, in your words.")
     limit: int = Field(default=12, ge=1, le=30, description="How many items to read.")
 
 
