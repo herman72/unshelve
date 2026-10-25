@@ -1,5 +1,7 @@
 """The three retrievers, each one alone, on the made-up corpus. Each test name is one rule."""
 
+from datetime import UTC, datetime
+
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -266,6 +268,39 @@ async def test_kinds_and_statuses_combine(db: AsyncSession, corpus: Corpus) -> N
         corpus["queue"],
         corpus["text_only"],
     ]
+
+
+READ = datetime(2026, 10, 18, 19, 0, tzinfo=UTC)
+
+
+async def test_unread_only_keeps_the_items_without_a_read_time(
+    db: AsyncSession, corpus: Corpus
+) -> None:
+    everything = await _three_lists(db, corpus, NO_FILTERS)
+    read = {corpus["pgvector"], corpus["persian_ml"]}
+    for item_id in read:
+        await _change(db, item_id, status=ItemStatus.DONE, read_at=READ)
+
+    unread = await _three_lists(db, corpus, Filters(unread=True))
+
+    # Each list had one of the items that are read now, and only that one goes.
+    assert all(set(found) & read for found in everything)
+    assert unread == [[item for item in found if item not in read] for found in everything]
+
+
+async def test_unread_only_reads_the_read_time_and_not_the_status(
+    db: AsyncSession, corpus: Corpus
+) -> None:
+    # You read the job queue, then queued it to read it again: it keeps its read time. And you
+    # archived pgvector without reading it.
+    await _change(db, corpus["queue"], status=ItemStatus.QUEUED, read_at=READ)
+    await _change(db, corpus["pgvector"], status=ItemStatus.ARCHIVED)
+
+    everything = await _postgres(db, corpus, NO_FILTERS)
+    unread = await _postgres(db, corpus, Filters(unread=True))
+
+    assert everything == [corpus["queue"], corpus["pgvector"], corpus["text_only"]]
+    assert unread == [corpus["pgvector"], corpus["text_only"]]
 
 
 async def _tag(db: AsyncSession, owner_id: int, slug: str, *item_ids: int) -> None:

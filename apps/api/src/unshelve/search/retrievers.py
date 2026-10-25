@@ -43,12 +43,15 @@ class Filters:
     * ``tags``: each of these tags (slugs). Two tags find the items that have both.
     * ``goal_id``: the items that help this goal: a score of 2 or 3 after your verdict. A
       rejected score turns, as in the digest (``resurface.selection.effective_score``).
+    * ``unread``: only the items that you have not read, those without a read time. An item
+      keeps its read time when it leaves "done", so this is not a filter on the status.
     """
 
     statuses: frozenset[ItemStatus] = frozenset()
     kinds: frozenset[ItemKind] = frozenset()
     tags: frozenset[str] = frozenset()
     goal_id: int | None = None
+    unread: bool = False
 
 
 NO_FILTERS = Filters()
@@ -75,6 +78,8 @@ def _visible(owner_id: int, filters: Filters = NO_FILTERS) -> sa.ColumnElement[b
         conditions.append(Item.status.in_(sorted(filters.statuses)))
     if filters.kinds:
         conditions.append(Item.kind.in_(sorted(filters.kinds)))
+    if filters.unread:
+        conditions.append(Item.read_at.is_(None))
     for slug in sorted(filters.tags):
         conditions.append(
             sa.exists().where(
