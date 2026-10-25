@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "PublicRecord": {
+      "description": "One public item. Each field is always there; a field without a value is null.",
+      "properties": {
+        "id": {
+          "description": "The public name of the item: lowercase words of any script, joined by hyphens. It never changes, so a link to it stays valid.",
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "description": "What the item is. A new kind can appear in version 1.",
+          "examples": [
+            "article",
+            "video",
+            "post",
+            "repo",
+            "paper",
+            "image",
+            "note",
+            "book",
+            "pdf",
+            "unknown"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Title"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The link to the original. Null for a note.",
+          "title": "Url"
+        },
+        "author": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Author"
+        },
+        "site": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The host of the original, such as example.com.",
+          "title": "Site"
+        },
+        "lang": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The language of the item, as a code: en, fa.",
+          "title": "Lang"
+        },
+        "summary": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Summary"
+        },
+        "key_points": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Key Points",
+          "type": "array"
+        },
+        "est_minutes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The minutes that the item takes to read.",
+          "title": "Est Minutes"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The public note of the owner.",
+          "title": "Note"
+        },
+        "published_at": {
+          "description": "The time of the first publication, in UTC to the second. It never changes, also when the item is published again.",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$",
+          "title": "Published At",
+          "type": "string"
+        },
+        "tags": {
+          "description": "The public tags, as slugs, in alphabetical order.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "url",
+        "author",
+        "site",
+        "lang",
+        "summary",
+        "key_points",
+        "est_minutes",
+        "note",
+        "published_at",
+        "tags"
+      ],
+      "title": "PublicRecord",
+      "type": "object"
+    }
+  },
+  "description": "The public items of one owner, the newest first.",
+  "properties": {
+    "version": {
+      "const": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/PublicRecord"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "version",
+    "items"
+  ],
+  "title": "The public feed of Unshelve, version 1",
+  "type": "object"
+}
