@@ -100,17 +100,32 @@ export function parseSearch(params: Params): Search {
   };
 }
 
-/** The query of GET /api/v1/search: only the filters that are set. */
-export function apiQuery(search: Search) {
+/**
+ * The filters of a search, as the API reads them: only those that are set. The search and the
+ * overview both send them, so the model reads the best items of the results that you see.
+ */
+function apiFilters(search: Search) {
   return {
-    q: search.q,
     ...(search.status.length > 0 && { status: search.status }),
     ...(search.unread && { unread: true }),
     ...(search.kind !== null && { kind: [search.kind] }),
     ...(search.goalId !== null && { goal_id: search.goalId }),
     ...(search.tags.length > 0 && { tag: search.tags }),
+  };
+}
+
+/** The query of GET /api/v1/search. */
+export function apiQuery(search: Search) {
+  return {
+    q: search.q,
+    ...apiFilters(search),
     ...(search.cursor !== null && { cursor: search.cursor }),
   };
+}
+
+/** The body of POST /api/v1/search/overview: the words and the filters of the search. */
+export function overviewBody(search: Search, limit: number) {
+  return { q: search.q, ...apiFilters(search), unread: search.unread, limit };
 }
 
 /**

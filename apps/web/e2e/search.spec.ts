@@ -138,11 +138,6 @@ test("the filters go to the API, and the form keeps them", async ({ page, reques
   await expect(form.getByRole("checkbox", { name: "Done" })).not.toBeChecked();
   await expect(form.getByRole("combobox", { name: "Kind" })).toHaveValue("pdf");
   await expect(form.getByRole("combobox", { name: "Goal" })).toHaveValue("1");
-  // The overview cannot filter by kind or goal, and it says so.
-  await expect(overview(page)).toContainText(
-    "It reads items of every kind, goal and tag: of your filters, only the status and " +
-      "“Unread only” apply.",
-  );
 
   // Back shows the earlier search, and one form that shows it too.
   await page.goBack();
@@ -184,7 +179,7 @@ test("unread only leaves out the items that you read, also in the overview", asy
   await overview(page).getByRole("button", { name: "Write an overview" }).click();
   const sources = overview(page).getByRole("list").getByRole("listitem");
   await expect(sources.getByRole("link")).toHaveText(["A note with a strange address"]);
-  expect(await overviews(request)).toEqual([{ q: "item", status: null, unread: true, limit: 12 }]);
+  expect(await overviews(request)).toEqual([{ q: "item", unread: true, limit: 12 }]);
 
   // Back shows both items again, with the box not ticked.
   await page.goBack();
@@ -248,11 +243,6 @@ test("a tag of a hit narrows the search, and the form removes it again", async (
     "job leases (a filter of this search)",
   ]);
   await expect(tagsOfTheHit.getByRole("link")).toHaveText(["queues"]);
-  // The overview cannot filter by tag, and it says so.
-  await expect(overview(page)).toContainText(
-    "It reads items of every kind, goal and tag: of your filters, only the status and " +
-      "“Unread only” apply.",
-  );
 
   // A second tag: an item must have both.
   await hits(page).getByRole("link", { name: "Filter by the tag queues" }).click();
@@ -405,7 +395,7 @@ test("the overview cites its sources, and each number leads to the quote", async
   await expect(panel.getByRole("link", { name: "Source 1" })).toHaveAttribute("href", "#source-1");
   // The focus moves to the answer, where the button was.
   await expect(panel.locator("[tabindex='-1']")).toBeFocused();
-  expect(await overviews(request)).toEqual([{ q: "item", status: null, unread: false, limit: 12 }]);
+  expect(await overviews(request)).toEqual([{ q: "item", unread: false, limit: 12 }]);
 
   // The model read both items, the best first. Item 1000 has no text: read, but not cited.
   const sources = panel.getByRole("list").getByRole("listitem");
@@ -427,6 +417,33 @@ test("the overview cites its sources, and each number leads to the quote", async
   await expect(hitTitles(page)).toHaveCount(2);
   await expect(panel.getByRole("button", { name: "Write an overview" })).toBeVisible();
   await expect(panel).not.toContainText("From your saved items");
+});
+
+test("the overview reads the items of the same search, with every filter", async ({
+  page,
+  request,
+}) => {
+  // Only item 1 passes each filter: in the inbox, unread, a PDF, for goal 1, with the tag queues.
+  await page.goto("/search?q=postgres&status=inbox&unread=true&kind=pdf&goal_id=1&tag=queues");
+  await expect(hitTitles(page)).toHaveText(["Leases for Job Queues in Postgres"]);
+
+  await overview(page).getByRole("button", { name: "Write an overview" }).click();
+
+  const sources = overview(page).getByRole("list").getByRole("listitem");
+  await expect(sources.getByRole("link")).toHaveText(["Leases for Job Queues in Postgres"]);
+  expect(await overviews(request)).toEqual([
+    {
+      q: "postgres",
+      status: ["inbox"],
+      unread: true,
+      kind: ["pdf"],
+      goal_id: 1,
+      tag: ["queues"],
+      limit: 12,
+    },
+  ]);
+  // No filter is left out, so the panel names none.
+  await expect(overview(page)).not.toContainText("of your filters");
 });
 
 test("the next page of the same search keeps the overview", async ({ page, request }) => {
