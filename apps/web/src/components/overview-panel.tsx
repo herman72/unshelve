@@ -133,7 +133,7 @@ export function OverviewPanel({
     setState({ kind: "writing" });
     try {
       const { data, error, response } = await browserApi.POST("/api/v1/search/overview", {
-        body: { q, status: status.length > 0 ? status : null, limit: ITEMS_TO_READ },
+        body: { q, status: status.length > 0 ? status : null, unread: false, limit: ITEMS_TO_READ },
       });
       setState(
         data

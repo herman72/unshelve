@@ -1553,6 +1553,12 @@
             ],
             "description": "One of these statuses.",
             "title": "Status"
+          },
+          "unread": {
+            "default": false,
+            "description": "true: only the items that you have not read, as in the search.",
+            "title": "Unread",
+            "type": "boolean"
           }
         },
         "required": [
@@ -4168,6 +4174,18 @@
               ],
               "description": "Only the items that help this goal: a score of 2 or 3 after your verdict (a rejected score turns). An unknown goal finds nothing.",
               "title": "Goal Id"
+            }
+          },
+          {
+            "description": "true: only the items that you have not read, those without read_at. An item keeps read_at when it leaves done, so this is not a status filter. false: read and unread items.",
+            "in": "query",
+            "name": "unread",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "true: only the items that you have not read, those without read_at. An item keeps read_at when it leaves done, so this is not a status filter. false: read and unread items.",
+              "title": "Unread",
+              "type": "boolean"
             }
           },
           {

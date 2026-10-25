@@ -133,6 +133,24 @@ async def test_filters_narrow_the_hits(
     assert _ids(tagged) == [corpus["queue"], corpus["text_only"]]
 
 
+async def test_unread_only_leaves_out_an_item_that_you_read_also_after_it_left_done(
+    client: httpx.AsyncClient, corpus: Corpus
+) -> None:
+    # You read the job queue, then put it back into the queue: it keeps its read time.
+    transition = f"/api/v1/items/{corpus['queue']}/transition"
+    for target in ("done", "queued"):
+        moved = await client.post(transition, json={"to": target})
+        assert moved.status_code == 200, moved.text
+
+    everything = await _search(client, q="postgres")
+    unread = await _search(client, q="postgres", unread=True)
+    queued = await _search(client, q="postgres", status=["queued"])
+
+    assert everything["items"][0]["item"]["read_at"] is not None
+    assert _ids(unread) == [item for item in _ids(everything) if item != corpus["queue"]]
+    assert _ids(queued) == [corpus["queue"]]
+
+
 async def test_an_unknown_goal_or_tag_finds_nothing(client: httpx.AsyncClient) -> None:
     assert (await _search(client, q="postgres", goal_id=999_999))["items"] == []
     assert (await _search(client, q="postgres", tag="no-such-tag"))["items"] == []
@@ -161,10 +179,14 @@ async def test_a_cursor_belongs_to_its_search(client: httpx.AsyncClient) -> None
     other_filter = await client.get(
         SEARCH, params={"q": "postgres", "status": "inbox", "cursor": first["next_cursor"]}
     )
+    unread_only = await client.get(
+        SEARCH, params={"q": "postgres", "unread": "true", "cursor": first["next_cursor"]}
+    )
     broken = await client.get(SEARCH, params={"q": "postgres", "cursor": "not-a-cursor"})
 
     assert "another search" in problem_body(other_words, 422)["detail"]
     assert "another search" in problem_body(other_filter, 422)["detail"]
+    assert "another search" in problem_body(unread_only, 422)["detail"]
     assert problem_body(broken, 422)["detail"] == "the cursor is not valid"
 
 

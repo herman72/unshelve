@@ -236,7 +236,7 @@ test("the overview cites its sources, and each number leads to the quote", async
   await expect(panel.getByRole("link", { name: "Source 1" })).toHaveAttribute("href", "#source-1");
   // The focus moves to the answer, where the button was.
   await expect(panel.locator("[tabindex='-1']")).toBeFocused();
-  expect(await overviews(request)).toEqual([{ q: "item", status: null, limit: 12 }]);
+  expect(await overviews(request)).toEqual([{ q: "item", status: null, unread: false, limit: 12 }]);
 
   // The model read both items, the best first. Item 1000 has no text: read, but not cited.
   const sources = panel.getByRole("list").getByRole("listitem");
@@ -326,5 +326,7 @@ test("an overview with nothing to read says so", async ({ page, request }) => {
   await expect(overview(page)).toContainText(
     "None of your saved items could be read for this question.",
   );
-  expect(await overviews(request)).toEqual([{ q: "postgres", status: ["inbox"], limit: 12 }]);
+  expect(await overviews(request)).toEqual([
+    { q: "postgres", status: ["inbox"], unread: false, limit: 12 },
+  ]);
 });

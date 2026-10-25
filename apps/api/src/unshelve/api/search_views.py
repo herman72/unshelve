@@ -47,6 +47,7 @@ def _fingerprint(query: SearchQuery) -> str:
         sorted(query.kind or []),
         sorted(query.tag or []),
         query.goal_id,
+        query.unread,
     ]
     return hashlib.sha256(json.dumps(parts).encode()).hexdigest()[:16]
 
@@ -77,6 +78,7 @@ def filters_of(query: SearchQuery) -> Filters:
         kinds=frozenset(query.kind or ()),
         tags=frozenset(query.tag or ()),
         goal_id=query.goal_id,
+        unread=query.unread,
     )
 
 
@@ -134,7 +136,7 @@ async def search(
 async def answer(
     db: AsyncSession, embedder: Embedder, llm: CitingLLM, owner_id: int, body: OverviewRequest
 ) -> Overview:
-    filters = Filters(statuses=frozenset(body.status or ()))
+    filters = Filters(statuses=frozenset(body.status or ()), unread=body.unread)
     try:
         found = await overview.overview(
             db, embedder, llm, owner_id, body.q, filters, limit=body.limit

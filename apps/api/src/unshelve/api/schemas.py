@@ -316,6 +316,12 @@ class SearchQuery(Request):
         description="Only the items that help this goal: a score of 2 or 3 after your verdict "
         "(a rejected score turns). An unknown goal finds nothing.",
     )
+    unread: bool = Field(
+        default=False,
+        description="true: only the items that you have not read, those without read_at. An "
+        "item keeps read_at when it leaves done, so this is not a status filter. false: read "
+        "and unread items.",
+    )
     limit: int = Field(default=20, ge=1, le=50)
     cursor: str | None = None
 
@@ -366,6 +372,9 @@ class OverviewRequest(Request):
         Field(description="The question, in your words.")
     )
     status: list[ItemStatus] | None = Field(default=None, description="One of these statuses.")
+    unread: bool = Field(
+        default=False, description="true: only the items that you have not read, as in the search."
+    )
     limit: int = Field(default=12, ge=1, le=30, description="How many items to read.")
 
 
