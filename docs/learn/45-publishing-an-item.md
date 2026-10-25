@@ -1,6 +1,6 @@
 # 45. Publishing an item, with its preview
 
-> Pull request: [#112](https://github.com/herman72/unshelve/pull/112) · Code: [`publish/visibility.py`](../../apps/api/src/unshelve/publish/visibility.py), [`api/item_views.py`](../../apps/api/src/unshelve/api/item_views.py) · Tests: [`tests/api/test_visibility.py`](../../apps/api/tests/api/test_visibility.py), [`tests/publish/test_slug.py`](../../apps/api/tests/publish/test_slug.py)
+> Pull requests: [#112](https://github.com/herman72/unshelve/pull/112) (the API), [#113](https://github.com/herman72/unshelve/pull/113) (the web app) · Code: [`publish/visibility.py`](../../apps/api/src/unshelve/publish/visibility.py), [`api/item_views.py`](../../apps/api/src/unshelve/api/item_views.py), [`publish-panel.tsx`](../../apps/web/src/components/publish-panel.tsx) · Tests: [`tests/api/test_visibility.py`](../../apps/api/tests/api/test_visibility.py), [`tests/publish/test_slug.py`](../../apps/api/tests/publish/test_slug.py), [`e2e/publish.spec.ts`](../../apps/web/e2e/publish.spec.ts)
 
 ## In one minute
 
@@ -109,6 +109,18 @@ Each change of visibility queues one publish job for the owner. The job waits 30
 | Two clicks at the same moment | one of them waits for the lock of the row, then finds the item public: one event |
 | An item of another owner | 404 |
 
+## 6. The button in the web app
+
+The page of an item has a section "Public". For a private item, the button "Preview the public record" shows the record, field by field, and the record as JSON:
+
+![The section Public with the preview of the record of an item](images/45-publish-preview.png)
+
+The private note ("Read before the design review.") and the private tag ("queues") of this item are not in the record, so the page does not show them here. "Publish" sends this record back. When the record changed in between, the panel shows the record of now, and you look again:
+
+![After a click on Publish, the message that the record changed, and the new summary](images/45-publish-changed.png)
+
+A public item shows its name and its time ("Public as leases-for-job-queues-in-postgres since 20 October 2026 at 08:00 UTC") and the button "Make private". A copy shows "A copy is not published. Publish item 1 instead."
+
 ## A choice that we made
 
 **The preview by the view itself, in a savepoint.**
@@ -126,9 +138,9 @@ Each change of visibility queues one publish job for the owner. The job waits 30
 - **Does a preview write anything?** No: a test checks the item, the events, the jobs and the feed after a preview.
 - **Can the role leak out of the preview?** No: the rollback to the savepoint ends it. We checked this in `psql`, and the tests use the same session after a preview.
 - **Can a stale preview publish a record that the owner did not see?** No: 409. A planted mistake that removes the comparison makes exactly one test fail, the one with a change in between. The acceptance test alone would not see it.
-- **Can the tests fail?** Yes: 29 typical mistakes, one at a time; each one made a named test fail.
+- **Can the tests fail?** Yes: 29 typical mistakes in the API, one at a time; each one made a named test fail.
+- **Does the page send exactly the record that it shows?** Yes: an end-to-end test reads what the pretend API got, and another one changes the item between the preview and the click.
 - **What is not done:**
-  - the button in the web app (the next pull request of #37);
   - editing the public note: `PATCH /items/{id}` is still a stub;
   - a new publication when the worker changes a public item: the feed shows the change at the next publish job only.
 
