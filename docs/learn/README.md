@@ -59,6 +59,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 45 | [Publishing an item, with its preview](45-publishing-an-item.md) | How the preview of a public record is the publication itself, rolled back in a savepoint, why you publish exactly the record that you saw, and how an item keeps its public name and time | |
 | 46 | [Searching the feed on the site](46-site-search.md) | How the feed gets a version and a schema, how the browser normalises text exactly as the server does, tested for each character of Unicode, how a component shows the search on a Next.js page, and what a site needs for it | |
 | 47 | [Running Unshelve on a server](47-running-on-a-server.md) | How one short file of changes turns the local stack into a server stack, how Caddy gets the certificate and is the only open door, how CI runs each step of the quickstart on a fresh clone, and the bug that the first run found | |
+| 48 | [Unread only](48-unread-only.md) | How the search page hides the items that you read, why "read" is a time and not a status, why the cursor holds the filter, and how the type check found the one client that had to send it | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 

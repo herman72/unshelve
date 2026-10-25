@@ -123,7 +123,7 @@ stateDiagram-v2
 
 **Numbers next to Persian text.** A screenshot of the first version showed [2] on the wrong side of the Persian statement, next to [1]. The Unicode rules for the direction of text put digits that follow Persian letters into the right-to-left run of those letters. So the browser drew [2] at the left end of the Persian sentence. Each number now has `dir="ltr"`: the browser places it as one unit, after its statement. A test measures the positions: [2] must stand to the right of the Persian statement.
 
-**Filters.** The API of the overview takes a status filter, but no kind and no goal. When you set one of those, the panel says that only the status applies.
+**Filters.** The API of the overview takes the status and "Unread only" ([note 48](48-unread-only.md)), but no kind and no goal. When you set one of those, the panel says that only the status and "Unread only" apply.
 
 **Focus.** The button disappears with the answer. The focus moves to the answer, so a keyboard or a screen reader goes on from there, not from the top of the page.
 
@@ -211,7 +211,7 @@ The new file `e2e/search.spec.ts` has 15 tests:
 - **Is a state shown only with a colour?** No: "Unread" and "Read on" are words.
 - **What is not done:**
   - no filter by tag (the API has one);
-  - no filter "unread only" (the API has no filter by read time);
+  - no filter "unread only": [note 48](48-unread-only.md) adds it later;
   - no run against the real API: the tests use the pretend API, and the type check compares its made-up answers with the types of the real API ([note 26](26-item-page.md));
   - no real overview: no model call was made for this page.
 
