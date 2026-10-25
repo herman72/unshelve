@@ -1,0 +1,82 @@
+[
+  {
+    "why": "Latin capitals become small letters",
+    "input": "Leases for Job Queues",
+    "expected": "leases for job queues"
+  },
+  {
+    "why": "letters with accents keep their accents",
+    "input": "Éclair À LA CARTE",
+    "expected": "éclair à la carte"
+  },
+  {
+    "why": "the dotted capital I becomes a plain i (toLowerCase of JavaScript adds a dot above)",
+    "input": "İSTANBUL",
+    "expected": "istanbul"
+  },
+  {
+    "why": "each capital sigma becomes σ, also at the end of a word (toLowerCase of JavaScript gives ς there)",
+    "input": "ΣΑΣ",
+    "expected": "σασ"
+  },
+  {
+    "why": "the sharp s stays one letter (casefold of Python gives ss)",
+    "input": "Straße",
+    "expected": "straße"
+  },
+  {
+    "why": "Arabic yeh, kaf and alef maksura become the Persian letters",
+    "input": "يكى",
+    "expected": "یکی"
+  },
+  {
+    "why": "teh marbuta and heh with yeh become heh",
+    "input": "مدرسة خانۀ",
+    "expected": "مدرسه خانه"
+  },
+  {
+    "why": "Persian and Arabic-Indic digits become ASCII digits",
+    "input": "۱۴۰۵ و ٢٠٢٦",
+    "expected": "1405 و 2026"
+  },
+  {
+    "why": "the zero-width non-joiner becomes a space",
+    "input": "می\u200cخواهم",
+    "expected": "می خواهم"
+  },
+  {
+    "why": "the zero-width joiner is removed",
+    "input": "a\u200db",
+    "expected": "ab"
+  },
+  {
+    "why": "Arabic diacritics are removed",
+    "input": "ک\u0650تاب\u064f",
+    "expected": "کتاب"
+  },
+  {
+    "why": "the tatweel is removed",
+    "input": "پ\u0640ستگرس",
+    "expected": "پستگرس"
+  },
+  {
+    "why": "the superscript alef is removed",
+    "input": "رحم\u0670ن",
+    "expected": "رحمن"
+  },
+  {
+    "why": "the last letter of each of the first three ranges of the table",
+    "input": "ZÖÞ",
+    "expected": "zöþ"
+  },
+  {
+    "why": "a letter outside the first plane of Unicode",
+    "input": "𐐀",
+    "expected": "𐐨"
+  },
+  {
+    "why": "a text with no capitals stays as it is",
+    "input": "already plain text, 123",
+    "expected": "already plain text, 123"
+  }
+]

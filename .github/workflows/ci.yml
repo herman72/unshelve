@@ -62,6 +62,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r lint
       - run: pnpm -r typecheck
+      # Node runs these tests on the TypeScript files themselves: no build step.
+      - run: pnpm --filter @unshelve/site-search test
       - run: pnpm -r build
 
   web-e2e:
