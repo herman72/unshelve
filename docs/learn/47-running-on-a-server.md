@@ -42,17 +42,19 @@ include:
       - deploy/compose.prod.yaml
 ```
 
-The second file changes three things. The database service shows two of them:
+The second file changes three things. Two of them are in these lines:
 
 ```yaml
+x-required:
+  - ${UNSHELVE_DB_PASSWORD:?set UNSHELVE_DB_PASSWORD in .env, see docs/quickstart.md}
+
+services:
   db:
-    environment:
-      POSTGRES_PASSWORD: ${UNSHELVE_DB_PASSWORD:?set UNSHELVE_DB_PASSWORD in .env, see docs/quickstart.md}
     ports: !reset []
 ```
 
 1. **No port.** Compose adds the lists of two files together, so a second file cannot remove a port in the normal way. The tag `!reset []` empties the list of the first file.
-2. **No default password.** `${NAME:?message}` stops Compose when the value is missing or empty, with the message. Without a domain, `docker compose up` prints this, and starts nothing:
+2. **No default password, and no default domain.** `${NAME:?message}` stops Compose when the value is missing or empty, with the message. No service uses the field `x-required`, but Compose fills it in too, so it stops there. The services get the password from `deploy/compose.yaml`, whose default `unshelve` never applies on a server. The domain has the same check where the services use it. Without a domain, `docker compose up` prints this, and starts nothing:
 
    ```text
    error while interpolating services.api.environment.UNSHELVE_WEB_BASE_URL: required variable UNSHELVE_DOMAIN is missing a value: set UNSHELVE_DOMAIN in .env, see docs/quickstart.md
@@ -153,6 +155,7 @@ The hosting itself (which server, which provider) is a later decision record: #4
 
 - **Which ports are open?** Only 80 and 443, of Caddy. A fast test checks the resolved stack, and the CI job tries ports 3000, 8000 and 54329 on the runner.
 - **Can a server start with a weak setting?** No: without a domain or a database password, Compose stops before it starts anything.
+- **Does a secret scanner see a password?** GitGuardian saw two in the first version of this pull request: the check of the password, with its message, was inside the address of the database and in `POSTGRES_PASSWORD`. The scanner took the message for a password. These were false findings, but each false finding costs a person time, and too many of them teach people to ignore the scanner. Now the check is in the field `x-required`, in no password position, and the services get exactly the same values as before.
 - **Where are the secrets?** In `.env` on the server, and step 3 lets only the owner read it (`chmod 600 .env`). The password is in the database address, so it has letters and digits only (`openssl rand -hex 24`).
 - **What does Postgres do with a new password?** Nothing: it reads `POSTGRES_PASSWORD` only for a new volume. The guide shows how to change it in the database and in `.env`.
 - **Can the logs fill the disk?** No: Docker keeps 5 files of 10 MB for each service.

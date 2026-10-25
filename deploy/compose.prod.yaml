@@ -7,6 +7,14 @@
 #   - The database password and the domain must be set: without them, Compose stops.
 #   - Docker rotates the log of each service, so that the logs cannot fill the disk.
 
+# The password of the database. deploy/compose.yaml puts it into POSTGRES_PASSWORD and into the
+# address of the database, with the default "unshelve" for a laptop. On a server it must be
+# set: Compose fills in this field too, although no service uses it, and stops here when the
+# value is missing or empty. Here, in no password position, a secret scanner does not take the
+# message for a password, as it did when it was in the address.
+x-required:
+  - ${UNSHELVE_DB_PASSWORD:?set UNSHELVE_DB_PASSWORD in .env, see docs/quickstart.md}
+
 x-logging: &logging
   logging:
     driver: json-file
@@ -15,8 +23,6 @@ x-logging: &logging
       max-file: "5"
 
 x-app-environment: &app-environment
-  # The password goes into an address, so use letters and digits only (the quickstart does).
-  UNSHELVE_DATABASE_URL: postgresql+psycopg://unshelve:${UNSHELVE_DB_PASSWORD:?set UNSHELVE_DB_PASSWORD in .env, see docs/quickstart.md}@db:5432/unshelve
   # The sign-in links of the bot and of `unshelve auth link` point here. The address starts
   # with https://, so the session cookie gets the Secure flag (api/routes/auth.py).
   UNSHELVE_WEB_BASE_URL: https://${UNSHELVE_DOMAIN:?set UNSHELVE_DOMAIN in .env, see docs/quickstart.md}
@@ -24,9 +30,6 @@ x-app-environment: &app-environment
 services:
   db:
     <<: *logging
-    environment:
-      # Postgres reads it only when the volume is new: see docs/quickstart.md to change it.
-      POSTGRES_PASSWORD: ${UNSHELVE_DB_PASSWORD:?set UNSHELVE_DB_PASSWORD in .env, see docs/quickstart.md}
     ports: !reset []
 
   migrate:
