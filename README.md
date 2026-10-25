@@ -54,6 +54,10 @@ New to the code? Start with the [learning notes](docs/learn/README.md): one shor
 | M5 Publish | Public feed and site search |
 | M6 Ship | Deployment, backups, observability, documentation |
 
+## Quickstart
+
+To run Unshelve, you need only git and Docker. [The quickstart](docs/quickstart.md) starts it on this computer in two steps, or on a server with your domain and HTTPS in four steps. CI runs each step of it on a fresh clone.
+
 ## Development
 
 You need Docker, [uv](https://docs.astral.sh/uv/), Node.js 20.9 or newer and pnpm 10.
