@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "istanbul-postgres-meetup-queues-at-scale",
+      "kind": "video",
+      "title": "İstanbul Postgres Meetup: Queues at Scale",
+      "url": "https://video.example.com/istanbul-meetup",
+      "author": "A. Speaker",
+      "site": "video.example.com",
+      "lang": "en",
+      "summary": "A talk on job queues in Postgres, from a meetup in İstanbul.",
+      "key_points": [
+        "SKIP LOCKED lets many workers share one table"
+      ],
+      "est_minutes": 38,
+      "note": null,
+      "published_at": "2026-10-22T07:00:00Z",
+      "tags": [
+        "databases",
+        "talks"
+      ]
+    },
+    {
+      "id": "صف-کارها-در-پستگرس",
+      "kind": "article",
+      "title": "صف کارها در پستگرس",
+      "url": "https://fa.example.com/queues",
+      "author": null,
+      "site": "fa.example.com",
+      "lang": "fa",
+      "summary": "یک صف کار روی یک جدول Postgres.",
+      "key_points": [],
+      "est_minutes": null,
+      "note": null,
+      "published_at": "2026-10-21T07:00:00Z",
+      "tags": [
+        "databases"
+      ]
+    },
+    {
+      "id": "۱۰-نکته-درباره-ی-ایندکس-ها",
+      "kind": "article",
+      "title": "۱۰ نکته درباره‌ی ایندکس‌ها",
+      "url": "https://fa.example.com/indexes",
+      "author": null,
+      "site": "fa.example.com",
+      "lang": "fa",
+      "summary": "ده نکته برای ایندکس‌های Postgres، با مثال.",
+      "key_points": [],
+      "est_minutes": 9,
+      "note": null,
+      "published_at": "2026-10-20T07:00:00Z",
+      "tags": [
+        "databases"
+      ]
+    },
+    {
+      "id": "پستگرس-برای-همه",
+      "kind": "book",
+      "title": "پستگرس برای همه",
+      "url": null,
+      "author": null,
+      "site": null,
+      "lang": "fa",
+      "summary": "کِتابی کوتاه درباره‌ی پـایگاه داده، در ۳ فصل.",
+      "key_points": [],
+      "est_minutes": null,
+      "note": null,
+      "published_at": "2026-10-19T07:00:00Z",
+      "tags": [
+        "books",
+        "databases"
+      ]
+    },
+    {
+      "id": "leases-for-job-queues-in-postgres",
+      "kind": "article",
+      "title": "Leases for Job Queues in Postgres",
+      "url": "https://example.com/leases",
+      "author": "A. Made-up",
+      "site": "example.com",
+      "lang": "en",
+      "summary": "A job queue on one Postgres table, made safe with leases.",
+      "key_points": [
+        "A lease ends when its worker stops"
+      ],
+      "est_minutes": 14,
+      "note": "Worth a read before the design review.",
+      "published_at": "2026-10-18T07:00:00Z",
+      "tags": [
+        "databases"
+      ]
+    },
+    {
+      "id": "item",
+      "kind": "note",
+      "title": null,
+      "url": null,
+      "author": null,
+      "site": null,
+      "lang": "en",
+      "summary": null,
+      "key_points": [],
+      "est_minutes": null,
+      "note": "SKIP LOCKED needs an index on the columns of the queue.",
+      "published_at": "2026-10-17T07:00:00Z",
+      "tags": []
+    }
+  ]
+}
