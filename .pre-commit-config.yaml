@@ -9,6 +9,12 @@ repos:
       - id: end-of-file-fixer
         exclude: ^apps/api/tests/ingest/fixtures/.*\.html$
       - id: check-yaml
+        exclude: ^deploy/compose\.prod\.yaml$
+      # Compose knows the tags !reset and !override, a YAML loader does not: syntax only.
+      - id: check-yaml
+        name: check yaml (syntax only, for the tags of Compose)
+        files: ^deploy/compose\.prod\.yaml$
+        args: [--unsafe]
       - id: check-toml
       - id: check-merge-conflict
       - id: check-added-large-files

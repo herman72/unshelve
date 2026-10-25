@@ -1,0 +1,7 @@
+# The production stack: deploy/compose.yaml with the changes of deploy/compose.prod.yaml.
+# With COMPOSE_FILE=compose.prod.yaml in .env, each `docker compose` command uses this file
+# (docs/quickstart.md).
+include:
+  - path:
+      - deploy/compose.yaml
+      - deploy/compose.prod.yaml
