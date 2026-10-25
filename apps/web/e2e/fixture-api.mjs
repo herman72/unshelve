@@ -144,6 +144,11 @@ function freshItems() {
       lang: "fa",
       summary: "یک صف کار روی یک جدول Postgres.",
       key_points: ["هر کار یک اجاره دارد"],
+      // A tag of item 1 too, and a tag whose name ("job leases") is not its slug.
+      tags: [
+        { slug: "queues", name: "queues", is_public: false },
+        { slug: "job-leases", name: "job leases", is_public: false },
+      ],
     },
     {
       ...base,
@@ -180,6 +185,8 @@ function freshItems() {
       url: "javascript:alert(1)",
       site: null,
       summary: "The address of this item is not a web address.",
+      // A slug that the real API never gives, and refuses as a filter: no link for it either.
+      tags: [{ slug: "Not a slug", name: "not a slug", is_public: false }],
     },
     {
       ...base,
@@ -437,6 +444,9 @@ const MEANINGS = {
   1: ["contention", "concurrency"],
   2: ["contention"],
 };
+
+/** A tag of the API, as SearchQuery accepts it (Slug in schemas.py). */
+const SLUG = /^(?=.{1,80}$)[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** The words of a query, as the pretend search compares them. @param {string} q */
 function wordsOf(q) {
@@ -710,18 +720,19 @@ const server = createServer(async (request, response) => {
   }
 
   if (request.method === "GET" && path === "/api/v1/search") {
-    // As in the real API: the query is required, a status or a kind must exist, and unread is
-    // a boolean (the web app sends true or nothing).
+    // As in the real API: the query is required, a status or a kind must exist, unread is a
+    // boolean (the web app sends true or nothing), and a tag has the form of a slug.
     const q = (url.searchParams.get("q") ?? "").trim();
     const statuses = url.searchParams.getAll("status");
     const unread = url.searchParams.get("unread");
     const kinds = url.searchParams.getAll("kind");
     const goal = url.searchParams.get("goal_id");
+    const tags = url.searchParams.getAll("tag");
     const cursor = url.searchParams.get("cursor");
-    searches.push({ q, status: statuses, unread, kind: kinds, goal_id: goal, cursor });
+    searches.push({ q, status: statuses, unread, kind: kinds, goal_id: goal, tag: tags, cursor });
     const known = statuses.every((status) => STATUSES.includes(/** @type {ItemStatus} */ (status)));
     const yesOrNo = unread === null || unread === "true" || unread === "false";
-    if (!q || q.length > 500 || !known || !yesOrNo) {
+    if (!q || q.length > 500 || !known || !yesOrNo || !tags.every((tag) => SLUG.test(tag))) {
       return problem(response, 422, "Unprocessable Content", "the query is not valid");
     }
     const start = cursor === null ? 0 : Number(/^p(\d+)$/.exec(cursor)?.[1] ?? NaN);
@@ -738,7 +749,9 @@ const server = createServer(async (request, response) => {
         // The read time decides, not the status: an item keeps it when it leaves done.
         (unread !== "true" || item.read_at === null) &&
         (kinds.length === 0 || kinds.includes(item.kind)) &&
-        (goal === null || helps)
+        (goal === null || helps) &&
+        // Each tag: two tags find the items that have both.
+        tags.every((slug) => item.tags.some((tag) => tag.slug === slug))
       );
     });
     const end = start + searchPageSize;

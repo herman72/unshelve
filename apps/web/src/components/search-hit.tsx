@@ -1,7 +1,16 @@
 import Link from "next/link";
 import { Fragment } from "react";
 import { Badge, displayTitle } from "@/components/item-card";
-import { SNIPPET_FROM, type SearchHit, type Snippet, foundBy } from "@/lib/search";
+import {
+  SNIPPET_FROM,
+  type Search,
+  type SearchHit,
+  type Snippet,
+  foundBy,
+  isTag,
+  searchHref,
+  withTag,
+} from "@/lib/search";
 
 // A date is enough for a mark. The server of the web app runs in UTC, as on the item page.
 const READ_ON = new Intl.DateTimeFormat("en-GB", {
@@ -62,8 +71,45 @@ function SnippetView({ snippet }: { snippet: Snippet }) {
   );
 }
 
+const TAG = "inline-block rounded-md border px-2 py-0.5";
+
+/**
+ * The tags of the item. Each one is a link to the same search with the tag as one more filter.
+ * The hit shows the name of a tag ("job leases"), and the link carries its slug ("job-leases"),
+ * which is what the API filters by. A tag that is a filter already is no link: a click would
+ * give the same search. A slug that the API would refuse is no link either.
+ */
+function HitTags({ tags, search }: { tags: SearchHit["item"]["tags"]; search: Search }) {
+  if (tags.length === 0) return null;
+
+  return (
+    <ul role="list" aria-label="Tags" className="mt-3 flex flex-wrap gap-2 text-xs">
+      {tags.map((tag) => (
+        <li key={tag.slug} dir="auto">
+          {search.tags.includes(tag.slug) ? (
+            <span className={`${TAG} border-foreground font-medium`}>
+              {tag.name}
+              <span className="sr-only"> (a filter of this search)</span>
+            </span>
+          ) : isTag(tag.slug) ? (
+            <Link
+              href={searchHref(withTag(search, tag.slug))}
+              aria-label={`Filter by the tag ${tag.name}`}
+              className={`${TAG} border-border text-muted hover:border-muted hover:text-foreground`}
+            >
+              {tag.name}
+            </Link>
+          ) : (
+            <span className={`${TAG} border-border text-muted`}>{tag.name}</span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /** One result of a search: the item, why it was found, and whether you read it. */
-export function SearchHitCard({ hit }: { hit: SearchHit }) {
+export function SearchHitCard({ hit, search }: { hit: SearchHit; search: Search }) {
   const { item, snippet } = hit;
   const found = foundBy(hit.ranks);
 
@@ -97,6 +143,8 @@ export function SearchHitCard({ hit }: { hit: SearchHit }) {
           </p>
         )
       )}
+
+      <HitTags tags={item.tags} search={search} />
 
       {found && <p className="mt-3 text-xs text-muted">Found by {found}.</p>}
     </article>

@@ -1,6 +1,7 @@
 import type { components } from "@unshelve/api-client";
 import Form from "next/form";
-import { KIND_CHOICES, STATUS_CHOICES, type Search, searchHref } from "@/lib/search";
+import Link from "next/link";
+import { KIND_CHOICES, STATUS_CHOICES, type Search, searchHref, withoutTag } from "@/lib/search";
 
 type Goal = components["schemas"]["GoalOut"];
 
@@ -44,6 +45,42 @@ function GoalSelect({ goals, goalId }: { goals: readonly Goal[]; goalId: number 
         )}
         {unknown && <option value={goalId}>Goal {goalId}, not found</option>}
       </select>
+    </div>
+  );
+}
+
+/**
+ * The tag filters of the search. Each one is a hidden field, so a new search from the form keeps
+ * it, as it keeps the other filters. A link removes a tag: it opens the same search without it.
+ * A form that sends its fields with GET cannot leave one of them out, so a button could do this
+ * only with JavaScript, and the form works without it.
+ */
+function TagFilters({ search }: { search: Search }) {
+  if (search.tags.length === 0) return null;
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span id="search-tags" className="text-muted">
+        Tags
+      </span>
+      <ul role="list" aria-labelledby="search-tags" className="flex flex-wrap gap-2">
+        {search.tags.map((slug) => (
+          <li
+            key={slug}
+            className="inline-flex items-center gap-1 rounded-md border border-muted py-1 ps-2 pe-1"
+          >
+            <input type="hidden" name="tag" value={slug} />
+            {slug}
+            <Link
+              href={searchHref(withoutTag(search, slug))}
+              aria-label={`Remove the tag filter ${slug}`}
+              className="rounded-sm px-1 leading-none text-muted hover:bg-surface hover:text-foreground"
+            >
+              ×
+            </Link>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -139,6 +176,8 @@ export function SearchForm({
           </div>
 
           <GoalSelect goals={goals} goalId={search?.goalId ?? null} />
+
+          {search && <TagFilters search={search} />}
         </div>
       </div>
     </Form>

@@ -130,6 +130,7 @@ test("the filters go to the API, and the form keeps them", async ({ page, reques
     unread: null,
     kind: ["pdf"],
     goal_id: "1",
+    tag: [],
     cursor: null,
   });
   // After the navigation, the form shows the search that the page made.
@@ -139,7 +140,7 @@ test("the filters go to the API, and the form keeps them", async ({ page, reques
   await expect(form.getByRole("combobox", { name: "Goal" })).toHaveValue("1");
   // The overview cannot filter by kind or goal, and it says so.
   await expect(overview(page)).toContainText(
-    "It reads items of every kind and goal: of your filters, only the status and " +
+    "It reads items of every kind, goal and tag: of your filters, only the status and " +
       "“Unread only” apply.",
   );
 
@@ -175,6 +176,7 @@ test("unread only leaves out the items that you read, also in the overview", asy
     unread: "true",
     kind: [],
     goal_id: null,
+    tag: [],
     cursor: null,
   });
 
@@ -202,6 +204,117 @@ test("unread only leaves out the items that you read, also in the overview", asy
   await expect(hitTitles(page)).toHaveCount(2);
   await expect(unreadOnly).not.toBeChecked();
   expect((await searches(request)).at(-1)).toMatchObject({ q: "item", unread: null });
+});
+
+test("a tag of a hit narrows the search, and the form removes it again", async ({
+  page,
+  request,
+}) => {
+  await page.goto("/search?q=postgres");
+  await expect(hitTitles(page)).toHaveText([
+    "Leases for Job Queues in Postgres",
+    "صف کارها در پستگرس",
+  ]);
+  const persian = hits(page).nth(1);
+  // The hit shows the name of each tag. Item 1 has the tag "queues" too.
+  await expect(persian.getByRole("list", { name: "Tags" }).getByRole("listitem")).toHaveText([
+    "queues",
+    "job leases",
+  ]);
+
+  await persian.getByRole("link", { name: "Filter by the tag job leases" }).click();
+
+  // The link carries the slug of the tag, and only item 2 has it.
+  await expect(page).toHaveURL(/\/search\?q=postgres&tag=job-leases$/);
+  await expect(hitTitles(page)).toHaveText(["صف کارها در پستگرس"]);
+  expect((await searches(request)).at(-1)).toEqual({
+    q: "postgres",
+    status: [],
+    unread: null,
+    kind: [],
+    goal_id: null,
+    tag: ["job-leases"],
+    cursor: null,
+  });
+  // The tag is a filter now: the form shows it, and on the hit it is no link.
+  const form = page.getByRole("search");
+  await expect(form.getByRole("list", { name: "Tags" }).getByRole("listitem")).toHaveText([
+    "job-leases×",
+  ]);
+  await expect(form.locator("input[name='tag']")).toHaveValue("job-leases");
+  const tagsOfTheHit = hits(page).getByRole("list", { name: "Tags" });
+  await expect(tagsOfTheHit.getByRole("listitem")).toHaveText([
+    "queues",
+    "job leases (a filter of this search)",
+  ]);
+  await expect(tagsOfTheHit.getByRole("link")).toHaveText(["queues"]);
+  // The overview cannot filter by tag, and it says so.
+  await expect(overview(page)).toContainText(
+    "It reads items of every kind, goal and tag: of your filters, only the status and " +
+      "“Unread only” apply.",
+  );
+
+  // A second tag: an item must have both.
+  await hits(page).getByRole("link", { name: "Filter by the tag queues" }).click();
+  await expect(page).toHaveURL(/\/search\?q=postgres&tag=job-leases&tag=queues$/);
+  await expect(hitTitles(page)).toHaveText(["صف کارها در پستگرس"]);
+  expect((await searches(request)).at(-1)).toMatchObject({ tag: ["job-leases", "queues"] });
+
+  // The form removes one tag and keeps the other: both items have "queues".
+  await form.getByRole("link", { name: "Remove the tag filter job-leases" }).click();
+  await expect(page).toHaveURL(/\/search\?q=postgres&tag=queues$/);
+  await expect(hitTitles(page)).toHaveCount(2);
+  expect((await searches(request)).at(-1)).toMatchObject({ tag: ["queues"] });
+  await expect(form.locator("input[name='tag']")).toHaveValue("queues");
+});
+
+test("a new search keeps the tags, and a tag on the next page starts from the first", async ({
+  page,
+  request,
+}) => {
+  await changeSearch(request, { page_size: 1 });
+  await page.goto("/search?q=postgres");
+  await page.getByRole("link", { name: "More results" }).click();
+  await expect(hitTitles(page)).toHaveText(["صف کارها در پستگرس"]);
+
+  // A cursor belongs to one search: the narrowed search starts from its first page.
+  await hits(page).getByRole("link", { name: "Filter by the tag queues" }).click();
+  await expect(page).toHaveURL(/\/search\?q=postgres&tag=queues$/);
+  await expect(hitTitles(page)).toHaveText(["Leases for Job Queues in Postgres"]);
+  expect((await searches(request)).at(-1)).toMatchObject({ tag: ["queues"], cursor: null });
+
+  // Other words from the form: the tag stays, as the other filters do.
+  await page.getByRole("searchbox").fill("lease");
+  await page.getByRole("searchbox").press("Enter");
+  await expect(page).toHaveURL(/\/search\?q=lease&kind=&goal_id=&tag=queues$/);
+  await expect(hitTitles(page)).toHaveText(["Leases for Job Queues in Postgres"]);
+  expect((await searches(request)).at(-1)).toMatchObject({ q: "lease", tag: ["queues"] });
+
+  // Back shows the earlier search, with its tag in the form.
+  await page.goBack();
+  await expect(page).toHaveURL(/\/search\?q=postgres&tag=queues$/);
+  await expect(page.getByRole("search").locator("input[name='tag']")).toHaveValue("queues");
+});
+
+test("the page sends only tags that the API accepts, each one once", async ({ page, request }) => {
+  // A value that is no slug would make the API refuse the whole search: the page leaves it out.
+  await page.goto("/search?q=postgres&tag=Not+a+slug&tag=queues&tag=queues");
+
+  await expect(hitTitles(page)).toHaveCount(2);
+  expect((await searches(request)).at(-1)).toMatchObject({ tag: ["queues"] });
+  await expect(page.getByRole("search").locator("input[name='tag']")).toHaveValue("queues");
+
+  // A tag of a hit whose slug the API would refuse is shown, but it is no link.
+  await page.goto("/search?q=strange");
+  const tags = hits(page).getByRole("list", { name: "Tags" });
+  await expect(tags.getByRole("listitem")).toHaveText(["not a slug"]);
+  await expect(tags.getByRole("link")).toHaveCount(0);
+
+  // A search with a tag and no hits asks for fewer filters.
+  await page.goto("/search?q=lease&tag=job-leases");
+  await expect(
+    page.getByText("Nothing you saved matches that search. Try other words, or fewer filters."),
+  ).toBeVisible();
 });
 
 test("a search without hits says so, and the form shows each filter it used", async ({
@@ -262,6 +375,7 @@ test("more results open the next page of the same search", async ({ page, reques
     unread: "true",
     kind: [],
     goal_id: null,
+    tag: [],
     cursor: "p1",
   });
 

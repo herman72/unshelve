@@ -53,6 +53,9 @@ export type Search = {
   unread: boolean;
   kind: ItemKind | null;
   goalId: number | null;
+  // The slugs of the tag filters, in the order of the address, each one once. An item must have
+  // each of them.
+  tags: string[];
   cursor: string | null;
 };
 
@@ -67,6 +70,14 @@ const isKind = (value: string): value is ItemKind => Object.hasOwn(KIND_NAMES, v
 
 // An id of the API: digits only, from 1. Number("1e3") would be 1000, so a pattern decides.
 const ID = /^[1-9][0-9]{0,15}$/;
+
+// A tag of the API: lowercase letters and digits, with one hyphen between two words, at most 80
+// characters (Slug in apps/api/src/unshelve/api/schemas.py). The API refuses the whole search
+// for any other value, so the page never sends one.
+const TAG = /^(?=.{1,80}$)[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** Whether the API can filter by this tag. */
+export const isTag = (slug: string): boolean => TAG.test(slug);
 
 /**
  * The search in the query string of the page. A value that the API does not know is left out,
@@ -83,6 +94,8 @@ export function parseSearch(params: Params): Search {
     unread: values(params.unread)[0] === "true",
     kind: values(params.kind).find(isKind) ?? null,
     goalId: ID.test(goal) ? Number(goal) : null,
+    // Each tag once: ?tag=queues&tag=queues is one filter.
+    tags: [...new Set(values(params.tag).filter(isTag))],
     cursor: values(params.cursor)[0] || null,
   };
 }
@@ -95,6 +108,7 @@ export function apiQuery(search: Search) {
     ...(search.unread && { unread: true }),
     ...(search.kind !== null && { kind: [search.kind] }),
     ...(search.goalId !== null && { goal_id: search.goalId }),
+    ...(search.tags.length > 0 && { tag: search.tags }),
     ...(search.cursor !== null && { cursor: search.cursor }),
   };
 }
@@ -109,8 +123,23 @@ export function searchHref(search: Search, cursor: string | null = null): string
   if (search.unread) params.set("unread", "true");
   if (search.kind !== null) params.set("kind", search.kind);
   if (search.goalId !== null) params.set("goal_id", String(search.goalId));
+  for (const tag of search.tags) params.append("tag", tag);
   if (cursor !== null) params.set("cursor", cursor);
   return `/search?${params}`;
+}
+
+/**
+ * The same search with one more tag filter. It starts from the first page: a cursor belongs to
+ * one search, and the API refuses it for another.
+ */
+export function withTag(search: Search, slug: string): Search {
+  const tags = search.tags.includes(slug) ? search.tags : [...search.tags, slug];
+  return { ...search, tags, cursor: null };
+}
+
+/** The same search without one of its tag filters, from the first page. */
+export function withoutTag(search: Search, slug: string): Search {
+  return { ...search, tags: search.tags.filter((tag) => tag !== slug), cursor: null };
 }
 
 /** What the vector search did, in a sentence. Null when it compared meanings as it should. */
