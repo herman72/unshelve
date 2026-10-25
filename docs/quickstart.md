@@ -5,7 +5,7 @@ Unshelve runs in Docker. You can start it in two ways:
 - **A. On this computer**, to try it. The web app is at `http://localhost:3000`, and only this computer can open it.
 - **B. On a server**, to use it every day. The web app is at `https://` and your domain, with a certificate that Caddy gets and renews by itself.
 
-CI runs each marked step of this guide on a fresh clone, as written here, for A and for B. So these steps work.
+CI runs each marked step of this guide on a fresh clone, as written here, for A and for B. So these steps work. [Note 47](learn/47-running-on-a-server.md) explains how.
 
 ## What you need
 
