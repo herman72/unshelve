@@ -1,0 +1,75 @@
+# The production changes, on top of deploy/compose.yaml. compose.prod.yaml at the repository
+# root joins the two files (docs/quickstart.md, docs/learn/47):
+#
+#   - Caddy is the only service with a public port. It serves the web app on UNSHELVE_DOMAIN
+#     with HTTPS, and it gets and renews the certificate by itself.
+#   - db, api and web publish no port, also not on 127.0.0.1.
+#   - The database password and the domain must be set: without them, Compose stops.
+#   - Docker rotates the log of each service, so that the logs cannot fill the disk.
+
+x-logging: &logging
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
+
+x-app-environment: &app-environment
+  # The password goes into an address, so use letters and digits only (the quickstart does).
+  UNSHELVE_DATABASE_URL: postgresql+psycopg://unshelve:${UNSHELVE_DB_PASSWORD:?set UNSHELVE_DB_PASSWORD in .env, see docs/quickstart.md}@db:5432/unshelve
+  # The sign-in links of the bot and of `unshelve auth link` point here. The address starts
+  # with https://, so the session cookie gets the Secure flag (api/routes/auth.py).
+  UNSHELVE_WEB_BASE_URL: https://${UNSHELVE_DOMAIN:?set UNSHELVE_DOMAIN in .env, see docs/quickstart.md}
+
+services:
+  db:
+    <<: *logging
+    environment:
+      # Postgres reads it only when the volume is new: see docs/quickstart.md to change it.
+      POSTGRES_PASSWORD: ${UNSHELVE_DB_PASSWORD:?set UNSHELVE_DB_PASSWORD in .env, see docs/quickstart.md}
+    ports: !reset []
+
+  migrate:
+    <<: *logging
+    environment: *app-environment
+
+  api:
+    <<: *logging
+    environment: *app-environment
+    ports: !reset []
+
+  worker:
+    <<: *logging
+    environment: *app-environment
+
+  bot:
+    <<: *logging
+    environment: *app-environment
+
+  web:
+    <<: *logging
+    ports: !reset []
+
+  caddy:
+    <<: *logging
+    image: caddy:2.11.6-alpine
+    environment:
+      UNSHELVE_DOMAIN: ${UNSHELVE_DOMAIN:?set UNSHELVE_DOMAIN in .env, see docs/quickstart.md}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # The certificates and their keys. Keep them: without them, each start asks for new
+      # certificates, and Let's Encrypt allows only a few for each name in a week.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,19 @@
+# Caddy serves the web app of Unshelve on UNSHELVE_DOMAIN, with HTTPS (docs/learn/47). For a
+# public name, it gets a certificate from Let's Encrypt by itself, through port 80 or 443, and
+# renews it. For "localhost", it uses a certificate of its own local authority. It also sends
+# each request on port 80 to the same address with https://.
+{$UNSHELVE_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		# A browser that saw this header uses only HTTPS for this name, for a year.
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+
+	# The web app sends /api on to the API itself (apps/web/next.config.ts): one upstream.
+	reverse_proxy web:3000
+}
