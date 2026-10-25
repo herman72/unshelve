@@ -1,6 +1,6 @@
 # 45. Publishing an item, with its preview
 
-> Pull requests: [#112](https://github.com/herman72/unshelve/pull/112) (the API), [#113](https://github.com/herman72/unshelve/pull/113) (the web app) · Code: [`publish/visibility.py`](../../apps/api/src/unshelve/publish/visibility.py), [`api/item_views.py`](../../apps/api/src/unshelve/api/item_views.py), [`publish-panel.tsx`](../../apps/web/src/components/publish-panel.tsx) · Tests: [`tests/api/test_visibility.py`](../../apps/api/tests/api/test_visibility.py), [`tests/publish/test_slug.py`](../../apps/api/tests/publish/test_slug.py), [`e2e/publish.spec.ts`](../../apps/web/e2e/publish.spec.ts)
+> Pull requests: [#112](https://github.com/herman72/unshelve/pull/112) (the API), [#113](https://github.com/herman72/unshelve/pull/113) (the web app), [#114](https://github.com/herman72/unshelve/pull/114) (a new publication after the worker) · Code: [`publish/visibility.py`](../../apps/api/src/unshelve/publish/visibility.py), [`api/item_views.py`](../../apps/api/src/unshelve/api/item_views.py), [`publish-panel.tsx`](../../apps/web/src/components/publish-panel.tsx) · Tests: [`tests/api/test_visibility.py`](../../apps/api/tests/api/test_visibility.py), [`tests/publish/test_slug.py`](../../apps/api/tests/publish/test_slug.py), [`e2e/publish.spec.ts`](../../apps/web/e2e/publish.spec.ts)
 
 ## In one minute
 
@@ -94,6 +94,8 @@ The time is the time of the preview, to the second, in UTC, because the feed wri
 
 Each change of visibility queues one publish job for the owner. The job waits 30 seconds, and while it waits, a new change adds no second job (its *dedupe key* is `feed:<owner>`). So three clicks in a row give one publish, and with the git target, one commit.
 
+The worker can change a public item too. After "Process again", a public item gets a new card: a new summary, new key points, new tags. Its public record changes, so the feed must follow. The embed step is the step that makes an item ready, and in the same transaction it queues the same publish job when the item is public. New vectors alone (from a new embedder) change no field of the record, so they queue nothing.
+
 ## 5. The rules of the API
 
 | Request | Answer |
@@ -138,11 +140,10 @@ A public item shows its name and its time ("Public as leases-for-job-queues-in-p
 - **Does a preview write anything?** No: a test checks the item, the events, the jobs and the feed after a preview.
 - **Can the role leak out of the preview?** No: the rollback to the savepoint ends it. We checked this in `psql`, and the tests use the same session after a preview.
 - **Can a stale preview publish a record that the owner did not see?** No: 409. A planted mistake that removes the comparison makes exactly one test fail, the one with a change in between. The acceptance test alone would not see it.
-- **Can the tests fail?** Yes: 29 typical mistakes in the API, one at a time; each one made a named test fail.
+- **Can the tests fail?** Yes: 29 typical mistakes in the API, and 4 in the new publication after the worker, one at a time; each one made a named test fail.
 - **Does the page send exactly the record that it shows?** Yes: an end-to-end test reads what the pretend API got, and another one changes the item between the preview and the click.
 - **What is not done:**
-  - editing the public note: `PATCH /items/{id}` is still a stub;
-  - a new publication when the worker changes a public item: the feed shows the change at the next publish job only.
+  - editing the public note: `PATCH /items/{id}` is still a stub.
 
 ## Exercise (10 minutes)
 
