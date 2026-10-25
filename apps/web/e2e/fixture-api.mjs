@@ -448,6 +448,31 @@ const MEANINGS = {
 /** A tag of the API, as SearchQuery accepts it (Slug in schemas.py). */
 const SLUG = /^(?=.{1,80}$)[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
+/**
+ * The filters of a search or of an overview, as one test of an item. The real API builds the
+ * filters of both with one function (filters_of), so the pretend API has one rule for both.
+ *
+ * @param {{ statuses: string[], unread: boolean, kinds: string[], goal: string | null, tags: string[] }} filters
+ * @returns {(item: ItemDetail) => boolean}
+ */
+function passes({ statuses, unread, kinds, goal, tags }) {
+  return (item) => {
+    // A goal counts with a score of 2 or 3, unless you rejected the score.
+    const helps = item.goals.some(
+      (score) => String(score.goal_id) === goal && score.score >= 2 && score.label !== "rejected",
+    );
+    return (
+      (statuses.length === 0 || statuses.includes(item.status)) &&
+      // The read time decides, not the status: an item keeps it when it leaves done.
+      (!unread || item.read_at === null) &&
+      (kinds.length === 0 || kinds.includes(item.kind)) &&
+      (goal === null || helps) &&
+      // Each tag: two tags find the items that have both.
+      tags.every((slug) => item.tags.some((tag) => tag.slug === slug))
+    );
+  };
+}
+
 /** The words of a query, as the pretend search compares them. @param {string} q */
 function wordsOf(q) {
   return q.toLowerCase().split(/\s+/).filter(Boolean);
@@ -739,21 +764,8 @@ const server = createServer(async (request, response) => {
     if (Number.isNaN(start)) {
       return problem(response, 422, "Unprocessable Content", "the cursor is not valid");
     }
-    const hits = searchHits(wordsOf(q), (item) => {
-      // A goal counts with a score of 2 or 3, unless you rejected the score.
-      const helps = item.goals.some(
-        (score) => String(score.goal_id) === goal && score.score >= 2 && score.label !== "rejected",
-      );
-      return (
-        (statuses.length === 0 || statuses.includes(item.status)) &&
-        // The read time decides, not the status: an item keeps it when it leaves done.
-        (unread !== "true" || item.read_at === null) &&
-        (kinds.length === 0 || kinds.includes(item.kind)) &&
-        (goal === null || helps) &&
-        // Each tag: two tags find the items that have both.
-        tags.every((slug) => item.tags.some((tag) => tag.slug === slug))
-      );
-    });
+    const filters = { statuses, unread: unread === "true", kinds, goal, tags };
+    const hits = searchHits(wordsOf(q), passes(filters));
     const end = start + searchPageSize;
     return send(response, 200, {
       items: hits.slice(start, end),
@@ -765,23 +777,26 @@ const server = createServer(async (request, response) => {
   if (request.method === "POST" && path === "/api/v1/search/overview") {
     const body = await jsonBody(request);
     overviews.push(body);
+    // As in the real API, the body has the filters of the search (SearchFields).
     const q = typeof body.q === "string" ? body.q.trim() : "";
-    const statuses = /** @type {string[] | null} */ (body.status ?? null);
+    const statuses = /** @type {string[]} */ (body.status ?? []);
     const unread = body.unread ?? false;
+    const kinds = /** @type {string[]} */ (body.kind ?? []);
+    const goal = body.goal_id ?? null;
+    const tags = /** @type {string[]} */ (body.tag ?? []);
     const limit = body.limit ?? 12;
-    const known = (statuses ?? []).every((status) =>
-      STATUSES.includes(/** @type {ItemStatus} */ (status)),
-    );
-    const valid = typeof unread === "boolean" && typeof limit === "number";
+    const known = statuses.every((status) => STATUSES.includes(/** @type {ItemStatus} */ (status)));
+    const valid =
+      typeof unread === "boolean" &&
+      typeof limit === "number" &&
+      (goal === null || Number.isInteger(goal)) &&
+      tags.every((tag) => SLUG.test(tag));
     if (!q || q.length > 500 || !known || !valid || limit < 1 || limit > 30) {
       return problem(response, 422, "Unprocessable Content", "the body is not valid");
     }
     if (overviewFailure) return problem(response, 503, "Service Unavailable", overviewFailure);
-    const hits = searchHits(
-      wordsOf(q),
-      (item) =>
-        (statuses === null || statuses.includes(item.status)) && (!unread || item.read_at === null),
-    ).slice(0, limit);
+    const filters = { statuses, unread, kinds, goal: goal === null ? null : String(goal), tags };
+    const hits = searchHits(wordsOf(q), passes(filters)).slice(0, limit);
     const segments = overviewSegments(hits);
     return send(response, 200, {
       segments,

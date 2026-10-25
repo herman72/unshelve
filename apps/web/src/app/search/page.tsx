@@ -102,12 +102,7 @@ async function SearchResults({
   return (
     <>
       <VectorNote state={vector_search} />
-      <OverviewPanel
-        q={search.q}
-        status={search.status}
-        unread={search.unread}
-        narrowed={search.kind !== null || search.goalId !== null || search.tags.length > 0}
-      />
+      <OverviewPanel search={search} />
       <section aria-labelledby="results-title">
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h2 id="results-title" className="text-base font-semibold">

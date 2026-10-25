@@ -5,8 +5,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { displayTitle } from "@/components/item-card";
 import { VectorNote } from "@/components/vector-note";
 import { browserApi } from "@/lib/browser-api";
-import type { ItemStatus } from "@/lib/reading-status";
-import { type Overview, numberSources } from "@/lib/search";
+import { type Overview, type Search, numberSources, overviewBody } from "@/lib/search";
 
 // How many of the best items the model reads: the default of the API. More items cost more.
 const ITEMS_TO_READ = 12;
@@ -110,18 +109,9 @@ function OverviewAnswer({ overview }: { overview: Overview }) {
  * It asks the model, which costs money, so it runs only when the person asks. The same question
  * on the same items costs nothing the second time: the API answers it from its ledger. A new
  * search mounts the results again (their key is the search), and the panel starts again with them.
+ * It sends the words and every filter of the search, so the model reads the best of the results.
  */
-export function OverviewPanel({
-  q,
-  status,
-  unread,
-  narrowed,
-}: {
-  q: string;
-  status: ItemStatus[];
-  unread: boolean;
-  narrowed: boolean;
-}) {
+export function OverviewPanel({ search }: { search: Search }) {
   const [state, setState] = useState<PanelState>({ kind: "idle" });
   const answerRef = useRef<HTMLDivElement>(null);
 
@@ -135,7 +125,7 @@ export function OverviewPanel({
     setState({ kind: "writing" });
     try {
       const { data, error, response } = await browserApi.POST("/api/v1/search/overview", {
-        body: { q, status: status.length > 0 ? status : null, unread, limit: ITEMS_TO_READ },
+        body: overviewBody(search, ITEMS_TO_READ),
       });
       setState(
         data
@@ -165,12 +155,6 @@ export function OverviewPanel({
             An answer to your search, written by the model from your saved items only. Each
             statement names its sources. It uses the model, so it is written only when you ask.
           </p>
-          {narrowed && (
-            <p className="mt-1 text-sm text-muted">
-              It reads items of every kind, goal and tag: of your filters, only the status and
-              “Unread only” apply.
-            </p>
-          )}
           <button
             type="button"
             onClick={write}
