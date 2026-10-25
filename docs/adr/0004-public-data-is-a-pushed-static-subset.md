@@ -31,6 +31,14 @@ The rule "changing visibility shows the exact public record before the user conf
 - **The name and the time** of a public item (`public_slug`, `published_at`) are kept for good. Made private and public again, the item has the same name and its first time.
 - **Each change** queues one publish job for the owner, which waits 30 seconds, so a series of changes gives one publish. The pipeline queues the same job when it makes a public item ready again (a new card or new tags change its record).
 
+### How a site reads and searches the feed (2026-10-25, M5-3)
+
+The site searches the feed in the browser with the package `packages/site-search` ([note 46](../learn/46-site-search.md)):
+
+- **The feed has a version.** `feed-v1.schema.json` describes version 1, and a Pydantic model writes it. A change that an old reader can ignore (a new field, a new kind of item) keeps version 1, so a reader must ignore a field that it does not know. A change that breaks an old reader (a field removed or renamed, a new type) needs version 2. A reader refuses a version that it does not know.
+- **The site normalises text as the server does.** `uNorm()` in TypeScript is the table of `u_norm()` from the database, one character at a time. Tests compare the table with the database and with `uNorm()` for each of the 1,112,063 code points that Postgres can store.
+- **The search of the site is smaller than the search of the app.** It looks for each word of the query, also as the start of a word, in the public fields. It has no stemmer, no trigrams and no vectors.
+
 ## Consequences
 
 - A private item cannot be in the feed, because the role that builds the feed cannot read it.
