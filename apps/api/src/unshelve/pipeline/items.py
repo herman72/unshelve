@@ -65,6 +65,7 @@ from unshelve.enrich.card import (
 from unshelve.extract.registry import FALLBACK, choose
 from unshelve.ingest import resolve, versions
 from unshelve.pipeline.files import StoredFiles
+from unshelve.publish import visibility
 from unshelve.queue import store as queue
 from unshelve.queue.registry import registry
 from unshelve.reading import reading_minutes
@@ -650,6 +651,10 @@ async def embed_item(ctx: JobContext, payload: EmbedItemPayload) -> None:
                 owner_id=item.owner_id,
                 dedupe_key=f"item:{item.id}",
             )
+            # A public item has a new public record now (a new summary, new tags): the feed
+            # follows it. Vectors are not in the record, so a ready item that only gets new
+            # vectors needs no new feed.
+            await visibility.republish_if_public(session, item.owner_id, item.id)
         await session.commit()
     if moved and failure is not None:
         log.info("embed.no_vectors", item_id=item.id, reason=str(failure)[:300])

@@ -151,7 +151,7 @@ async def publish(
             payload={"visibility": Visibility.PUBLIC.value, "slug": slug},
         )
     )
-    await _queue_publish(session, owner_id)
+    await queue_publish(session, owner_id)
     return record
 
 
@@ -176,7 +176,7 @@ async def unpublish(session: AsyncSession, owner_id: int, item_id: int) -> None:
             payload={"visibility": Visibility.PRIVATE.value},
         )
     )
-    await _queue_publish(session, owner_id)
+    await queue_publish(session, owner_id)
 
 
 async def _state(
@@ -244,7 +244,17 @@ def _seen_time(seen: feed.Record, now: datetime) -> datetime:
     return moment
 
 
-async def _queue_publish(session: AsyncSession, owner_id: int) -> None:
+async def republish_if_public(session: AsyncSession, owner_id: int, item_id: int) -> bool:
+    """Queue the publish job when the item is public now. The pipeline calls it when it makes
+    an item ready: a new summary or new tags change its public record. True: it queued one."""
+    found = await session.scalar(sa.select(Item.visibility).where(Item.id == item_id))
+    if found != Visibility.PUBLIC:
+        return False
+    await queue_publish(session, owner_id)
+    return True
+
+
+async def queue_publish(session: AsyncSession, owner_id: int) -> None:
     """One publish job for the owner. While one waits, a new change needs no second one."""
     await queue.enqueue(
         session,
