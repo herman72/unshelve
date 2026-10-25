@@ -51,6 +51,37 @@ importers:
         specifier: ^5
         version: 5.9.3
 
+  examples/site:
+    dependencies:
+      '@unshelve/site-search':
+        specifier: workspace:*
+        version: link:../../packages/site-search
+      next:
+        specifier: 16.4.0
+        version: 16.4.0(@babel/core@7.29.7)(@playwright/test@1.64.1)(@types/node@20.19.43)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      react:
+        specifier: 19.3.0
+        version: 19.3.0
+      react-dom:
+        specifier: 19.3.0
+        version: 19.3.0(react@19.3.0)
+    devDependencies:
+      '@playwright/test':
+        specifier: ^1.64.1
+        version: 1.64.1
+      '@types/node':
+        specifier: ^20
+        version: 20.19.43
+      '@types/react':
+        specifier: ^19
+        version: 19.3.0
+      '@types/react-dom':
+        specifier: ^19
+        version: 19.3.0(@types/react@19.3.0)
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+
   packages/api-client:
     dependencies:
       openapi-fetch:

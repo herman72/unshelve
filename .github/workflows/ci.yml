@@ -81,6 +81,21 @@ jobs:
       # download. The config builds the app for the pretend API and starts both.
       - run: pnpm --filter @unshelve/web test:e2e
 
+  site-example:
+    name: Example site (end-to-end, the search of the feed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The config builds examples/site for production, as a site that uses the package would
+      # be built, and searches it in the Google Chrome of the runner.
+      - run: pnpm --filter @unshelve/example-site test:e2e
+
   web-dev:
     name: Web (each page under next dev, against a pretend API)
     runs-on: ubuntu-latest

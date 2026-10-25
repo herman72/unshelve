@@ -1,0 +1,25 @@
+{
+  "name": "@unshelve/example-site",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3920",
+    "build": "next build",
+    "start": "next start -p 3920",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@unshelve/site-search": "workspace:*",
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5"
+  }
+}
