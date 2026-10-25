@@ -3,7 +3,7 @@ SHELL := /bin/bash
 API := apps/api
 COMPOSE := docker compose
 
-.PHONY: help setup hooks db up down logs fmt lint typecheck test eval eval-live eval-baseline site-search openapi openapi-check check
+.PHONY: help setup hooks db up down logs fmt lint typecheck test eval eval-live eval-baseline site-search test-site-search openapi openapi-check check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -54,6 +54,9 @@ eval-baseline: db ## Write the scores of the recorded vectors as the new baselin
 site-search: db ## Write again the files of packages/site-search that come from the server
 	cd $(API) && UNSHELVE_SITE_SEARCH=write uv run pytest -q tests/publish/test_site_search.py
 
+test-site-search: ## Run the tests of packages/site-search (Node 22.18 or newer)
+	pnpm --filter @unshelve/site-search test
+
 openapi: ## Regenerate openapi.json and the TypeScript types
 	cd $(API) && uv run unshelve openapi
 	pnpm --filter @unshelve/api-client generate
@@ -61,4 +64,4 @@ openapi: ## Regenerate openapi.json and the TypeScript types
 openapi-check: openapi ## Fail when the committed API contract is stale
 	git diff --exit-code -- $(API)/openapi.json packages/api-client/src/schema.d.ts
 
-check: lint typecheck test openapi-check ## Everything CI runs
+check: lint typecheck test test-site-search openapi-check ## Everything CI runs
