@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Badge, displayTitle } from "@/components/item-card";
 import { type EventPage, ItemHistory } from "@/components/item-history";
 import { LabelButtons } from "@/components/label-buttons";
+import { PublishPanel } from "@/components/publish-panel";
 import { ReprocessButton } from "@/components/reprocess-button";
 import { StatusButtons } from "@/components/status-buttons";
 import type { ApiState } from "@/lib/api-state";
@@ -206,6 +207,16 @@ export function ItemView({ item, history }: { item: ItemDetail; history: ApiStat
           </p>
         </Section>
       )}
+
+      <Section title="Public">
+        <PublishPanel
+          itemId={item.id}
+          visibility={item.visibility}
+          publicSlug={item.public_slug}
+          publishedAt={item.published_at}
+          copyOf={item.duplicate_of_id}
+        />
+      </Section>
 
       <Section title="Saved">
         <p className="text-sm">

@@ -100,3 +100,11 @@ export async function changeSearch(
 export async function failOverview(request: APIRequestContext, detail: string): Promise<void> {
   await request.post(`${API_URL}/__overview`, { data: { failure: detail } });
 }
+
+type VisibilityCall = { id: number; visibility: string; record: unknown };
+
+/** Each change of visibility that the pretend API was asked for, in order. */
+export async function visibilities(request: APIRequestContext): Promise<VisibilityCall[]> {
+  const answer = await request.get(`${API_URL}/__calls`);
+  return ((await answer.json()) as { visibilities: VisibilityCall[] }).visibilities;
+}
