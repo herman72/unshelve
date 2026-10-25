@@ -4,17 +4,29 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./react": "./src/feed-search.tsx",
+    "./fixtures/feed.json": "./fixtures/feed.json"
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
-  "devDependencies": {
-    "@types/node": "^20",
-    "typescript": "^5"
-  },
   "dependencies": {
     "minisearch": "7.2.0"
+  },
+  "peerDependencies": {
+    "react": "^19"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "react": "19.3.0",
+    "typescript": "^5"
   }
 }

@@ -1,9 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],
     "module": "esnext",
     "moduleResolution": "bundler",
+    "jsx": "react-jsx",
     // Node runs the tests on the .ts files themselves, so an import names the .ts file, and
     // each line must be one that Node can strip the types from.
     "allowImportingTsExtensions": true,
