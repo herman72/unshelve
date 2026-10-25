@@ -1,6 +1,6 @@
 # 46. Searching the feed on the site
 
-> Pull request: [#115](https://github.com/herman72/unshelve/pull/115) (the schema of the feed, the normalisation and the search) · Code: [`publish/feed_schema.py`](../../apps/api/src/unshelve/publish/feed_schema.py), [`packages/site-search/src`](../../packages/site-search/src) · Tests: [`tests/publish/test_site_search.py`](../../apps/api/tests/publish/test_site_search.py), [`packages/site-search/test`](../../packages/site-search/test)
+> Pull requests: [#115](https://github.com/herman72/unshelve/pull/115) (the schema of the feed, the normalisation and the search), [#116](https://github.com/herman72/unshelve/pull/116) (the component and the example site) · Code: [`publish/feed_schema.py`](../../apps/api/src/unshelve/publish/feed_schema.py), [`packages/site-search/src`](../../packages/site-search/src), [`examples/site`](../../examples/site) · Tests: [`tests/publish/test_site_search.py`](../../apps/api/tests/publish/test_site_search.py), [`packages/site-search/test`](../../packages/site-search/test), [`examples/site/e2e`](../../examples/site/e2e)
 
 ## In one minute
 
@@ -14,7 +14,7 @@ The search in the browser finds the item. Before it compares two texts, it chang
 | `İSTANBUL` | `istanbul` | the dotted capital I becomes a plain i |
 | `۱۰ نکته` | `10 نکته` | Persian digits become ASCII digits |
 
-The search needs no server. The site reads `feed.json`, and the browser makes the index of the search. This note has three parts: the version of the feed, one normalisation in two languages, and the search.
+The search needs no server. The site reads `feed.json`, and the browser makes the index of the search. This note has five parts: the version of the feed, one normalisation in two languages, the search, the component on a page, and how to add the search to a site.
 
 ## 1. The feed has a version and a schema
 
@@ -129,6 +129,66 @@ The normalisation is the same as on the server, but the search is not:
 
 [ADR 0004](../adr/0004-public-data-is-a-pushed-static-subset.md) accepted this difference: keyword search over a few hundred items is enough for the site.
 
+## 4. The component on a page
+
+The package has a React component, `<FeedSearch>`. The example site in [`examples/site`](../../examples/site) uses it as mattsh.dev will. This is its page, shortened:
+
+```tsx
+import { parseFeed } from "@unshelve/site-search";
+import { FeedSearch } from "@unshelve/site-search/react";
+import data from "@unshelve/site-search/fixtures/feed.json";
+
+const feed = parseFeed(data);
+
+export default function OddsAndEnds() {
+  return <FeedSearch feed={feed} />;
+}
+```
+
+The work happens at two times: once when the site is built, and again in the browser of each visitor.
+
+```mermaid
+sequenceDiagram
+    participant B as next build
+    participant V as The browser of a visitor
+    B->>B: parseFeed(feed.json): another version stops the build
+    B->>V: the HTML with each item, and the feed as JSON
+    V->>V: React attaches its code to the HTML (hydration)
+    V->>V: createFeedSearch(feed): the index, once
+    V->>V: at each key press: search the index, show the result
+```
+
+1. When the site is built, the page reads `feed.json` and calls `parseFeed()`. A feed of a version that the site does not know stops the build. So a visitor never sees a page made from a feed that the site cannot read.
+2. Next.js writes the page as HTML, with each item. So a visitor without JavaScript sees the list too. Only the search needs JavaScript.
+3. In the browser, React attaches its code to that HTML. This step is *hydration*. Then the component makes the index, once.
+4. At each key press, the component searches the index and shows the result. No request goes to a server.
+
+A visitor types `صف كارها`, with the Arabic kaf:
+
+![The example site: a query with the Arabic kaf finds the title with the Persian kaf](images/46-site-search-arabic-kaf.png)
+
+Each result shows its title, its facts (kind, site, date, minutes), its summary, the public note and the tags. Three details keep it safe and readable:
+
+- **A link only to a web address.** `safeLink()` gives a link only for an `http` or `https` address. A feed with `javascript:alert(1)` gets a title with no link. The server writes only web links, so this is a second guard, at the place where the link becomes an `<a>`.
+- **The direction of each result.** `dir="auto"` lets the browser choose the direction from the first letter: a Persian item reads from right to left, an English one from left to right.
+- **The date in UTC.** The component writes each date in UTC, on the server and in the browser. In another time zone, the browser would write another day than the server, and React would report a *hydration mismatch*: the HTML of the server is not what the browser makes. The tests run the browser in the time zone of Honolulu, where 07:00 UTC is 21:00 of the day before, to catch this.
+
+The component has no style of its own. Each class name starts with `unshelve-search`, so the site gives it its own style. The example has 58 lines of CSS for it:
+
+![The example site: each item of the fixture feed, the newest first](images/46-site-search-list.png)
+
+**A comparison from daily life:** a printed catalogue with an index at the back. The shop prints it once. Then each reader looks up a word in the index, and nobody calls the shop.
+
+## 5. How to add the search to a site
+
+The example site does the three steps that a site needs:
+
+1. **Compile the package.** The package exports TypeScript, not JavaScript. So `next.config.ts` has `transpilePackages: ["@unshelve/site-search"]`.
+2. **Allow imports with `.ts`.** `tsconfig.json` has `"allowImportingTsExtensions": true`. The files of the package import each other with `.ts`, so that Node can run their tests with no build step. Without this line, `tsc` gives the error TS5097 for each of these imports. TypeScript allows the line only when it writes no JavaScript (`"noEmit": true`), and the `tsconfig.json` of Next.js has that.
+3. **Show the feed.** A page imports `feed.json`, calls `parseFeed()`, and shows `<FeedSearch feed={feed} />`. With the git target ([note 43](43-git-target.md)), the worker commits `feed.json` into the repository of the site, and each commit starts a new build of the site.
+
+How the package itself gets into the repository of the site is still open: a copy of `packages/site-search`, or a dependency on this repository. The answer depends on the repository and the hosting of the site.
+
 ## A choice that we made
 
 **The table of the database, not `toLowerCase()`.**
@@ -139,13 +199,23 @@ The normalisation is the same as on the server, but the search is not:
 | Cost in the browser | 194 runs: 5.8 KB of source | none | none |
 | Work | a test writes the table | a list that a person keeps up to date | a migration, new indexes and new tests of the search |
 
+**An example site, not a page of the web app.**
+
+| | `examples/site` (this branch) | A page of the web app |
+|---|---|---|
+| Like the real site | yes: a Next.js app of its own, with nothing else | no: the web app has its login, its API proxy and its own settings |
+| Proves the three steps of part 5 | yes: its build fails without them | no: the web app is set up differently |
+| Cost | one more build and one more job in CI | none |
+
 ## What a senior engineer checks here
 
 - **Is `u_norm()` really one character at a time?** Yes, with the libc provider. A test fails when the database uses another provider, because then the table is not the whole function.
 - **What happens when the Postgres image gets a new C library?** `u_norm()` is declared `IMMUTABLE`, but `lower()` reads the case table of glibc. A newer glibc knows more letters. Then the generated columns and the indexes that use `u_norm()` hold old results. PostgreSQL 15 and later records the version of the C library for each database and warns when it changes, but it does not repair an index. The Python test fails on the first run with the new image: that is the signal to run `REINDEX` and to write the table again.
+- **Can a feed put a script into the page?** No. React writes each text as text, and only a web address becomes a link. An end-to-end test shows a feed with a `javascript:` address, a `data:` address and an address on the site itself: only the web address becomes a link.
+- **Does the page work without JavaScript?** The list, yes: the HTML of the example holds each of the 6 items, in 11.5 KB. The search, no: it runs in the browser.
 - **Does the fixture feed come from the real code?** Yes: `build_feed()` of the server writes [`fixtures/feed.json`](../../packages/site-search/fixtures/feed.json), and a test fails when the file is old.
-- **Can the tests fail?** Yes: 29 typical mistakes, one at a time. The first run caught 26. The 3 misses were real gaps: minutes that are not whole, a title that is a number, and the weight of the title. Each one has a test now, and each of the 29 makes a named test fail.
-- **What is not done yet:** the component for a page, and the search on the site itself. The component comes in the next pull request; the site needs its repository.
+- **Can the tests fail?** Yes. In the schema, the normalisation and the search: 29 typical mistakes, one at a time. The first run caught 26. The 3 misses were real gaps: minutes that are not whole, a title that is a number, and the weight of the title. Each one has a test now, and each of the 29 makes a named test fail. In the component and the example site: 9 typical mistakes, one at a time. The first run caught 8. The miss was a real gap: the browser of the tests was in Los Angeles, where 07:00 UTC is still the same day in October (summer time). The browser is in Honolulu now, and each of the 9 makes a named test fail.
+- **What is not done yet:** the search on mattsh.dev itself. It needs the repository of the site.
 
 ## Exercise (10 minutes)
 
@@ -179,11 +249,14 @@ The test with `درباره‌ی` still passes, because the query and the text b
 | Zero-width non-joiner (ZWNJ) | An invisible character that keeps two Persian letters apart without a space |
 | Index (of a search) | A map from each word to the records that have it |
 | Prefix search | A word of the query also finds the words that start with it |
+| Hydration | React attaches its code to the HTML that the server made |
+| Hydration mismatch | The HTML of the server is not what the browser makes from the same data |
 
 ## To read more
 
 - [Tolerant Reader](https://martinfowler.com/bliki/TolerantReader.html), Martin Fowler. Read the whole page: it is short. It says why a reader takes only what it needs from a message.
 - [Locale data changes](https://wiki.postgresql.org/wiki/Locale_data_changes), PostgreSQL wiki. Read the first part: an update of glibc changed the sort order of text and made indexes wrong. Our case is the case table of `lower()`, not the sort order, but the danger is the same.
 - [MiniSearch](https://lucaong.github.io/minisearch/), the documentation. Read "Tokenization" and "Term processing": the two places where this package puts `uNorm()`.
+- [hydrateRoot](https://react.dev/reference/react-dom/client/hydrateRoot), React documentation. Read the pitfall in "Hydrating server-rendered HTML": the browser must make the same output as the server.
 
 Previous: [45. Publishing an item, with its preview](45-publishing-an-item.md) · Back to the [list of notes](README.md)

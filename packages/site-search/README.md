@@ -11,6 +11,28 @@ const index = createFeedSearch(feed);
 index.search("صف كارها"); // typed with an Arabic kaf: finds "صف کارها در پستگرس"
 ```
 
+## In a Next.js site
+
+[`examples/site`](../../examples/site) is a small site that does each step:
+
+1. In `next.config.ts`, compile the package, because it exports TypeScript: `transpilePackages: ["@unshelve/site-search"]`.
+2. In `tsconfig.json`, set `"allowImportingTsExtensions": true`. The files of the package import each other with `.ts` (see Tests below), and without this line `tsc` gives the error TS5097.
+3. On a page, read the feed when the site is built, and show the component:
+
+```tsx
+import { parseFeed } from "@unshelve/site-search";
+import { FeedSearch } from "@unshelve/site-search/react";
+import data from "../feed.json"; // the file that the git target of Unshelve commits
+
+const feed = parseFeed(data); // a feed of another version stops the build
+
+export default function OddsAndEnds() {
+  return <FeedSearch feed={feed} />;
+}
+```
+
+`<FeedSearch feed label?>` shows a search field and the records that match it; `label` is the name of the field ("Search" when it is not given). It has no style of its own: each class name starts with `unshelve-search`. A record gets a link only for an `http` or `https` address, `dir="auto"` for its direction, and its language in `lang`. The package also exports `fixtures/feed.json`, for examples and tests.
+
 ## What is here
 
 | File | What it is | Where it comes from |
@@ -19,6 +41,8 @@ index.search("صف كارها"); // typed with an Arabic kaf: finds "صف کار
 | `src/u-norm-table.ts` | each character that `u_norm()` changes, as runs | `make site-search`, from the database |
 | `src/feed.ts` | the types of the feed, and `parseFeed()` | by hand; a test compares it with the schema |
 | `src/search.ts` | `createFeedSearch()`: an index made with [MiniSearch](https://github.com/lucaong/minisearch) | by hand |
+| `src/feed-search.tsx` | `<FeedSearch>`, the React component | by hand |
+| `src/links.ts` | `safeLink()`: a link only for an `http` or `https` address | by hand |
 | `schema/feed-v1.schema.json` | the JSON Schema of version 1 of the feed | `make site-search`, from `apps/api/src/unshelve/publish/feed_schema.py` |
 | `fixtures/feed.json` | a feed that the server wrote, for the tests | `make site-search`, from the code that writes the real feed |
 | `test/u-norm-cases.json` | cases that the database and `uNorm()` must both pass | by hand |
@@ -29,7 +53,11 @@ index.search("صف كارها"); // typed with an Arabic kaf: finds "صف کار
 pnpm --filter @unshelve/site-search test
 ```
 
-Node runs the tests on the `.ts` files themselves, so it must be Node 22.18 or newer. That is also why the files import each other with the `.ts` extension.
+Node runs the tests on the `.ts` files themselves, so it must be Node 22.18 or newer. That is also why the files import each other with the `.ts` extension. Node cannot run a `.tsx` file, so the end-to-end tests of `examples/site` test the component, in Google Chrome:
+
+```bash
+pnpm --filter @unshelve/example-site test:e2e
+```
 
 ## When a test fails
 

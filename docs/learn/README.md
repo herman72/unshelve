@@ -57,7 +57,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 43 | [Publishing to a git repository](43-git-target.md) | How the worker commits the feed into the repository of your site, why each try starts from the server, what happens when two writers push at once, and how a deploy key and pinned host keys keep the push safe | |
 | 44 | [Publishing to object storage](44-object-storage-target.md) | How the worker puts the feed into a bucket of R2 or S3, how a signature proves each request without the secret on the network, how the answers of AWS check our signature, and what the bucket needs from you | |
 | 45 | [Publishing an item, with its preview](45-publishing-an-item.md) | How the preview of a public record is the publication itself, rolled back in a savepoint, why you publish exactly the record that you saw, and how an item keeps its public name and time | |
-| 46 | [Searching the feed on the site](46-site-search.md) | How the feed gets a version and a schema, how the browser normalises text exactly as the server does, tested for each character of Unicode, and what the search of the site does differently | |
+| 46 | [Searching the feed on the site](46-site-search.md) | How the feed gets a version and a schema, how the browser normalises text exactly as the server does, tested for each character of Unicode, how a component shows the search on a Next.js page, and what a site needs for it | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 
