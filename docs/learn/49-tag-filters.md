@@ -36,6 +36,8 @@ export function withTag(search: Search, slug: string): Search {
 
 **From the first page.** The new search has no cursor. A cursor belongs to one search (part 3 of [note 48](48-unread-only.md)). So a click on a tag on page 2 opens page 1 of the narrowed search.
 
+**The overview** reads the same items as the results: the panel sends the tags with the other filters (part 1 of [note 39](39-overview-with-citations.md)).
+
 **A tag that is a filter already** is no link, because a click would give the same search. The page marks it with a stronger border, and a screen reader reads "(a filter of this search)".
 
 **A comparison from daily life:** the catalogue of a library. Under each book, its subjects are links. You click "Job queues", and the catalogue shows only the books with that subject, still for the words that you searched.
@@ -94,7 +96,6 @@ A box for each tag would look like the boxes of the statuses. But the statuses a
 - **Name or slug?** The link carries the slug. The made-up item 2 has a tag whose name is not its slug, so a link with the name fails a test.
 - **Can the tests fail?** Yes. I put 17 typical mistakes into the new code, one at a time, and each one made a named test fail.
 - **What is not done:**
-  - the overview does not filter by tag. Its API takes the status and "Unread only", but no kind, no goal and no tag, and the panel says so;
   - the form shows the slug of a tag filter, not its name: the address has only the slug, and `GET /api/v1/tags` is not built yet.
 
 ## Exercise (10 minutes)

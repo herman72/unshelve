@@ -87,7 +87,7 @@ A box without a `value` sends `on`. The box of the form has `value="true"`, so t
 
 The link "More results" keeps the box. A new search from the form keeps it too, because the box is a field of the form. Back shows the search before, with the box as it was.
 
-**The overview reads the same items.** The panel sends `"unread": true` with the question, so the model does not read the items that you read. The panel also says which of your filters it uses: "only the status and “Unread only” apply".
+**The overview reads the same items.** The panel sends `"unread": true` with the question, so the model does not read the items that you read.
 
 ## 5. The type check found the client
 
