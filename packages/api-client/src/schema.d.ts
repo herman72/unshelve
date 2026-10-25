@@ -1095,6 +1095,12 @@ export interface components {
              * @description One of these statuses.
              */
             status?: components["schemas"]["ItemStatus"][] | null;
+            /**
+             * Unread
+             * @description true: only the items that you have not read, as in the search.
+             * @default false
+             */
+            unread: boolean;
         };
         /** OverviewSegment */
         OverviewSegment: {
@@ -2515,6 +2521,8 @@ export interface operations {
                 tag?: string[] | null;
                 /** @description Only the items that help this goal: a score of 2 or 3 after your verdict (a rejected score turns). An unknown goal finds nothing. */
                 goal_id?: number | null;
+                /** @description true: only the items that you have not read, those without read_at. An item keeps read_at when it leaves done, so this is not a status filter. false: read and unread items. */
+                unread?: boolean;
                 limit?: number;
                 cursor?: string | null;
             };

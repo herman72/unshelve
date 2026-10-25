@@ -5,6 +5,7 @@ The first test is the contract: the exact shape that the web app reads.
 """
 
 from collections.abc import AsyncGenerator, Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -17,7 +18,7 @@ from tests.search.corpus import Corpus, TopicEmbedder
 from unshelve.api.schemas import ItemSummary
 from unshelve.contracts.dto import CitedAnswer, SourceText
 from unshelve.contracts.errors import ProviderError
-from unshelve.db.models import Chunk, LLMCall
+from unshelve.db.models import Chunk, Item, LLMCall
 from unshelve.testing.fakes import FakeLLM, FakeLLMCall
 
 OVERVIEW = "/api/v1/search/overview"
@@ -116,6 +117,22 @@ async def test_the_limit_and_the_status_choose_the_items_that_are_read(
     assert [source["id"] for source in one["sources"]] == [corpus["queue"]]
     # No item of the corpus is done: nothing to read, so no answer and no cost.
     assert (done["segments"], done["sources"]) == ([], [])
+
+
+async def test_unread_only_leaves_out_the_items_that_you_read(
+    client: httpx.AsyncClient, corpus: Corpus, committed_db: Sessions
+) -> None:
+    async with committed_db() as db:
+        read_at = datetime(2026, 10, 18, 19, 0, tzinfo=UTC)
+        await db.execute(sa.update(Item).where(Item.id == corpus["queue"]).values(read_at=read_at))
+        await db.commit()
+
+    everything = await _overview(client, q="postgres")
+    unread = await _overview(client, q="postgres", unread=True)
+
+    queue, pgvector, rust = corpus["queue"], corpus["pgvector"], corpus["rust"]
+    assert [source["id"] for source in everything["sources"]] == [queue, pgvector, rust]
+    assert [source["id"] for source in unread["sources"]] == [pgvector, rust]
 
 
 async def test_when_the_model_cannot_answer_the_answer_is_503(
