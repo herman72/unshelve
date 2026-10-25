@@ -29,7 +29,7 @@ The rule "changing visibility shows the exact public record before the user conf
 - **The preview** makes the item public inside a savepoint, reads its record from `pub.items` as the publisher role, and rolls the savepoint back, with the role. The preview is the record of the feed by construction.
 - **Publishing** takes the record that the owner saw. The item becomes public only when the record that it would have now is the same, byte for byte; otherwise the answer is a 409 and nothing changes.
 - **The name and the time** of a public item (`public_slug`, `published_at`) are kept for good. Made private and public again, the item has the same name and its first time.
-- **Each change** queues one publish job for the owner, which waits 30 seconds, so a series of changes gives one publish.
+- **Each change** queues one publish job for the owner, which waits 30 seconds, so a series of changes gives one publish. The pipeline queues the same job when it makes a public item ready again (a new card or new tags change its record).
 
 ## Consequences
 
