@@ -72,7 +72,7 @@ A page reads the texts of its items only. A snippet reads a whole text, so this 
 
 ## 2. Filters act inside each query
 
-A search can have filters: `status`, `kind`, `tag` and `goal_id`. Each retriever puts them into its SQL `WHERE`. The filter acts before the list is cut at 50, not after.
+A search can have filters: `status`, `kind`, `tag`, `goal_id` and `unread`. Each retriever puts them into its SQL `WHERE`. The filter acts before the list is cut at 50, not after.
 
 An example from the tests. The best match for "postgres" is the job queue, and you archived it. You want the items of your inbox, one of them:
 
@@ -93,6 +93,7 @@ The rules of the filters:
 | `kind=article` | has one of these kinds |
 | `tag=databases&tag=queues` | has each of these tags: both |
 | `goal_id=4` | helps the goal: a score of 2 or 3 after your verdict, with the rule of the digest ([note 34](34-choosing-a-digest.md)): a rejected score turns |
+| `unread=true` | has no read time: you did not read it ([note 48](48-unread-only.md)) |
 
 A goal or a tag that does not exist finds no item. It is no error.
 
