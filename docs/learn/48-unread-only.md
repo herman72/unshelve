@@ -121,7 +121,7 @@ Nobody asked for "only the items that I read". A field with three values can com
 - **Can the tests fail?** Yes. I put 22 typical mistakes into the new code, one at a time: 13 in the API and 9 in the web app. Each one made a named test fail. Before the run, I read each mistake against the tests, and three checks were missing: a filter that is on when nobody asks for it (in the retrievers, and in the overview), and the value `unread=false` in the address. I added them first.
 - **What is not done:**
   - no filter for "only the items that I read";
-  - the tags of a hit as filters ([#108](https://github.com/herman72/unshelve/issues/108)).
+  - the tags of a hit as filters: [note 49](49-tag-filters.md).
 
 ## Exercise (10 minutes)
 
@@ -160,4 +160,4 @@ Which test fails? Why does the other test pass?
 - [`<input type="checkbox">`](https://developer.mozilla.org/en-US/docs/Web/HTML/Reference/Elements/input/checkbox), MDN. Read "Value": a box without a `value` sends `on`, and a box that is not ticked sends nothing.
 - [CLI](https://openapi-ts.dev/cli), openapi-typescript documentation. Read the flag `--default-non-nullable`: a field with a default is required in a request body, but not in the parameters.
 
-Previous: [47. Running Unshelve on a server](47-running-on-a-server.md) · Back to the [list of notes](README.md)
+Previous: [47. Running Unshelve on a server](47-running-on-a-server.md) · Next: [49. Tags as filters](49-tag-filters.md) · Back to the [list of notes](README.md)

@@ -60,6 +60,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 46 | [Searching the feed on the site](46-site-search.md) | How the feed gets a version and a schema, how the browser normalises text exactly as the server does, tested for each character of Unicode, how a component shows the search on a Next.js page, and what a site needs for it | |
 | 47 | [Running Unshelve on a server](47-running-on-a-server.md) | How one short file of changes turns the local stack into a server stack, how Caddy gets the certificate and is the only open door, how CI runs each step of the quickstart on a fresh clone, and the bug that the first run found | |
 | 48 | [Unread only](48-unread-only.md) | How the search page hides the items that you read, why "read" is a time and not a status, why the cursor holds the filter, and how the type check found the one client that had to send it | |
+| 49 | [Tags as filters](49-tag-filters.md) | How a tag of a hit becomes one more filter of the same search, why the form keeps each tag as a hidden field and removes it with a link, and why the page does not trust a tag that it did not check | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 
