@@ -1,6 +1,6 @@
 # 39. An overview with citations
 
-> Pull request: [#100](https://github.com/herman72/unshelve/pull/100) · Code: [`search/overview.py`](../../apps/api/src/unshelve/search/overview.py), [`providers/claude.py`](../../apps/api/src/unshelve/providers/claude.py), [`providers/ledger.py`](../../apps/api/src/unshelve/providers/ledger.py) · Tests: [`tests/search/test_overview.py`](../../apps/api/tests/search/test_overview.py), [`tests/providers/test_claude.py`](../../apps/api/tests/providers/test_claude.py), [`tests/api/test_overview.py`](../../apps/api/tests/api/test_overview.py)
+> Pull requests: [#100](https://github.com/herman72/unshelve/pull/100) (the overview), [#120](https://github.com/herman72/unshelve/pull/120) (the filters of the search) · Code: [`search/overview.py`](../../apps/api/src/unshelve/search/overview.py), [`api/search_views.py`](../../apps/api/src/unshelve/api/search_views.py), [`providers/claude.py`](../../apps/api/src/unshelve/providers/claude.py), [`providers/ledger.py`](../../apps/api/src/unshelve/providers/ledger.py) · Tests: [`tests/search/test_overview.py`](../../apps/api/tests/search/test_overview.py), [`tests/providers/test_claude.py`](../../apps/api/tests/providers/test_claude.py), [`tests/api/test_overview.py`](../../apps/api/tests/api/test_overview.py)
 
 ## In one minute
 
@@ -36,6 +36,18 @@ Each passage is one chunk of the active set of vectors. For the question "postgr
 The weekend notes are a hit of search too, but they have no chunk yet. Nothing of them could be cited, so the model does not read them.
 
 The pieces go to the model in the order of the text, not in the order of their rank. A piece from the middle of an article reads better after a piece from its start.
+
+**The same filters as the search.** The request of the overview has the words and the five filters of the search: `status`, `kind`, `tag`, `goal_id` and `unread` ([notes 38](38-search-api.md), [48](48-unread-only.md) and [49](49-tag-filters.md)). Both requests get these fields from one model, `SearchFields`. One function, `filters_of`, turns them into the filters of the retrievers for both. So for `q=postgres&kind=pdf&tag=queues`, the model reads the best items of the list that the search page shows, and no other items.
+
+| | Before | Now |
+|---|---|---|
+| The fields of the overview | the words, `status` and `unread` | the words and each filter of the search |
+| The filters of the retrievers | built in two places | built by `filters_of`, for both requests |
+| A new filter of the search | is not a filter of the overview | is a filter of the overview too |
+
+**A comparison from daily life:** the order slip of [note 41](41-search-page.md). Before, the kitchen read the whole slip, but the bill used only some lines of it. Now the kitchen and the bill read the same slip.
+
+A test sends four sets of filters to both endpoints. For each set, the overview reads exactly the hits of the search that have a chunk, in the same order. A second test fails when the search gets a field that the overview does not have.
 
 ## 2. Native citations
 
@@ -117,6 +129,7 @@ My estimate for 12 items: a card is about 150 tokens, and a piece about 400. Tha
 
 ## What a senior engineer checks here
 
+- **Does the overview read the items of the results?** Yes. The two requests share one model and one function for the filters, and a test compares the overview with the search for four sets of filters. I put 9 typical mistakes into that change, one at a time, and each one made a named test fail. One of them, a `filters_of` that drops the kind, failed only the new test: before it, no test of the search or of the API sent `kind` through the API.
 - **The rule of the issue has its own test.** For each citation of an answer, the test checks four things. The chunk exists, it belongs to its item and to the active set, it holds the quote, and the model read it.
 - **No transaction during a call of the model.** The model can take seconds. A test asks the session during the call: no transaction is open (the same rule as for the embedder in [note 38](38-search-api.md)).
 - **No question without a passage.** When no item has a chunk, no model is asked, and the answer is empty: no cost.

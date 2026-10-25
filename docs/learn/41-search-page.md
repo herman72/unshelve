@@ -123,7 +123,7 @@ stateDiagram-v2
 
 **Numbers next to Persian text.** A screenshot of the first version showed [2] on the wrong side of the Persian statement, next to [1]. The Unicode rules for the direction of text put digits that follow Persian letters into the right-to-left run of those letters. So the browser drew [2] at the left end of the Persian sentence. Each number now has `dir="ltr"`: the browser places it as one unit, after its statement. A test measures the positions: [2] must stand to the right of the Persian statement.
 
-**Filters.** The API of the overview takes the status and "Unread only" ([note 48](48-unread-only.md)), but no kind, no goal and no tag ([note 49](49-tag-filters.md)). When you set one of those, the panel says that only the status and "Unread only" apply.
+**Filters.** The overview reads the same items as the results. The panel sends the words and each filter of the search, and the API reads them with the same function as the search (part 1 of [note 39](39-overview-with-citations.md)).
 
 **Focus.** The button disappears with the answer. The focus moves to the answer, so a keyboard or a screen reader goes on from there, not from the top of the page.
 
