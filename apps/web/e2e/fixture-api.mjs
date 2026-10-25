@@ -28,6 +28,7 @@ import { createServer } from "node:http";
 /** @typedef {import("@unshelve/api-client").components["schemas"]["GoalOut"]} GoalOut */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["GoalScore"]} GoalScore */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["DigestPick"]} DigestPick */
+/** @typedef {import("@unshelve/api-client").components["schemas"]["PublicItem"]} PublicItem */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["ItemKind"]} ItemKind */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["SearchHit"]} SearchHit */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["SearchPage"]} SearchPage */
@@ -339,6 +340,59 @@ let searchPageSize = 20;
 /** For a test: the detail of a 503, as when the model has no key or the budget is used. */
 /** @type {string | null} */
 let overviewFailure = null;
+/** @type {{ id: number, visibility: string, record: unknown }[]} each change of visibility, in order */
+let visibilities = [];
+
+/**
+ * The public name of an item, as the real API makes it: lowercase words of letters and digits
+ * of any script, joined by hyphens, at most 60 characters; "item" for a title without them.
+ *
+ * @param {string | null} title
+ */
+function publicNameOf(title) {
+  const text = (title ?? "").normalize("NFKC").toLowerCase().replace(/\p{Mn}/gu, "");
+  const words = text.split(/[^\p{L}\p{N}\p{Mc}]+/u).filter(Boolean);
+  if (words.length === 0) return "item";
+  let name = words[0].slice(0, 60);
+  for (const word of words.slice(1)) {
+    if (name.length + 1 + word.length > 60) break;
+    name = `${name}-${word}`;
+  }
+  return name;
+}
+
+/** Now, as a time of the feed: UTC, to the second. */
+const nowInTheFeed = () => new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+
+/**
+ * The record that the feed would hold for the item, as GET .../public-preview gives it. Only
+ * the public tags, and the public note.
+ *
+ * @param {ItemDetail} item
+ * @param {string} name
+ * @param {string} publishedAt
+ * @returns {PublicItem}
+ */
+function publicRecordOf(item, name, publishedAt) {
+  return {
+    id: name,
+    kind: item.kind,
+    title: item.title,
+    url: item.url,
+    author: item.author,
+    site: item.site,
+    lang: item.lang,
+    summary: item.summary,
+    key_points: item.key_points,
+    est_minutes: item.est_minutes,
+    note: item.public_note,
+    published_at: publishedAt,
+    tags: item.tags
+      .filter((tag) => tag.is_public)
+      .map((tag) => tag.slug)
+      .sort(),
+  };
+}
 
 /**
  * The made-up picks of a digest: the item for the focus goal, a recent item, a random pick.
@@ -562,10 +616,11 @@ const server = createServer(async (request, response) => {
     vectorSearch = "used";
     searchPageSize = 20;
     overviewFailure = null;
+    visibilities = [];
     return send(response, 200, {});
   }
   if (request.method === "GET" && path === "/__calls") {
-    const calls = { reprocessed, moves, verdicts, digestMinutes, searches, overviews };
+    const calls = { reprocessed, moves, verdicts, digestMinutes, searches, overviews, visibilities };
     return send(response, 200, calls);
   }
   if (request.method === "POST" && path === "/__search") {
@@ -797,6 +852,48 @@ const server = createServer(async (request, response) => {
     // Newest first, as in the real API.
     const found = events.filter((entry) => entry.itemId === id).map((entry) => entry.event);
     return send(response, 200, { items: found.reverse(), next_cursor: null });
+  }
+
+  match = /^\/api\/v1\/items\/(\d+)\/public-preview$/.exec(path);
+  if (request.method === "GET" && match) {
+    const id = Number(match[1]);
+    const item = items.find((candidate) => candidate.id === id);
+    if (!item) return problem(response, 404, "Not Found", "no such item");
+    if (item.duplicate_of_id !== null) {
+      const detail = `the item is a copy of item ${item.duplicate_of_id}: publish that one`;
+      return problem(response, 409, "Conflict", detail);
+    }
+    const name = item.public_slug ?? publicNameOf(item.title);
+    return send(response, 200, publicRecordOf(item, name, item.published_at ?? nowInTheFeed()));
+  }
+
+  match = /^\/api\/v1\/items\/(\d+)\/visibility$/.exec(path);
+  if (request.method === "PUT" && match) {
+    const id = Number(match[1]);
+    const item = items.find((candidate) => candidate.id === id);
+    if (!item) return problem(response, 404, "Not Found", "no such item");
+    const body = await jsonBody(request);
+    visibilities.push({ id, visibility: String(body.visibility), record: body.record ?? null });
+    if (body.visibility === "private") {
+      item.visibility = "private";
+      return send(response, 200, { visibility: "private", public: null });
+    }
+    const seen = /** @type {PublicItem | undefined} */ (body.record ?? undefined);
+    if (!seen) {
+      const detail = "publishing needs the record of the preview: ask for the preview first";
+      return problem(response, 422, "Unprocessable Content", detail);
+    }
+    // As the real API: the record of now must be the record that the owner saw.
+    const name = item.public_slug ?? seen.id;
+    const record = publicRecordOf(item, name, item.published_at ?? seen.published_at ?? "");
+    if (JSON.stringify(record) !== JSON.stringify(seen)) {
+      const detail = "the public record changed after the preview: look at the new preview";
+      return problem(response, 409, "Conflict", detail);
+    }
+    item.visibility = "public";
+    item.public_slug = record.id;
+    item.published_at = record.published_at;
+    return send(response, 200, { visibility: "public", public: record });
   }
 
   match = /^\/api\/v1\/items\/(\d+)\/reprocess$/.exec(path);
