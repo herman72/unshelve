@@ -1,6 +1,7 @@
 packages:
   - apps/web
   - packages/*
+  - examples/*
 
 # Dependencies whose install scripts are not needed (pnpm asks otherwise).
 ignoredBuiltDependencies:
