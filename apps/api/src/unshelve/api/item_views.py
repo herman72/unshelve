@@ -7,7 +7,7 @@ caller: it is not in a list, and asking for it by id is a 404.
 import base64
 import json
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import sqlalchemy as sa
@@ -31,10 +31,13 @@ from unshelve.api.schemas import (
     ItemPage,
     ItemSummary,
     LabelRequest,
+    PublicItem,
     Queue,
     TagRef,
+    VisibilityRequest,
+    VisibilityResult,
 )
-from unshelve.contracts.enums import Actor, EnrichState, ItemStatus, LabelSource
+from unshelve.contracts.enums import Actor, EnrichState, ItemStatus, LabelSource, Visibility
 from unshelve.contracts.states import (
     STATUS_TRANSITIONS,
     IllegalTransitionError,
@@ -42,6 +45,7 @@ from unshelve.contracts.states import (
 )
 from unshelve.db.models import Event, Goal, Item, ItemGoal, ItemTag, Tag, User
 from unshelve.ingest import resolve
+from unshelve.publish import feed, visibility
 from unshelve.relevance import labels
 from unshelve.resurface.plan import plan_digest
 from unshelve.track import status
@@ -393,6 +397,50 @@ async def preview_digest(
 # An item in these states has no step running, so it can start again. In the other states a
 # step is at work, and a second start would only race with it.
 REPROCESSABLE = frozenset({EnrichState.READY, EnrichState.FAILED})
+
+
+# --- Publishing --------------------------------------------------------------------------
+
+
+async def public_preview(db: AsyncSession, owner_id: int, item_id: int) -> PublicItem:
+    """The record that the feed would hold for the item if it were published now (docs/learn/45).
+    The preview is made by the path of the feed in a savepoint, and nothing is saved."""
+    try:
+        record = await visibility.preview(db, owner_id, item_id, now=datetime.now(UTC))
+    except visibility.NoSuchItemError as error:
+        raise NotFoundError("no such item") from error
+    except visibility.NotPublishableError as error:
+        raise ConflictError(str(error)) from error
+    return PublicItem.model_validate(record)
+
+
+async def set_visibility(
+    db: AsyncSession, owner_id: int, item_id: int, request: VisibilityRequest
+) -> VisibilityResult:
+    """Publish the item with the record of its preview, or make it private. The caller commits."""
+    try:
+        if request.visibility == Visibility.PRIVATE:
+            await visibility.unpublish(db, owner_id, item_id)
+            return VisibilityResult(visibility=Visibility.PRIVATE, public=None)
+        if request.record is None:  # cannot happen: the schema asks for it
+            raise InvalidInputError("publishing needs the record of the preview")
+        record = await visibility.publish(
+            db, owner_id, item_id, _as_record(request.record), now=datetime.now(UTC)
+        )
+    except visibility.NoSuchItemError as error:
+        raise NotFoundError("no such item") from error
+    except (visibility.NotPublishableError, visibility.StalePreviewError) as error:
+        raise ConflictError(str(error)) from error
+    return VisibilityResult(visibility=Visibility.PUBLIC, public=PublicItem.model_validate(record))
+
+
+def _as_record(item: PublicItem) -> feed.Record:
+    """The record of a preview in the form of the feed: its fields in their order, and its time
+    in UTC to the second. So a record that a browser sends back gives the same bytes."""
+    values = item.model_dump(mode="json")
+    if item.published_at is not None:
+        values["published_at"] = feed.time_text(item.published_at)
+    return {name: values[name] for name in feed.FIELDS}
 
 
 async def reprocess_item(db: AsyncSession, owner_id: int, item_id: int) -> None:

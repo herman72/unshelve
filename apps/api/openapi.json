@@ -2158,6 +2158,17 @@
       "VisibilityRequest": {
         "additionalProperties": false,
         "properties": {
+          "record": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicItem"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "To publish: the record of the preview, as it was shown. The item becomes public with exactly this record, or the answer is a 409 and nothing changes."
+          },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"
           }
@@ -3537,7 +3548,7 @@
     },
     "/api/v1/items/{item_id}/public-preview": {
       "get": {
-        "description": "Exactly what the public feed would contain for this item, shown before publishing.",
+        "description": "Exactly what the public feed would hold for this item if it were published now, shown\nbefore publishing. Nothing is saved. A copy of another item cannot be published: 409.",
         "operationId": "get_public_preview",
         "parameters": [
           {
@@ -3581,6 +3592,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {
@@ -3855,7 +3876,7 @@
     },
     "/api/v1/items/{item_id}/visibility": {
       "put": {
-        "description": "Publish the item or make it private again.",
+        "description": "Publish the item with the record of its preview, or make it private again.\n\nThe item becomes public only with the record that the owner saw: if the record changed\nafter the preview, or the preview is more than an hour old, the answer is a 409 and\nnothing changes. The same visibility again is no error.",
         "operationId": "set_item_visibility",
         "parameters": [
           {
@@ -3909,6 +3930,16 @@
               }
             },
             "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Conflict"
           },
           "422": {
             "content": {

@@ -89,16 +89,27 @@ async def transition_item(
     return await item_views.get_item(db, user.id, item_id)
 
 
-@router.get("/items/{item_id}/public-preview", responses=problems(401, 404, 422))
-async def get_public_preview(item_id: ItemId) -> PublicItem:
-    """Exactly what the public feed would contain for this item, shown before publishing."""
-    raise NotImplementedYetError
+@router.get("/items/{item_id}/public-preview", responses=problems(401, 404, 409, 422))
+async def get_public_preview(item_id: ItemId, user: CurrentUserDep, db: DbDep) -> PublicItem:
+    """Exactly what the public feed would hold for this item if it were published now, shown
+    before publishing. Nothing is saved. A copy of another item cannot be published: 409."""
+    return await item_views.public_preview(db, user.id, item_id)
 
 
-@router.put("/items/{item_id}/visibility", responses=problems(401, 404, 422))
-async def set_item_visibility(item_id: ItemId, body: VisibilityRequest) -> VisibilityResult:
-    """Publish the item or make it private again."""
-    raise NotImplementedYetError
+@router.put("/items/{item_id}/visibility", responses=problems(401, 404, 409, 422))
+async def set_item_visibility(
+    item_id: ItemId, body: VisibilityRequest, user: CurrentUserDep, db: DbDep
+) -> VisibilityResult:
+    """Publish the item with the record of its preview, or make it private again.
+
+    The item becomes public only with the record that the owner saw: if the record changed
+    after the preview, or the preview is more than an hour old, the answer is a 409 and
+    nothing changes. The same visibility again is no error.
+    """
+    result = await item_views.set_visibility(db, user.id, item_id, body)
+    # The visibility, its event and the publish job are saved together.
+    await db.commit()
+    return result
 
 
 @router.post("/items/{item_id}/reprocess", status_code=202, responses=problems(401, 404, 409, 422))
