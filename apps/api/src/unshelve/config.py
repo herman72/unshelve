@@ -3,10 +3,19 @@
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr
+from pydantic import BeforeValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _number_from_text(value: object) -> object:
+    """An environment variable is text, and a choice of numbers (a Literal) does not turn
+    "1024" into 1024 by itself. Digits become their number; any other value stays as it is, so
+    that the error names the allowed numbers."""
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value)
+    return value
 
 
 class Settings(BaseSettings):
@@ -62,7 +71,7 @@ class Settings(BaseSettings):
     # asks Voyage AI with VOYAGE_API_KEY, with this model and this length of vector.
     embedder: Literal["fake", "voyage"] = "fake"
     embed_model: str = "voyage-4-large"
-    embed_dim: Literal[256, 512, 1024, 2048] = 1024
+    embed_dim: Annotated[Literal[256, 512, 1024, 2048], BeforeValidator(_number_from_text)] = 1024
     # The usual name of the key, without the UNSHELVE_ prefix.
     voyage_api_key: SecretStr | None = Field(default=None, validation_alias="VOYAGE_API_KEY")
 
