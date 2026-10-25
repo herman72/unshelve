@@ -312,7 +312,8 @@ export interface paths {
         };
         /**
          * Get Public Preview
-         * @description Exactly what the public feed would contain for this item, shown before publishing.
+         * @description Exactly what the public feed would hold for this item if it were published now, shown
+         *     before publishing. Nothing is saved. A copy of another item cannot be published: 409.
          */
         get: operations["get_public_preview"];
         put?: never;
@@ -397,7 +398,11 @@ export interface paths {
         get?: never;
         /**
          * Set Item Visibility
-         * @description Publish the item or make it private again.
+         * @description Publish the item with the record of its preview, or make it private again.
+         *
+         *     The item becomes public only with the record that the owner saw: if the record changed
+         *     after the preview, or the preview is more than an hour old, the answer is a 409 and
+         *     nothing changes. The same visibility again is no error.
          */
         put: operations["set_item_visibility"];
         post?: never;
@@ -1301,6 +1306,8 @@ export interface components {
         Visibility: "private" | "public";
         /** VisibilityRequest */
         VisibilityRequest: {
+            /** @description To publish: the record of the preview, as it was shown. The item becomes public with exactly this record, or the answer is a 409 and nothing changes. */
+            record?: components["schemas"]["PublicItem"] | null;
             visibility: components["schemas"]["Visibility"];
         };
         /** VisibilityResult */
@@ -2155,6 +2162,15 @@ export interface operations {
                     "application/json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
             /** @description Unprocessable Content */
             422: {
                 headers: {
@@ -2372,6 +2388,15 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -187,10 +187,6 @@ class TransitionRequest(Request):
     to: ItemStatus
 
 
-class VisibilityRequest(Request):
-    visibility: Visibility
-
-
 class PublicItem(Response):
     """Exactly what the public feed contains for an item. Mirrors the pub.items view."""
 
@@ -207,6 +203,24 @@ class PublicItem(Response):
     note: str | None
     published_at: AwareDatetime | None
     tags: list[str]
+
+
+class VisibilityRequest(Request):
+    visibility: Visibility
+    record: PublicItem | None = Field(
+        default=None,
+        description=(
+            "To publish: the record of the preview, as it was shown. The item becomes public "
+            "with exactly this record, or the answer is a 409 and nothing changes."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _record_to_publish(self) -> "VisibilityRequest":
+        if self.visibility == Visibility.PUBLIC and self.record is None:
+            msg = "publishing needs the record of the preview: ask for the preview first"
+            raise ValueError(msg)
+        return self
 
 
 class VisibilityResult(Response):
