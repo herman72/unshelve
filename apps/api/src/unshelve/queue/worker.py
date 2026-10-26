@@ -120,21 +120,25 @@ class Worker:
     # --- One job -------------------------------------------------------------------------
 
     async def _run(self, job: ClaimedJob) -> None:
-        events = log.bind(job_id=job.id, kind=job.kind.value, attempt=job.attempts)
-        started = time.monotonic()
-        try:
-            failure = await self._attempt(job)
-            state = await self._settle(job, failure)
-        except LeaseLostError:
-            # Another worker has the job now. Its result counts, so this one is thrown away.
-            events.warning("job.lease_lost")
-            return
-        events.info(
-            "job.finished",
-            state=state.value,
-            seconds=round(time.monotonic() - started, 3),
-            error=failure.error if failure else None,
-        )
+        # Each line that is logged during the job names the job: the lines of the handler, of
+        # the model ledger and of the libraries too. The handler task copies this context.
+        with structlog.contextvars.bound_contextvars(
+            job_id=job.id, kind=job.kind.value, attempt=job.attempts
+        ):
+            started = time.monotonic()
+            try:
+                failure = await self._attempt(job)
+                state = await self._settle(job, failure)
+            except LeaseLostError:
+                # Another worker has the job now. Its result counts, so this one is thrown away.
+                log.warning("job.lease_lost")
+                return
+            log.info(
+                "job.finished",
+                state=state.value,
+                seconds=round(time.monotonic() - started, 3),
+                error=failure.error if failure else None,
+            )
 
     async def _attempt(self, job: ClaimedJob) -> _Failure | None:
         """Run the handler. Returns None when it succeeded, or what went wrong."""

@@ -6,7 +6,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import sqlalchemy as sa
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from structlog.testing import capture_logs
 
 from unshelve.config import Settings
 from unshelve.contracts.enums import JobKind, JobState
@@ -97,6 +99,38 @@ async def test_a_worker_takes_only_the_kinds_it_has_a_handler_for(committed_db: 
 
     assert await make_worker(committed_db, Registry()).run_one() is False
     assert (await row(committed_db, job_id)).state is JobState.PENDING
+
+
+# --- What the log says -------------------------------------------------------------------
+
+
+async def test_each_line_that_a_job_logs_names_the_job(committed_db: Sessions) -> None:
+    registry = Registry()
+
+    @registry.handler(JobKind.FETCH_ITEM)
+    async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:  # pyright: ignore[reportUnusedFunction]
+        structlog.get_logger().info("fetch.try")
+        if ctx.job.attempts == 1:
+            raise Retry("the site answered 503", after=timedelta(0))
+
+    job_id = await add(committed_db)
+    worker = make_worker(committed_db, registry)
+
+    with capture_logs(processors=[structlog.contextvars.merge_contextvars]) as lines:
+        await worker.run_one()
+        await worker.run_one()
+        structlog.get_logger().info("worker.idle")
+
+    named = [
+        (line["event"], line.get("job_id"), line.get("kind"), line.get("attempt")) for line in lines
+    ]
+    assert named == [
+        ("fetch.try", job_id, "fetch_item", 1),
+        ("job.finished", job_id, "fetch_item", 1),
+        ("fetch.try", job_id, "fetch_item", 2),
+        ("job.finished", job_id, "fetch_item", 2),
+        ("worker.idle", None, None, None),  # the job has ended, and its names with it
+    ]
 
 
 # --- How a handler reports a problem -----------------------------------------------------
