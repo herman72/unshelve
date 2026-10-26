@@ -62,6 +62,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 48 | [Unread only](48-unread-only.md) | How the search page hides the items that you read, why "read" is a time and not a status, why the cursor holds the filter, and how the type check found the one client that had to send it | |
 | 49 | [Tags as filters](49-tag-filters.md) | How a tag of a hit becomes one more filter of the same search, why the form keeps each tag as a hidden field and removes it with a link, and why the page does not trust a tag that it did not check | |
 | 51 | [Logs, job stats and the cost of each task](51-logs-and-stats.md) | How one request shows the queue depth, the failures and what each task of the model cost, why a dead job is not in the depth, how the lines of the libraries become JSON too, and how each line of a job names the job | |
+| 52 | [A page for the stats](52-stats-page.md) | How the web app shows the queue, the costs and the items of one moment, why one answer needs a limit to find a long wait, why the page tests the budget as the ledger does, and how a wide table scrolls in its own box on a phone | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 
