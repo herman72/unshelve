@@ -15,6 +15,7 @@ const PAGES = [
   "/search?q=postgres",
   "/queue",
   "/digest",
+  "/stats",
   "/login",
   "/dev/preview",
 ];
