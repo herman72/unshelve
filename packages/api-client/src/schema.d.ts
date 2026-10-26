@@ -528,7 +528,8 @@ export interface paths {
         };
         /**
          * Get Stats
-         * @description Items and jobs by state, how much was read lately, and what the model calls cost.
+         * @description Your items by state, the job queue with its depth and failures, and what the model calls
+         *     cost for each task. The queue and the costs are those of the whole instance.
          */
         get: operations["get_stats"];
         put?: never;
@@ -898,6 +899,36 @@ export interface components {
             next_cursor?: string | null;
         };
         /**
+         * ItemStats
+         * @description Your items, as the list of items has them: an item that duplicates another is left out.
+         */
+        ItemStats: {
+            /**
+             * By Enrich State
+             * @description Each state, also with 0 items.
+             */
+            by_enrich_state: {
+                [key: string]: number;
+            };
+            /**
+             * By Status
+             * @description Each status, also with 0 items.
+             */
+            by_status: {
+                [key: string]: number;
+            };
+            /**
+             * Median Unread Age Days
+             * @description The median age of the items that you have not read and not archived (no read_at, status not archived), in days since the last save. Null without such items.
+             */
+            median_unread_age_days: number | null;
+            /**
+             * Read Last 7 Days
+             * @description Items whose read_at is in the last 7 days.
+             */
+            read_last_7_days: number;
+        };
+        /**
          * ItemStatus
          * @description Reading state. Only the user changes it.
          * @enum {string}
@@ -979,6 +1010,47 @@ export interface components {
          * @enum {string}
          */
         JobKind: "ingest_capture" | "ingest_album" | "fetch_item" | "enrich_item" | "embed_item" | "score_item" | "send_digest" | "stale_sweep" | "publish_feed" | "collect_batch";
+        /**
+         * JobKindStats
+         * @description The jobs of one kind, by where they are in the queue.
+         */
+        JobKindStats: {
+            /**
+             * Dead
+             * @description Failed for good: its attempts are used up, or the error is permanent. No worker takes it again.
+             */
+            dead: number;
+            /** Dead Last 24 Hours */
+            dead_last_24_hours: number;
+            /** Done Last 24 Hours */
+            done_last_24_hours: number;
+            kind: components["schemas"]["JobKind"];
+            /**
+             * Oldest Ready Seconds
+             * @description How long the oldest ready job has waited for a worker. Null when no job is ready.
+             */
+            oldest_ready_seconds: number | null;
+            /**
+             * Ready
+             * @description Pending, and a worker can take it now.
+             */
+            ready: number;
+            /**
+             * Retrying
+             * @description Pending after a failed attempt. These jobs are also in ready or scheduled.
+             */
+            retrying: number;
+            /**
+             * Running
+             * @description A worker has it now.
+             */
+            running: number;
+            /**
+             * Scheduled
+             * @description Pending, but no worker takes it before a later time: a retry after a failed attempt, or a job that starts later.
+             */
+            scheduled: number;
+        };
         /** JobOut */
         JobOut: {
             /** Attempts */
@@ -1027,6 +1099,32 @@ export interface components {
          * @enum {string}
          */
         JobState: "pending" | "running" | "done" | "dead";
+        /**
+         * LLMCostStats
+         * @description What the model calls of the whole instance cost, from the ledger (``llm_calls``).
+         */
+        LLMCostStats: {
+            /**
+             * By Task
+             * @description The same 30 days for each task, the most expensive task first.
+             */
+            by_task: components["schemas"]["TaskCost"][];
+            /**
+             * Daily Budget Usd
+             * @description UNSHELVE_LLM_DAILY_BUDGET_USD. When today's spend reaches it, a new call waits for the next day.
+             */
+            daily_budget_usd: number;
+            /**
+             * Spent Last 30 Days Usd
+             * @description Since midnight 30 days before today, with the answers of batches.
+             */
+            spent_last_30_days_usd: number;
+            /**
+             * Spent Today Usd
+             * @description Since midnight in UNSHELVE_TIMEZONE, as the daily budget counts it: the answers of a batch are left out.
+             */
+            spent_today_usd: number;
+        };
         /** LabelRequest */
         LabelRequest: {
             /** @description Null removes the label. */
@@ -1196,6 +1294,32 @@ export interface components {
             used: number;
         };
         /**
+         * QueueStats
+         * @description The job queue of the whole instance: every job, whoever started it.
+         */
+        QueueStats: {
+            /**
+             * By Kind
+             * @description Each kind of job, in a fixed order.
+             */
+            by_kind: components["schemas"]["JobKindStats"][];
+            /**
+             * Dead
+             * @description The dead jobs of every kind.
+             */
+            dead: number;
+            /**
+             * Depth
+             * @description The jobs that the workers still have to do: ready, scheduled and running, of every kind. A dead job is not in it: no worker takes it again.
+             */
+            depth: number;
+            /**
+             * Oldest Ready Seconds
+             * @description The longest wait of a ready job, of every kind. A number that grows means that no worker takes jobs.
+             */
+            oldest_ready_seconds: number | null;
+        };
+        /**
          * RetrieverRanks
          * @description The position of the item in each retriever's result, before fusion. Null: not found.
          */
@@ -1273,26 +1397,21 @@ export interface components {
              */
             text: string;
         };
-        /** Stats */
+        /**
+         * Stats
+         * @description The numbers of one moment: your items, the job queue with its failures, and what the
+         *     model calls cost for each task.
+         */
         Stats: {
-            /** Items By Enrich State */
-            items_by_enrich_state: {
-                [key: string]: number;
-            };
-            /** Items By Status */
-            items_by_status: {
-                [key: string]: number;
-            };
-            /** Jobs By State */
-            jobs_by_state: {
-                [key: string]: number;
-            };
-            /** Llm Cost Usd Last 30 Days */
-            llm_cost_usd_last_30_days: number;
-            /** Median Unread Age Days */
-            median_unread_age_days: number | null;
-            /** Read Last 7 Days */
-            read_last_7_days: number;
+            /**
+             * As Of
+             * Format: date-time
+             * @description The moment of the numbers: the database clock.
+             */
+            as_of: string;
+            items: components["schemas"]["ItemStats"];
+            llm: components["schemas"]["LLMCostStats"];
+            queue: components["schemas"]["QueueStats"];
         };
         /** TagList */
         TagList: {
@@ -1318,6 +1437,25 @@ export interface components {
             name: string;
             /** Slug */
             slug: string;
+        };
+        /** TaskCost */
+        TaskCost: {
+            /**
+             * Calls
+             * @description Paid answers. A stored answer of the same question is free and not a call.
+             */
+            calls: number;
+            /** Cost Usd */
+            cost_usd: number;
+            /** Input Tokens */
+            input_tokens: number;
+            /** Output Tokens */
+            output_tokens: number;
+            /**
+             * Task
+             * @description What the calls were for, as the ledger names it: for example enrich_item, score_item, read_image or overview.
+             */
+            task: string;
         };
         /** TransitionRequest */
         TransitionRequest: {

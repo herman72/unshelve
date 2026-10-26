@@ -461,13 +461,98 @@ class TagList(Response):
     items: list[TagOut]
 
 
+class ItemStats(Response):
+    """Your items, as the list of items has them: an item that duplicates another is left out."""
+
+    by_status: dict[ItemStatus, int] = Field(description="Each status, also with 0 items.")
+    by_enrich_state: dict[EnrichState, int] = Field(description="Each state, also with 0 items.")
+    read_last_7_days: int = Field(description="Items whose read_at is in the last 7 days.")
+    median_unread_age_days: float | None = Field(
+        description="The median age of the items that you have not read and not archived (no "
+        "read_at, status not archived), in days since the last save. Null without such items."
+    )
+
+
+class JobKindStats(Response):
+    """The jobs of one kind, by where they are in the queue."""
+
+    kind: JobKind
+    ready: int = Field(description="Pending, and a worker can take it now.")
+    scheduled: int = Field(
+        description="Pending, but no worker takes it before a later time: a retry after a "
+        "failed attempt, or a job that starts later."
+    )
+    running: int = Field(description="A worker has it now.")
+    dead: int = Field(
+        description="Failed for good: its attempts are used up, or the error is permanent. No "
+        "worker takes it again."
+    )
+    retrying: int = Field(
+        description="Pending after a failed attempt. These jobs are also in ready or scheduled."
+    )
+    done_last_24_hours: int
+    dead_last_24_hours: int
+    oldest_ready_seconds: float | None = Field(
+        description="How long the oldest ready job has waited for a worker. Null when no job "
+        "is ready."
+    )
+
+
+class QueueStats(Response):
+    """The job queue of the whole instance: every job, whoever started it."""
+
+    depth: int = Field(
+        description="The jobs that the workers still have to do: ready, scheduled and running, "
+        "of every kind. A dead job is not in it: no worker takes it again."
+    )
+    dead: int = Field(description="The dead jobs of every kind.")
+    oldest_ready_seconds: float | None = Field(
+        description="The longest wait of a ready job, of every kind. A number that grows "
+        "means that no worker takes jobs."
+    )
+    by_kind: list[JobKindStats] = Field(description="Each kind of job, in a fixed order.")
+
+
+class TaskCost(Response):
+    task: str = Field(
+        description="What the calls were for, as the ledger names it: for example "
+        "enrich_item, score_item, read_image or overview."
+    )
+    calls: int = Field(
+        description="Paid answers. A stored answer of the same question is free and not a call."
+    )
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float
+
+
+class LLMCostStats(Response):
+    """What the model calls of the whole instance cost, from the ledger (``llm_calls``)."""
+
+    spent_today_usd: float = Field(
+        description="Since midnight in UNSHELVE_TIMEZONE, as the daily budget counts it: the "
+        "answers of a batch are left out."
+    )
+    daily_budget_usd: float = Field(
+        description="UNSHELVE_LLM_DAILY_BUDGET_USD. When today's spend reaches it, a new call "
+        "waits for the next day."
+    )
+    spent_last_30_days_usd: float = Field(
+        description="Since midnight 30 days before today, with the answers of batches."
+    )
+    by_task: list[TaskCost] = Field(
+        description="The same 30 days for each task, the most expensive task first."
+    )
+
+
 class Stats(Response):
-    items_by_status: dict[ItemStatus, int]
-    items_by_enrich_state: dict[EnrichState, int]
-    jobs_by_state: dict[JobState, int]
-    read_last_7_days: int
-    median_unread_age_days: float | None
-    llm_cost_usd_last_30_days: float
+    """The numbers of one moment: your items, the job queue with its failures, and what the
+    model calls cost for each task."""
+
+    as_of: AwareDatetime = Field(description="The moment of the numbers: the database clock.")
+    items: ItemStats
+    queue: QueueStats
+    llm: LLMCostStats
 
 
 class JobOut(Response):
