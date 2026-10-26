@@ -118,7 +118,16 @@ def version() -> None:
 @app.command()
 def api(host: str = "127.0.0.1", port: int = 8000, reload: bool = False) -> None:
     """Serve the HTTP API."""
-    uvicorn.run("unshelve.api.app:create_app", factory=True, host=host, port=port, reload=reload)
+    # No log configuration of uvicorn's own: its lines go to the handler of create_app, so
+    # that they are JSON lines too.
+    uvicorn.run(
+        "unshelve.api.app:create_app",
+        factory=True,
+        host=host,
+        port=port,
+        reload=reload,
+        log_config=None,
+    )
 
 
 @app.command()
