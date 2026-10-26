@@ -188,6 +188,22 @@ async def store_answer(
     )
 
 
+def start_of_day(now: datetime, zone: ZoneInfo) -> datetime:
+    """Midnight at the start of the day of ``now``, on the wall clock of ``zone``."""
+    return now.astimezone(zone).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+async def budget_spent(session: AsyncSession, *, since: datetime) -> Decimal:
+    """What the calls since ``since`` cost, as the daily budget counts it. The answers of a
+    batch are left out: you accepted the price of the batch by hand."""
+    spent = await session.scalar(
+        sa.select(sa.func.coalesce(sa.func.sum(LLMCall.cost_usd), 0)).where(
+            LLMCall.created_at >= since, LLMCall.batch_id.is_(None)
+        )
+    )
+    return Decimal(spent or 0)
+
+
 class CachedLLM:
     """An ``LLMProvider`` that asks ``inner`` only for a question that it has not stored."""
 
@@ -330,15 +346,8 @@ class CachedLLM:
         if self.budget_usd is None:
             return
         now = self._clock().astimezone(self._zone)
-        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        spent = await session.scalar(
-            sa.select(sa.func.coalesce(sa.func.sum(LLMCall.cost_usd), 0)).where(
-                LLMCall.created_at >= today,
-                # A batch was accepted by hand, with its price: it does not use the budget.
-                LLMCall.batch_id.is_(None),
-            )
-        )
-        if Decimal(spent or 0) >= self.budget_usd:
+        today = start_of_day(now, self._zone)
+        if await budget_spent(session, since=today) >= self.budget_usd:
             # Midnight on the wall clock of the next day. The difference is taken in UTC:
             # Python ignores a change of the clocks between two times of one time zone.
             tomorrow = today + timedelta(days=1)
