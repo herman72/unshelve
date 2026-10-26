@@ -110,3 +110,18 @@ export async function visibilities(request: APIRequestContext): Promise<Visibili
   const answer = await request.get(`${API_URL}/__calls`);
   return ((await answer.json()) as { visibilities: VisibilityCall[] }).visibilities;
 }
+
+type StatsChange = {
+  empty?: boolean;
+  by_kind?: ({ kind: string } & Record<string, unknown>)[];
+  llm?: Record<string, unknown>;
+  items?: Record<string, unknown>;
+};
+
+/**
+ * For the next answers of the stats: a new instance (`empty`), or other numbers for some kinds
+ * of job, for the costs or for the items. The pretend API adds the totals of the queue again.
+ */
+export async function changeStats(request: APIRequestContext, change: StatsChange): Promise<void> {
+  await request.post(`${API_URL}/__stats`, { data: change });
+}

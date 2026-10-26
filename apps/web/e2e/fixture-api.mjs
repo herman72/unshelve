@@ -10,6 +10,8 @@
 // while they fit the reading time; the choice itself is tested in the API. Search finds words
 // in the titles, the summaries and a few saved texts, and fuses three lists as the real API
 // does; the overview cites the items that search found. The ranking itself is tested in the API.
+// The stats are those of a busy afternoon, and the totals of the queue are added from its kinds
+// as the real API adds them; the queries themselves are tested in the API.
 //
 //     node e2e/fixture-api.mjs 3901
 //
@@ -34,6 +36,9 @@ import { createServer } from "node:http";
 /** @typedef {import("@unshelve/api-client").components["schemas"]["SearchPage"]} SearchPage */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["Overview"]} Overview */
 /** @typedef {import("@unshelve/api-client").components["schemas"]["SnippetPart"]} SnippetPart */
+/** @typedef {import("@unshelve/api-client").components["schemas"]["Stats"]} Stats */
+/** @typedef {import("@unshelve/api-client").components["schemas"]["JobKindStats"]} JobKindStats */
+/** @typedef {import("@unshelve/api-client").components["schemas"]["JobKind"]} JobKind */
 
 const port = Number(process.argv[2] ?? 3901);
 
@@ -319,6 +324,118 @@ function slugFor(title) {
 /** @param {GoalOut} goal */
 const meaningOf = (goal) => JSON.stringify([goal.title, goal.description, goal.keywords]);
 
+/** The kinds of job, in the order of the API (contracts/enums.py). */
+/** @type {JobKind[]} */
+const JOB_KINDS = [
+  "ingest_capture",
+  "ingest_album",
+  "fetch_item",
+  "enrich_item",
+  "embed_item",
+  "score_item",
+  "send_digest",
+  "stale_sweep",
+  "publish_feed",
+  "collect_batch",
+];
+
+/**
+ * The totals of the queue, as the API adds them from the kinds: the depth is ready, scheduled
+ * and running; a dead job is not in it.
+ *
+ * @param {JobKindStats[]} byKind
+ * @returns {Stats["queue"]}
+ */
+function queueOf(byKind) {
+  const sum = (/** @type {(kind: JobKindStats) => number} */ part) =>
+    byKind.reduce((total, kind) => total + part(kind), 0);
+  const waits = byKind.flatMap((kind) => kind.oldest_ready_seconds ?? []);
+  return {
+    depth: sum((kind) => kind.ready + kind.scheduled + kind.running),
+    dead: sum((kind) => kind.dead),
+    oldest_ready_seconds: waits.length ? Math.max(...waits) : null,
+    by_kind: byKind,
+  };
+}
+
+/**
+ * The cost of each task in the last 30 days, the most expensive first: the task, the calls, the
+ * input and output tokens, and the dollars. One read of an image costs less than a cent.
+ *
+ * @type {[string, number, number, number, number][]}
+ */
+const COSTS = [
+  ["enrich_item", 412, 1236000, 185400, 2.8104],
+  ["score_item", 640, 512000, 32000, 0.3215],
+  ["overview", 9, 27000, 3600, 0.0705],
+  ["read_image", 1, 1500, 120, 0.00027],
+];
+
+/**
+ * The answer of GET /api/v1/stats on a busy afternoon: 38 links came in, 2 of them failed for
+ * good, and 16 cards wait for a later try. `empty` is a new instance, with nothing in it yet.
+ *
+ * @param {{ empty?: boolean }} [options]
+ * @returns {Stats}
+ */
+function freshStats({ empty = false } = {}) {
+  /** @type {Partial<Record<JobKind, Partial<JobKindStats>>>} */
+  const busy = empty
+    ? {}
+    : {
+        ingest_capture: { done_last_24_hours: 38 },
+        fetch_item: { dead: 2, done_last_24_hours: 36, dead_last_24_hours: 2 },
+        enrich_item: { scheduled: 16, retrying: 16, done_last_24_hours: 20 },
+        embed_item: { ready: 1, running: 1, done_last_24_hours: 18, oldest_ready_seconds: 95 },
+        score_item: { done_last_24_hours: 18 },
+      };
+  const byKind = JOB_KINDS.map((kind) => ({
+    kind,
+    ready: 0,
+    scheduled: 0,
+    running: 0,
+    dead: 0,
+    retrying: 0,
+    done_last_24_hours: 0,
+    dead_last_24_hours: 0,
+    oldest_ready_seconds: null,
+    ...busy[kind],
+  }));
+  const zero = (/** @type {readonly string[]} */ keys) =>
+    Object.fromEntries(keys.map((key) => [key, 0]));
+  return {
+    as_of: "2026-10-26T14:00:05.250000Z",
+    queue: queueOf(byKind),
+    llm: empty
+      ? { spent_today_usd: 0, daily_budget_usd: 1, spent_last_30_days_usd: 0, by_task: [] }
+      : {
+          spent_today_usd: 0.4113,
+          daily_budget_usd: 1,
+          spent_last_30_days_usd: 3.20267,
+          by_task: COSTS.map(([task, calls, input_tokens, output_tokens, cost_usd]) => ({
+            task,
+            calls,
+            input_tokens,
+            output_tokens,
+            cost_usd,
+          })),
+        },
+    items: empty
+      ? {
+          by_status: zero(STATUSES),
+          by_enrich_state: zero(["pending", "fetched", "enriched", "ready", "failed"]),
+          read_last_7_days: 0,
+          median_unread_age_days: null,
+        }
+      : {
+          by_status: { inbox: 31, queued: 3, reading: 1, done: 12, archived: 4 },
+          by_enrich_state: { pending: 0, fetched: 16, enriched: 2, ready: 31, failed: 2 },
+          read_last_7_days: 5,
+          median_unread_age_days: 4.5,
+        },
+  };
+}
+
 let items = freshItems();
 let goals = freshGoals();
 /** @type {number[]} */
@@ -349,6 +466,7 @@ let searchPageSize = 20;
 let overviewFailure = null;
 /** @type {{ id: number, visibility: string, record: unknown }[]} each change of visibility, in order */
 let visibilities = [];
+let stats = freshStats();
 
 /**
  * The public name of an item, as the real API makes it: lowercase words of letters and digits
@@ -652,6 +770,7 @@ const server = createServer(async (request, response) => {
     searchPageSize = 20;
     overviewFailure = null;
     visibilities = [];
+    stats = freshStats();
     return send(response, 200, {});
   }
   if (request.method === "GET" && path === "/__calls") {
@@ -669,6 +788,19 @@ const server = createServer(async (request, response) => {
     // For a test: the model cannot answer, and the API says why.
     overviewFailure = /** @type {string | null} */ ((await jsonBody(request)).failure ?? null);
     return send(response, 200, {});
+  }
+  if (request.method === "POST" && path === "/__stats") {
+    // For a test: a new instance, or other numbers for some kinds, for the costs or the items.
+    const body = await jsonBody(request);
+    if (body.empty) stats = freshStats({ empty: true });
+    const kinds = /** @type {Partial<JobKindStats>[]} */ (body.by_kind ?? []);
+    for (const change of kinds) {
+      Object.assign(stats.queue.by_kind.find((kind) => kind.kind === change.kind) ?? {}, change);
+    }
+    stats.queue = queueOf(stats.queue.by_kind);
+    Object.assign(stats.llm, body.llm ?? {});
+    Object.assign(stats.items, body.items ?? {});
+    return send(response, 200, stats);
   }
   if (request.method === "POST" && path === "/__digest") {
     emptyDigest = Boolean((await jsonBody(request)).empty);
@@ -708,6 +840,10 @@ const server = createServer(async (request, response) => {
         item.duplicate_of_id === null && (statuses.length === 0 || statuses.includes(item.status)),
     );
     return send(response, 200, { items: found.map(summaryOf), next_cursor: null });
+  }
+
+  if (request.method === "GET" && path === "/api/v1/stats") {
+    return send(response, 200, stats);
   }
 
   if (request.method === "GET" && path === "/api/v1/queue") {
