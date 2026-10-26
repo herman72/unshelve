@@ -9,6 +9,7 @@ const LINKS = [
   { href: "/digest", label: "Digest" },
   { href: "/search", label: "Search" },
   { href: "/goals", label: "Goals" },
+  { href: "/stats", label: "Stats" },
 ] as const;
 
 function isActive(pathname: string | null, href: string): boolean {
@@ -26,13 +27,14 @@ function isActive(pathname: string | null, href: string): boolean {
 export function NavLinks({ pathname }: { pathname: string | null }) {
   return (
     <nav aria-label="Main">
-      <ul role="list" className="flex flex-wrap gap-1">
+      {/* On a phone, the padding of the links is the only space: six links then fit on 360 px. */}
+      <ul role="list" className="flex flex-wrap sm:gap-1">
         {LINKS.map(({ href, label }) => (
           <li key={href}>
             <Link
               href={href}
               aria-current={isActive(pathname, href) ? "page" : undefined}
-              className="block rounded-md px-3 py-2 text-sm text-muted hover:text-foreground aria-[current=page]:font-semibold aria-[current=page]:text-foreground aria-[current=page]:underline aria-[current=page]:underline-offset-4"
+              className="block rounded-md px-2 py-2 text-sm text-muted sm:px-3 hover:text-foreground aria-[current=page]:font-semibold aria-[current=page]:text-foreground aria-[current=page]:underline aria-[current=page]:underline-offset-4"
             >
               {label}
             </Link>
