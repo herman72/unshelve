@@ -4,7 +4,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from unshelve.api.deps import current_user
+from unshelve.api import stats_views
+from unshelve.api.deps import CurrentUserDep, DbDep, SettingsDep, current_user
 from unshelve.api.errors import NotImplementedYetError, problems
 from unshelve.api.routes.params import JobId
 from unshelve.api.schemas import JobListQuery, JobOut, JobPage, Stats, TagList
@@ -19,9 +20,10 @@ async def list_tags() -> TagList:
 
 
 @router.get("/stats", responses=problems(401))
-async def get_stats() -> Stats:
-    """Items and jobs by state, how much was read lately, and what the model calls cost."""
-    raise NotImplementedYetError
+async def get_stats(user: CurrentUserDep, db: DbDep, settings: SettingsDep) -> Stats:
+    """Your items by state, the job queue with its depth and failures, and what the model calls
+    cost for each task. The queue and the costs are those of the whole instance."""
+    return await stats_views.stats(db, user.id, settings)
 
 
 @router.get("/admin/jobs", responses=problems(401, 422))
