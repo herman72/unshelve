@@ -185,7 +185,7 @@ jobs:
       - name: The restore of the guide
         run: |
           bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-restore-files)"
-          test "$(tar -tf ~/unshelve-backup.tar | head -n 1)" = "db/$NAME/"
+          test "$(tar -tf ~/unshelve-backup.tar | sed -n 1p)" = "db/$NAME/"
           bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-restore-test)"
           bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-restore)"
       # The data check of the restore compared each fact before the start. After it, the worker
