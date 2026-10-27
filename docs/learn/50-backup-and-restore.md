@@ -1,6 +1,6 @@
 # 50. Backups, and a restore that is tested
 
-> Pull requests: [#123](https://github.com/herman72/unshelve/pull/123) (the backups), [#PR_B](https://github.com/herman72/unshelve/pull/PR_B) (the restore and the drill) · Decision: [ADR 0015](../adr/0015-backups-a-logical-dump-and-a-mirror-of-the-files.md) · Code: [`deploy/backup/`](../../deploy/backup), the service `backup` in [`deploy/compose.yaml`](../../deploy/compose.yaml) · Tests: [`tests/deploy/test_backup.py`](../../apps/api/tests/deploy/test_backup.py), [`test_restore.py`](../../apps/api/tests/deploy/test_restore.py), [`test_backup_compose.py`](../../apps/api/tests/deploy/test_backup_compose.py), [`test_backup_scripts.py`](../../apps/api/tests/deploy/test_backup_scripts.py)
+> Pull requests: [#123](https://github.com/herman72/unshelve/pull/123) (the backups), [#124](https://github.com/herman72/unshelve/pull/124) (the restore and the drill) · Decision: [ADR 0015](../adr/0015-backups-a-logical-dump-and-a-mirror-of-the-files.md) · Code: [`deploy/backup/`](../../deploy/backup), the service `backup` in [`deploy/compose.yaml`](../../deploy/compose.yaml) · Tests: [`tests/deploy/test_backup.py`](../../apps/api/tests/deploy/test_backup.py), [`test_restore.py`](../../apps/api/tests/deploy/test_restore.py), [`test_backup_compose.py`](../../apps/api/tests/deploy/test_backup_compose.py), [`test_backup_scripts.py`](../../apps/api/tests/deploy/test_backup_scripts.py)
 
 ## In one minute
 
