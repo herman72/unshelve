@@ -28,7 +28,14 @@ _config = compose_config
 
 
 def _services(tmp_path: Path, file: str = "compose.prod.yaml") -> dict[str, Any]:
-    done = _config(tmp_path, file, UNSHELVE_DOMAIN=DOMAIN, UNSHELVE_DB_PASSWORD=PASSWORD)
+    # With the profile of the restore: each rule of production holds for it too.
+    done = _config(
+        tmp_path,
+        file,
+        UNSHELVE_DOMAIN=DOMAIN,
+        UNSHELVE_DB_PASSWORD=PASSWORD,
+        COMPOSE_PROFILES="restore",
+    )
     assert done.returncode == 0, done.stderr
     services: dict[str, Any] = json.loads(done.stdout)["services"]
     return services

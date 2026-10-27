@@ -1,6 +1,7 @@
 """The service `backup`, as Docker Compose reads it (docs/learn/50). No container starts."""
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +38,9 @@ def test_the_backup_and_the_database_use_one_image_and_so_does_ci(tmp_path: Path
     assert workflow["jobs"]["api"]["services"]["postgres"]["image"] == POSTGRES_IMAGE
 
 
-def test_the_backup_gets_the_password_of_the_database_and_no_other_secret(
-    tmp_path: Path,
+@pytest.mark.parametrize("service", ["backup", "restore"])
+def test_the_backup_and_the_restore_get_the_password_of_the_database_and_no_other_secret(
+    tmp_path: Path, service: str
 ) -> None:
     # A .env as the owner writes it: the password of the database, and the keys of the other
     # services. Each key is a word that a test can look for.
@@ -52,11 +54,11 @@ def test_the_backup_gets_the_password_of_the_database_and_no_other_secret(
         ]
     )
 
-    services = _services(tmp_path, dotenv=dotenv)
+    services = _services(tmp_path, dotenv=dotenv, COMPOSE_PROFILES="restore")
 
-    backup = services["backup"]["environment"]
-    assert backup["UNSHELVE_DB_PASSWORD"] == TEST_PASSWORD
-    assert [name for name, value in backup.items() if "sentinel" in str(value)] == []
+    environment = services[service]["environment"]
+    assert environment["UNSHELVE_DB_PASSWORD"] == TEST_PASSWORD
+    assert [name for name, value in environment.items() if "sentinel" in str(value)] == []
     # The .env reached the stack: the worker got its keys from it.
     assert services["worker"]["environment"]["ANTHROPIC_API_KEY"] == "sentinel-model-key"
 
@@ -118,3 +120,46 @@ def test_the_defaults_make_a_backup_each_day_and_keep_a_month(tmp_path: Path) ->
         "UNSHELVE_BACKUP_KEEP_WEEKLY": "6",
         "UNSHELVE_BACKUP_RETRY_MINUTES": "60",
     }
+
+
+def test_the_restore_starts_only_when_a_person_runs_it(tmp_path: Path) -> None:
+    assert "restore" not in _services(tmp_path)
+
+    restore = _services(tmp_path, COMPOSE_PROFILES="restore")["restore"]
+
+    assert restore["profiles"] == ["restore"]
+    assert restore["image"] == POSTGRES_IMAGE
+    assert restore["entrypoint"] == ["bash", "/deploy/backup/restore.sh"]
+    # The database only: `migrate` would make tables, and a restore needs an empty database.
+    assert {name: rule["condition"] for name, rule in restore["depends_on"].items()} == {
+        "db": "service_healthy"
+    }
+    assert restore["restart"] == "no"
+
+
+def test_the_restore_reads_the_backups_and_writes_the_volume_of_the_files(tmp_path: Path) -> None:
+    restore = _services(tmp_path, COMPOSE_PROFILES="restore")["restore"]
+
+    mounts = {volume["target"]: volume for volume in restore["volumes"]}
+
+    # A restore never changes a backup.
+    assert (mounts["/backups"]["type"], mounts["/backups"]["read_only"]) == ("bind", True)
+    assert mounts["/var/lib/unshelve/blobs"] == {
+        "type": "volume",
+        "source": "blobs",
+        "target": "/var/lib/unshelve/blobs",
+        "volume": {},
+    }
+    # The revisions of this checkout: a backup from newer code is refused.
+    assert mounts["/deploy/migrations"]["read_only"] is True
+    assert mounts["/deploy/migrations"]["source"].endswith("apps/api/migrations/versions")
+
+
+def test_the_restored_files_belong_to_the_user_of_the_app(tmp_path: Path) -> None:
+    restore = _services(tmp_path, COMPOSE_PROFILES="restore")["restore"]
+    dockerfile = (REPO / "deploy" / "Dockerfile.api").read_text()
+
+    found = re.search(r"useradd --system --uid (\d+)", dockerfile)
+
+    assert found is not None
+    assert restore["environment"]["UNSHELVE_APP_UID"] == found.group(1)
