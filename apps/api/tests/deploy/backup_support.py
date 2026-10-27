@@ -52,6 +52,7 @@ FILES_OF_A_BACKUP = [
     "SHA256SUMS",
     "blob-keys.txt",
     "info.txt",
+    "manifest.sql",
     "manifest.tsv",
     "missing-blobs.txt",
     "unshelve.dump",

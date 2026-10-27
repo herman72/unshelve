@@ -121,6 +121,32 @@ services:
     stop_grace_period: 2m
     restart: unless-stopped
 
+  # The restore of a backup into an empty instance (docs/learn/50, docs/quickstart.md). Only
+  # `docker compose run --rm restore NAME|latest` starts it; `run --rm restore` lists the backups.
+  restore:
+    image: *postgres-image
+    profiles: ["restore"]
+    entrypoint: ["bash", "/deploy/backup/restore.sh"]
+    command: ["list"]
+    environment:
+      - PGHOST=db
+      - PGUSER=unshelve
+      - PGDATABASE=unshelve
+      # As for the backup: the password of the database, and no other secret.
+      - UNSHELVE_DB_PASSWORD
+      # The user of the app in Dockerfile.api: the restored files must be its files.
+      - UNSHELVE_APP_UID=10001
+    volumes:
+      - ./backup:/deploy/backup:ro
+      # The revisions that this checkout knows: a backup from newer code is refused.
+      - ../apps/api/migrations/versions:/deploy/migrations:ro
+      - ${UNSHELVE_BACKUP_DIR:-../backups}:/backups:ro
+      - blobs:/var/lib/unshelve/blobs
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
   web:
     build:
       context: ..

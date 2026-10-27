@@ -233,7 +233,9 @@ once() {
 		echo "blobs	$(wc -l <"$work/blob-keys.txt")"
 		echo "missing-blobs	$missing"
 	} >>"$work/info.txt"
-	(cd "$work" && sha256sum unshelve.dump manifest.tsv blob-keys.txt missing-blobs.txt info.txt >SHA256SUMS)
+	# The manifest.sql that wrote the facts: a restore runs it again, also after a later change.
+	cp "$HERE/manifest.sql" "$work/manifest.sql"
+	(cd "$work" && sha256sum unshelve.dump manifest.tsv manifest.sql blob-keys.txt missing-blobs.txt info.txt >SHA256SUMS)
 	# On the disk before the name, so that a crash never leaves a complete name with lost bytes.
 	sync "$work"/* "$work"
 	mv "$work" "$BACKUPS/db/$name"
