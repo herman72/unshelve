@@ -53,6 +53,9 @@ services:
     <<: *logging
     ports: !reset []
 
+  backup:
+    <<: *logging
+
   caddy:
     <<: *logging
     image: caddy:2.11.6-alpine
