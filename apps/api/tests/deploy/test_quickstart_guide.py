@@ -5,6 +5,7 @@ check in a second that the printer gives each marked block, in its order, withou
 indentation of the list of the guide, so that a here-document ends where it must.
 """
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -19,6 +20,11 @@ MARKS = (
     "quickstart-server",
     "quickstart-server-check",
     "quickstart-backup",
+    "quickstart-export",
+    "quickstart-drill",
+    "quickstart-restore-files",
+    "quickstart-restore-test",
+    "quickstart-restore",
 )
 
 
@@ -66,16 +72,31 @@ def test_a_mark_that_the_guide_does_not_have_stops_the_printer() -> None:
 
 def test_ci_runs_each_mark_with_bash_c_and_not_through_a_pipe() -> None:
     workflow = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
-    runs = [
-        str(step.get("run", ""))
+    lines = [
+        line.strip()
         for job in workflow["jobs"].values()
         for step in job.get("steps", [])
-        if "quickstart-steps.sh" in str(step.get("run", ""))
+        for line in str(step.get("run", "")).splitlines()
+        if "quickstart-steps.sh" in line
     ]
 
-    assert sorted(run.split("quickstart-steps.sh ")[1].split(")")[0] for run in runs) == sorted(
-        MARKS
-    )
+    assert {re.findall(r"quickstart-steps\.sh ([\w-]+)", line)[0] for line in lines} == set(MARKS)
     # From a pipe, bash reads the script line by line, and `docker compose exec` reads the same
     # stdin: it would take the lines after it, and they would never run.
-    assert [run for run in runs if not run.startswith('bash -euxo pipefail -c "$(')] == []
+    assert [line for line in lines if not line.startswith('bash -euxo pipefail -c "$(')] == []
+
+
+def test_the_restore_of_the_guide_tests_the_backup_first_and_stops_at_a_failure() -> None:
+    guide = (REPO / "docs" / "quickstart.md").read_text()
+    restore = _steps("quickstart-restore").stdout.splitlines()
+
+    # The drill of the chosen backup comes before the command that deletes the instance.
+    assert guide.index("```bash quickstart-restore-test") < guide.index(
+        "```bash quickstart-restore\n"
+    )
+    assert _steps("quickstart-restore-test").stdout.strip() == 'deploy/backup/drill.sh "$NAME"'
+    assert restore[0] == "docker compose down --volumes &&"
+    # One chain: a failed restore does not start an empty stack.
+    assert [line for line in restore[:-1] if not line.endswith(" &&")] == []
+    # A name, not "latest": a new stack makes an empty backup a minute after its start.
+    assert 'docker compose run --rm restore "$NAME" &&' in restore
