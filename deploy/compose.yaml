@@ -85,6 +85,42 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # A backup of the database and of the files when the newest one is older than a day
+  # (docs/learn/50). The backups go to a folder of this computer, not into a Docker volume,
+  # so that `docker compose down --volumes` cannot delete them.
+  backup:
+    image: *postgres-image
+    command: ["bash", "/deploy/backup/backup.sh", "loop"]
+    environment:
+      - PGHOST=db
+      - PGUSER=unshelve
+      - PGDATABASE=unshelve
+      # No env_file: this service gets the password of the database, by its name from .env,
+      # and no other secret.
+      - UNSHELVE_DB_PASSWORD
+      - UNSHELVE_BACKUP_EVERY_HOURS=${UNSHELVE_BACKUP_EVERY_HOURS:-24}
+      - UNSHELVE_BACKUP_KEEP_DAILY=${UNSHELVE_BACKUP_KEEP_DAILY:-7}
+      - UNSHELVE_BACKUP_KEEP_WEEKLY=${UNSHELVE_BACKUP_KEEP_WEEKLY:-6}
+      - UNSHELVE_BACKUP_RETRY_MINUTES=${UNSHELVE_BACKUP_RETRY_MINUTES:-60}
+    volumes:
+      - ./backup:/deploy/backup:ro
+      - blobs:/var/lib/unshelve/blobs:ro
+      - ${UNSHELVE_BACKUP_DIR:-../backups}:/backups
+      - backup-status:/var/lib/unshelve/backup-status
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bash", "/deploy/backup/backup.sh", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 1
+      start_period: 20s
+      start_interval: 2s
+    # A stop waits for a dump that runs, and the backup then removes its unfinished part.
+    stop_grace_period: 2m
+    restart: unless-stopped
+
   web:
     build:
       context: ..
@@ -112,3 +148,4 @@ services:
 volumes:
   db-data:
   blobs:
+  backup-status:

@@ -5,6 +5,8 @@
 /data/
 # Local state, also apps/api/var/ of a worker that runs outside Docker.
 var/
+# The backups of the local stack (docs/learn/50): private data, never in git.
+/backups/
 /exports/*
 !/exports/README.md
 *.private.md

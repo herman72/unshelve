@@ -3,7 +3,7 @@ SHELL := /bin/bash
 API := apps/api
 COMPOSE := docker compose
 
-.PHONY: help setup hooks db up down logs fmt lint typecheck test eval eval-live eval-baseline site-search test-site-search openapi openapi-check check
+.PHONY: help setup hooks db up down logs fmt lint typecheck test eval eval-live eval-baseline site-search test-site-search backup backup-status openapi openapi-check check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -56,6 +56,12 @@ site-search: db ## Write again the files of packages/site-search that come from 
 
 test-site-search: ## Run the tests of packages/site-search (Node 22.18 or newer)
 	pnpm --filter @unshelve/site-search test
+
+backup: ## Make a backup of the running stack now (docs/learn/50)
+	$(COMPOSE) exec -T backup bash /deploy/backup/backup.sh once
+
+backup-status: ## Show the backups of the running stack and the state of the last one
+	$(COMPOSE) exec -T backup bash /deploy/backup/backup.sh status
 
 openapi: ## Regenerate openapi.json and the TypeScript types
 	cd $(API) && uv run unshelve openapi
