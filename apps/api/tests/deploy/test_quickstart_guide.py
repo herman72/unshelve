@@ -9,6 +9,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO = Path(__file__).resolve().parents[4]
 PRINTER = REPO / "deploy" / "quickstart-steps.sh"
@@ -17,6 +18,7 @@ MARKS = (
     "quickstart-local-check",
     "quickstart-server",
     "quickstart-server-check",
+    "quickstart-backup",
 )
 
 
@@ -60,3 +62,20 @@ def test_a_mark_that_the_guide_does_not_have_stops_the_printer() -> None:
 
     assert done.returncode == 1
     assert "docs/quickstart.md has no block marked quickstart-nowhere" in done.stderr
+
+
+def test_ci_runs_each_mark_with_bash_c_and_not_through_a_pipe() -> None:
+    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
+    runs = [
+        str(step.get("run", ""))
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if "quickstart-steps.sh" in str(step.get("run", ""))
+    ]
+
+    assert sorted(run.split("quickstart-steps.sh ")[1].split(")")[0] for run in runs) == sorted(
+        MARKS
+    )
+    # From a pipe, bash reads the script line by line, and `docker compose exec` reads the same
+    # stdin: it would take the lines after it, and they would never run.
+    assert [run for run in runs if not run.startswith('bash -euxo pipefail -c "$(')] == []
