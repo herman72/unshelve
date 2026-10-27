@@ -8,52 +8,23 @@ real stack.
 """
 
 import json
-import os
-import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-REPO = Path(__file__).resolve().parents[4]
+from tests.deploy.support import compose_config, docker_available
+
 DOMAIN = "unshelve.test"
 # A plain word, so that no scanner takes it for a real secret.
 PASSWORD = "unshelvetest"  # noqa: S105 - a made-up password for the test
 APP_SERVICES = ("migrate", "api", "worker", "bot")
 
+pytestmark = pytest.mark.skipif(
+    not docker_available("compose", "version"), reason="needs docker compose"
+)
 
-def _compose_available() -> bool:
-    if shutil.which("docker") is None:
-        return False
-    done = subprocess.run(
-        ["docker", "compose", "version"],  # noqa: S607 - the docker of this computer
-        capture_output=True,
-        check=False,
-    )
-    return done.returncode == 0
-
-
-pytestmark = pytest.mark.skipif(not _compose_available(), reason="needs docker compose")
-
-
-def _config(tmp_path: Path, file: str, **variables: str) -> subprocess.CompletedProcess[str]:
-    """`docker compose config` of `file` in a copy of the stack, with only `variables` set."""
-    copy = tmp_path / "repo"
-    if not copy.exists():
-        shutil.copytree(REPO / "deploy", copy / "deploy")
-        for name in ("compose.yaml", "compose.prod.yaml"):
-            shutil.copy(REPO / name, copy / name)
-    # Only what docker needs to run: no UNSHELVE_* variable of the shell of the developer.
-    keep = ("PATH", "HOME", "DOCKER_HOST", "DOCKER_CONFIG", "DOCKER_CONTEXT")
-    environment = {name: os.environ[name] for name in keep if name in os.environ}
-    return subprocess.run(  # noqa: S603 - docker with arguments of this test
-        ["docker", "compose", "-f", str(copy / file), "config", "--format", "json"],  # noqa: S607
-        capture_output=True,
-        text=True,
-        check=False,
-        env=environment | variables,
-    )
+_config = compose_config
 
 
 def _services(tmp_path: Path, file: str = "compose.prod.yaml") -> dict[str, Any]:
