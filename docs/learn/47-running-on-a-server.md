@@ -159,7 +159,7 @@ The hosting itself (which server, which provider) is a later decision record: #4
 - **Where are the secrets?** In `.env` on the server, and step 3 lets only the owner read it (`chmod 600 .env`). The password is in the database address, so it has letters and digits only (`openssl rand -hex 24`).
 - **What does Postgres do with a new password?** Nothing: it reads `POSTGRES_PASSWORD` only for a new volume. The guide shows how to change it in the database and in `.env`.
 - **Can the logs fill the disk?** No: Docker keeps 5 files of 10 MB for each service.
-- **What is not done yet:** the restore of a backup and its drill (#40), logs and costs as numbers (#41), and the decision about the hosting (#42). The daily backups came first ([note 50](50-backup-and-restore.md)).
+- **What is not done yet:** the decision about the hosting (#42). The backups and a tested restore came with #40 ([note 50](50-backup-and-restore.md)), and the logs and costs as numbers with #41 ([note 51](51-logs-and-stats.md)).
 
 ## Exercise (10 minutes)
 

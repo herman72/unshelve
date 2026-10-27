@@ -1,6 +1,6 @@
-# 50. Backups of the database and of the files
+# 50. Backups, and a restore that is tested
 
-> Pull request: [#123](https://github.com/herman72/unshelve/pull/123) (the backups) · Decision: [ADR 0015](../adr/0015-backups-a-logical-dump-and-a-mirror-of-the-files.md) · Code: [`deploy/backup/`](../../deploy/backup), the service `backup` in [`deploy/compose.yaml`](../../deploy/compose.yaml) · Tests: [`tests/deploy/test_backup.py`](../../apps/api/tests/deploy/test_backup.py), [`test_backup_compose.py`](../../apps/api/tests/deploy/test_backup_compose.py), [`test_backup_scripts.py`](../../apps/api/tests/deploy/test_backup_scripts.py)
+> Pull requests: [#123](https://github.com/herman72/unshelve/pull/123) (the backups), [#PR_B](https://github.com/herman72/unshelve/pull/PR_B) (the restore and the drill) · Decision: [ADR 0015](../adr/0015-backups-a-logical-dump-and-a-mirror-of-the-files.md) · Code: [`deploy/backup/`](../../deploy/backup), the service `backup` in [`deploy/compose.yaml`](../../deploy/compose.yaml) · Tests: [`tests/deploy/test_backup.py`](../../apps/api/tests/deploy/test_backup.py), [`test_restore.py`](../../apps/api/tests/deploy/test_restore.py), [`test_backup_compose.py`](../../apps/api/tests/deploy/test_backup_compose.py), [`test_backup_scripts.py`](../../apps/api/tests/deploy/test_backup_scripts.py)
 
 ## In one minute
 
@@ -34,10 +34,11 @@ The backups are in a folder of the computer, not in a Docker volume. So `docker 
 | In the backup | Why |
 |---|---|
 | The whole database, as one dump of `pg_dump` | each table, also `jobs` (work that waits) and `llm_calls` (answers of the model that cost money); and the parts that the ORM does not model: `vector`, `pg_trgm`, `u_norm()`, the trigger of `events`, the view `pub.items` and its rights |
-| The facts of the database (`manifest.tsv`) | for each table: the number of rows and one fingerprint of all of them; the indexes, constraints, triggers, functions and the view. The restore of the next pull request will check that it gives back the same facts |
+| The facts of the database (`manifest.tsv`) | for each table: the number of rows and one fingerprint of all of them; the indexes, constraints, triggers, functions and the view. The restore checks that it gives back the same facts |
 | The keys of the files that the rows name (`blob-keys.txt`) | the files that a restore needs |
 | The files themselves, in one mirror | the photos and documents that the owner sent |
-| Versions and counts (`info.txt`), and a checksum of each file (`SHA256SUMS`) | the restore will check them before it changes anything |
+| Versions and counts (`info.txt`), and a checksum of each file (`SHA256SUMS`) | the restore checks them before it changes anything |
+| The `manifest.sql` that wrote the facts | the restore runs this copy again, so a later change of `manifest.sql` does not make each older backup fail |
 
 | Not in the backup | Why |
 |---|---|
@@ -80,7 +81,7 @@ The first version took the snapshot first and the locks second. A review found a
 
 A rewrite puts each row into a new file of the table, as a new row version. The new versions are newer than a snapshot from before the commit, so that snapshot sees no row at all. The facts came from the same snapshot, so they agreed with the empty dump, and no check would find it. The fix is the order: `LOCK` takes no snapshot, so the snapshot starts only after the lock got the table. A test, `test_a_table_that_a_migration_rewrites_is_whole_in_the_backup`, does this race again.
 
-One part is not in a snapshot: a *sequence*, the counter that gives the next id. Its value moves at once, also in a transaction that later rolls back. So the facts leave sequences out, and the check of the restore will compare each one with the dump instead.
+One part is not in a snapshot: a *sequence*, the counter that gives the next id. Its value moves at once, also in a transaction that later rolls back. So the facts leave sequences out, and the check of the restore compares each one with the dump instead (section 5).
 
 **A comparison from daily life:** a photographer takes a group photo and writes the names of the people on the back of the same print. A list of names from the next day would not match the photo. And the photographer closes the door first: a photo taken while the group walks in through the door shows an empty room.
 
@@ -106,6 +107,47 @@ A backup that you start (`make backup`) and the schedule never run at the same t
 
 A name is a second. A backup in a taken second waits for the next free one. Any other failure of `mkdir`, for example a disk that became read-only, stops the backup with the message of `mkdir`. (An earlier version waited in that case too, without end and without a message.)
 
+## 5. The restore, and its data check
+
+A restore puts a backup into an empty instance: `docker compose run --rm restore NAME`. The name matters. On a new computer, the stack makes its first backup a minute after its first start, and that backup is empty and newer than the backup from the tar. A review reproduced it: `latest` restored the empty backup, and each check passed, because an empty database is a correct copy of an empty backup. So the guide restores by name, and `restore list` shows the rows of each backup:
+
+```text
+20261027T173143Z	made 2026-10-27 17:31 UTC	11 items	3 files
+```
+
+The script `restore.sh` does these steps, in this order:
+
+| Step | What it does | When it stops |
+|---|---|---|
+| a. The backup | `sha256sum --check SHA256SUMS`; `pg_restore --list` reads the dump; each file that the backup needs is in the mirror, with the bytes of its name | a damaged backup: nothing was changed. Each backup shares the mirror, so the message tells how to copy a damaged file again from the stack |
+| b. The versions | the major version of Postgres; the revision of the backup is a migration of this checkout; the extensions are available, at the version of the backup or newer | a backup from newer code: "check out a newer commit" |
+| c. The target | the database has no table, and the volume of the files no file of another backup | an instance that is not empty |
+| d. The roles | each role that the GRANTs need, without a login (`pg_dump` of one database does not dump roles) | a backup that names a role with a login |
+| e. The database | `pg_restore --single-transaction --exit-on-error --no-owner`, then `ANALYZE` | an error: the transaction leaves the database empty |
+| f. The files | each file as `.part-<key>`, then a rename; then `chown` to the user of the app (10001) | |
+| g. The data check | the facts, the sequences, the rules and the files (below) | a fact that differs: exit 1 |
+
+A restore that stopped after step e goes on with the files when you run it again: step c sees that the database already holds exactly this backup.
+
+The data check has four parts. Each fact prints `ok:` or `not ok:`.
+
+1. **The exact facts.** `manifest.sql` runs again on the restored database, and its output must equal `manifest.tsv` of the backup, line by line: the rows of each table (a count and a fingerprint), the indexes, the constraints, the triggers, the functions, the view and its rights.
+2. **The sequences.** Each sequence must have its value in the dump (`pg_restore --list` finds the lines `SEQUENCE SET`). And `checks.sql` checks that each sequence covers the ids that it gave: a sequence below an id would give that id again.
+3. **The rules.** `u_norm()` is IMMUTABLE and maps `ي٣` to `ی3`; the two triggers of `events` are on, and the table refuses `TRUNCATE` and `UPDATE`; `unshelve_publisher` reads `pub.items` and not `public.items`. Each probe catches the error that it expects, so a probe never stops the check.
+4. **The files.** Each file is in the volume with the bytes of its name and the size of its row in `assets`, and it belongs to the user of the app.
+
+The tests plant one fault of each kind into a restored database (a changed row, a dropped index, a trigger that is off, a function that is no longer IMMUTABLE, a right that is gone, a sequence below its ids, a file with other bytes), and each fault must print its own `not ok:` line.
+
+## 6. The drill: a restore that you test
+
+A backup that is never restored is only a hope. `deploy/backup/drill.sh` (or `make restore-drill`) restores the newest backup, or the backup that you name, into a second stack, `unshelve-drill`, with its own volumes and no port, and with a new random password. Your stack runs on, and the backups are mounted read-only. At the end, the drill removes its stack. The drill refuses a project name that does not end with `-drill`, because it deletes the volumes of its project. It finds the backups where the stack finds them: `UNSHELVE_BACKUP_DIR` of the shell, then of `.env`, then `backups/`.
+
+The guide also runs a drill of the chosen backup before a real restore. The first command of a restore deletes the instance, so the backup must be good before that command, not after it. The commands of the restore are one chain with `&&`: when the restore fails, the chain does not start an empty stack.
+
+CI goes further in the job `quickstart-local`. It runs the guide on a fresh clone, imports a made-up export with files, makes a backup, runs a drill, and checks that a drill refuses a backup with one changed byte in a file. Then it plays a new computer: it removes the volumes and the backups folder, and gives the database a new password. It restores from the tar of the guide, starts the stack, signs in, and compares the rows with the rows before.
+
+**A comparison from daily life:** a fire drill. Nobody knows if the exits work until people walk through them, and a drill on a quiet day is cheaper than the first real fire.
+
 ## A choice that we made
 
 | | A logical dump and a mirror (this branch) | A copy of the volume | Archiving the write-ahead log |
@@ -117,7 +159,8 @@ A name is a second. A backup in a taken second waits for the next free one. Any 
 
 ## What a senior engineer checks here
 
-- **Is the restore tested?** Not yet in this pull request: the next one will add the restore, its data check, and a drill that CI runs. A backup that is never restored is only a hope.
+- **Is the restore tested?** Yes, at three levels: tests restore into an empty database and plant faults; a drill restores the real backups beside the running stack; and CI restores on a "new computer" with a new password on each run. A backup that is never restored is only a hope.
+- **Can a restore make things worse?** It refuses an instance that is not empty, and it checks the whole backup before it changes the database. `pg_restore` runs in one transaction, so a failure leaves an empty database, not half of one. But the guide deletes the old instance first, so the guide drills the chosen backup before that, and restores by name, not by `latest`.
 - **Where are the backups?** On the same disk as the data, so a lost or broken computer takes both. The guide shows a tar that you encrypt with `age` and copy to a second place.
 - **Does a backup hold a secret?** No: no `.env`, no key of TLS, no role password. But it holds private data (notes, saved messages, the answers of the model). The folder and its files are readable only for their owner (`umask 077`). The service runs as root, so after each backup it gives the new files to the owner of the folder.
 - **Can half a backup look whole?** No. A backup is written as `.part-<time>`, then `sync` puts its bytes on the disk, and only then a rename gives it its name. A rename is one step, and a crash before the `sync` leaves a part, not a name with lost bytes.

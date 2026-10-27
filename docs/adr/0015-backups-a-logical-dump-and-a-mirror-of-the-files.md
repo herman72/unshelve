@@ -24,13 +24,15 @@ Three designs were compared, and three judges scored them for restore safety, si
 - **A folder of the computer, not a volume**, holds the backups (`backups/`, or `UNSHELVE_BACKUP_DIR`), so `down --volumes` cannot delete them. A backup is written as `.part-<time>`, synced to the disk, and renamed when it is complete. A failed run removes its part.
 - **A backup when the newest one is older than a day.** The service checks every 5 minutes, so a computer that slept makes the backup when it wakes. It keeps the 7 newest backups and the newest one of each of the last 6 calendar weeks (Monday to Sunday, UTC), so the oldest backup is 29 to 35 days old.
 - **Failures are visible.** The service is unhealthy when its last run failed, when no backup worked for two days (one hour after a start or a restart), or when a backup has a name in the future; `backup.sh status` says why. While it is unhealthy, `docker compose up --wait` ends with an error.
+- **A restore that checks before and after.** A service `restore` (profile `restore`) checks the whole backup, the versions and an empty target before it changes anything. It creates the roles without a login, runs `pg_restore` in one transaction, copies the files, and then compares the facts of `manifest.sql`, the sequences, the rules of `checks.sql` and the files. A restore that stopped after the database goes on with the files. The facts come from the copy of `manifest.sql` in the backup, so a later change of `manifest.sql` does not break older backups. The guide restores a backup by its name, not by `latest`: a new stack makes an empty backup a minute after its start.
+- **A drill.** `deploy/backup/drill.sh` restores the newest backup into a second project (`*-drill`) with no port, beside the running stack. CI runs a drill, a drill with a damaged file, and a restore on a new computer with a new password. The guide drills the chosen backup before the command that deletes the old instance.
 - **No secret in a backup.** `.env` and the certificates of Caddy stay out. A copy that leaves the computer is a tar that the owner encrypts with `age`.
 
 ## Consequences
 
 - A restore needs no old password: the new `.env` gives one, and the dump has no role passwords.
 - The backups lie on the same disk as the data until a copy leaves the computer. A lost laptop takes both. An automatic, encrypted copy in object storage is a later decision, after the hosting (#42).
-- Sequences are not part of a snapshot, so the check of a restore cannot compare their values exactly. It will compare each one with its value in the dump and with the largest id that it gave.
+- Sequences are not part of a snapshot, so the check of a restore cannot compare their values exactly. It compares each one with its value in the dump and with the largest id that it gave.
 - Work after the snapshot is lost in a restore: the captures after it come back through an import of a Telegram export with `--since`.
 - The fingerprints read each row at each backup. For one owner this takes seconds; at millions of rows it needs counts and samples instead.
 - A future delete of a file must keep each file that a kept backup still needs.
