@@ -1,0 +1,5 @@
+# The changes of a restore drill (deploy/backup/drill.sh): the database of the drill publishes
+# no port, so the drill runs beside the stack of this computer.
+services:
+  db:
+    ports: !reset []
