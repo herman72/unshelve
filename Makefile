@@ -3,7 +3,7 @@ SHELL := /bin/bash
 API := apps/api
 COMPOSE := docker compose
 
-.PHONY: help setup hooks db up down logs fmt lint typecheck test eval eval-live eval-baseline site-search test-site-search backup backup-status openapi openapi-check check
+.PHONY: help setup hooks db up down logs fmt lint typecheck test eval eval-live eval-baseline site-search test-site-search backup backup-status restore-drill openapi openapi-check check
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -62,6 +62,9 @@ backup: ## Make a backup of the running stack now (docs/learn/50)
 
 backup-status: ## Show the backups of the running stack and the state of the last one
 	$(COMPOSE) exec -T backup bash /deploy/backup/backup.sh status
+
+restore-drill: ## Restore the newest backup into a second, empty stack and check its data
+	deploy/backup/drill.sh
 
 openapi: ## Regenerate openapi.json and the TypeScript types
 	cd $(API) && uv run unshelve openapi

@@ -3,6 +3,7 @@ prune.sh about which backups stay. prune.sh is POSIX sh and awk, so it runs here
 service `backup`."""
 
 import os
+import shutil
 import subprocess
 import time
 from datetime import date, timedelta
@@ -15,7 +16,10 @@ from tests.deploy.support import REPO
 SCRIPTS = REPO / "deploy" / "backup"
 
 
-@pytest.mark.parametrize(("shell", "script"), [("bash", "backup.sh"), ("sh", "prune.sh")])
+@pytest.mark.parametrize(
+    ("shell", "script"),
+    [("bash", "backup.sh"), ("sh", "prune.sh"), ("bash", "restore.sh"), ("bash", "drill.sh")],
+)
 def test_each_script_has_a_valid_syntax(shell: str, script: str) -> None:
     done = subprocess.run(  # noqa: S603 - a shell of this computer on a script of this repository
         [shell, "-n", str(SCRIPTS / script)], capture_output=True, text=True, check=False
@@ -113,3 +117,78 @@ def test_a_year_boundary_and_a_leap_day_count_right(tmp_path: Path) -> None:
     # 2028-03-01 is a Wednesday in the week of Monday 02-28: the leap day shares it. 02-22 is in
     # week 1, and 2027-12-30 in week 9, across the end of the year.
     assert kept == ["20271230T000000Z", "20280222T000000Z", "20280301T000000Z"]
+
+
+def _drill(
+    tmp_path: Path, script: Path = SCRIPTS / "drill.sh", **environment: str
+) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """drill.sh with a docker that only writes down each call, and the folder of the backups."""
+    bin_folder = tmp_path / "bin"
+    bin_folder.mkdir()
+    calls = tmp_path / "calls"
+    (bin_folder / "docker").write_text(
+        f'#!/bin/sh\necho "$*" >>{calls}\necho "$UNSHELVE_BACKUP_DIR" >{tmp_path / "folder"}\n'
+    )
+    (bin_folder / "docker").chmod(0o755)
+    done = subprocess.run(  # noqa: S603 - the script of this repository
+        ["bash", str(script)],  # noqa: S607
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": f"{bin_folder}:{os.environ['PATH']}", "HOME": str(tmp_path)} | environment,
+    )
+    return done, calls.read_text().splitlines() if calls.exists() else []
+
+
+def _backups_folder(tmp_path: Path) -> Path:
+    folder = tmp_path / "backups"
+    (folder / "db").mkdir(parents=True)
+    return folder
+
+
+def test_a_drill_works_only_in_its_own_project(tmp_path: Path) -> None:
+    done, calls = _drill(tmp_path, UNSHELVE_BACKUP_DIR=str(_backups_folder(tmp_path)))
+
+    assert done.returncode == 0, done.stderr
+    # Each call names the project of the drill: its `down --volumes` never reaches the real stack.
+    assert [call for call in calls if not call.startswith("compose -p unshelve-drill ")] == []
+    assert [call.split(" --profile restore ")[1] for call in calls] == [
+        "down --volumes",
+        "up -d --wait db",
+        "run --rm restore latest",
+        "down --volumes",
+    ]
+
+
+def test_a_drill_refuses_the_project_of_the_real_stack(tmp_path: Path) -> None:
+    done, calls = _drill(
+        tmp_path,
+        UNSHELVE_DRILL_PROJECT="unshelve",
+        UNSHELVE_BACKUP_DIR=str(_backups_folder(tmp_path)),
+    )
+
+    assert done.returncode == 2
+    assert 'the project of a drill must end with -drill, not "unshelve"' in done.stderr
+    assert calls == []
+
+
+def test_a_drill_reads_the_folder_of_the_backups_from_env_as_the_stack_does(tmp_path: Path) -> None:
+    # A clone of a server: .env names a folder outside the clone (docs/quickstart.md, B).
+    clone = tmp_path / "clone"
+    shutil.copytree(SCRIPTS, clone / "deploy" / "backup")
+    folder = _backups_folder(tmp_path)
+    (clone / ".env").write_text(f"UNSHELVE_BACKUP_DIR=/nowhere\nUNSHELVE_BACKUP_DIR={folder}\n")
+
+    done, _ = _drill(tmp_path, clone / "deploy" / "backup" / "drill.sh")
+
+    assert done.returncode == 0, done.stderr
+    # The last line of a name counts, as in Compose.
+    assert (tmp_path / "folder").read_text().strip() == str(folder)
+
+
+def test_a_drill_without_backups_says_where_it_looked(tmp_path: Path) -> None:
+    done, calls = _drill(tmp_path, UNSHELVE_BACKUP_DIR=str(tmp_path / "empty"))
+
+    assert done.returncode == 1
+    assert f"no backups in {tmp_path / 'empty'}" in done.stderr
+    assert calls == []
