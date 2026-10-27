@@ -15,9 +15,12 @@ x-app: &app
     UNSHELVE_LOG_JSON: "true"
   restart: unless-stopped
 
+# The database and its backups use one image, so pg_dump always has the version of the server.
+x-postgres-image: &postgres-image pgvector/pgvector:0.8.7-pg17
+
 services:
   db:
-    image: pgvector/pgvector:0.8.7-pg17
+    image: *postgres-image
     environment:
       POSTGRES_USER: unshelve
       POSTGRES_PASSWORD: ${UNSHELVE_DB_PASSWORD:-unshelve}
