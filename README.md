@@ -56,7 +56,7 @@ New to the code? Start with the [learning notes](docs/learn/README.md): one shor
 
 ## Quickstart
 
-To run Unshelve, you need only git and Docker. [The quickstart](docs/quickstart.md) starts it on this computer in two steps, or on a server with your domain and HTTPS in four steps. CI runs each step of it on a fresh clone.
+To run Unshelve, you need only git and Docker. [The quickstart](docs/quickstart.md) starts it on this computer in two steps, or on a server with your domain and HTTPS in four steps. CI runs each step of it on a fresh clone. The stack makes a backup of the database and of your files each day, into a folder outside Docker; [the note about backups](docs/learn/50-backup-and-restore.md) explains it.
 
 ## Development
 

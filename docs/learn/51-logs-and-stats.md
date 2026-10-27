@@ -228,4 +228,4 @@ With the line back, the reader shows each line as an object, also the request li
 - [Using dead-letter queues in Amazon SQS](https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html), AWS. Read the first paragraph and "Using policies for dead-letter queues": `maxReceiveCount` is our `max_attempts`.
 - [`asyncio.create_task`](https://docs.python.org/3/library/asyncio-task.html#asyncio.create_task), Python. Read the paragraph about `context`: a new task gets a copy of the current context.
 
-Previous: [49. Tags as filters](49-tag-filters.md) · Back to the [list of notes](README.md)
+Previous: [50. Backups of the database and of the files](50-backup-and-restore.md) · Back to the [list of notes](README.md)

@@ -18,6 +18,7 @@ Each record states one decision, why it was made, and what it costs. A record is
 | [0012](0012-voyage-vectors-through-a-client-for-fixed-services.md) | Voyage for the vectors, through a client for fixed services | Accepted |
 | [0013](0013-cards-in-a-batch.md) | Cards in a batch: the card waits, and a person sends the batch | Accepted |
 | [0014](0014-scores-a-vector-prefilter-then-one-question-for-all-goals.md) | Scores: a vector prefilter, then one question to the model for all goals | Accepted |
+| [0015](0015-backups-a-logical-dump-and-a-mirror-of-the-files.md) | Backups: a logical dump from one snapshot, and a mirror of the files | Accepted |
 
 ## Template
 
