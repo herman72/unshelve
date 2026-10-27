@@ -377,6 +377,22 @@ async def test_the_data_check_names_a_file_with_other_bytes(
     )
 
 
+async def test_the_data_check_names_files_of_another_user(
+    committed_db: Sessions, place: Place, target: Target
+) -> None:
+    await _backup(committed_db, place)
+    assert restore(place, target, "latest").returncode == 0
+
+    # The files belong to the user of the test; the check expects another user of the app.
+    done = restore(place, target, "check", "latest", environment={"UNSHELVE_APP_UID": "12345"})
+
+    assert done.returncode == 1
+    assert (
+        b"not ok: the volume of the files has files that do not belong to the user 12345"
+        in done.stdout
+    )
+
+
 @needs_real_owners
 async def test_the_restored_files_belong_to_the_user_of_the_app(
     committed_db: Sessions, place: Place, target: Target
