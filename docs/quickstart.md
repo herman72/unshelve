@@ -176,10 +176,10 @@ A restore puts a backup into an empty instance, and then it checks the data. Use
    ```bash quickstart-restore-files
    mkdir -p backups
    tar -xf ~/unshelve-backup.tar -C backups
-   tar -tf ~/unshelve-backup.tar | head -n 1
+   tar -tf ~/unshelve-backup.tar | sed -n 1p
    ```
 
-   The last line prints `db/<the name of the backup>/`. For a copy that you encrypted, use `age -d -i <your key file> ~/unshelve-backup.tar.age | tar -x -C backups`. On a server, use the folder of `UNSHELVE_BACKUP_DIR`.
+   The last line prints `db/<the name of the backup>/`. (Not `head -n 1`: it closes the pipe early, and GNU tar then stops with a write error.) For a copy that you encrypted, use `age -d -i <your key file> ~/unshelve-backup.tar.age | tar -x -C backups`. On a server, use the folder of `UNSHELVE_BACKUP_DIR`.
 
 3. Choose the backup by its name. `docker compose run --rm restore list` shows each backup with its time and its rows, the newest last:
 
