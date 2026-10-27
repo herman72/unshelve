@@ -2,7 +2,10 @@
 # Print the shell blocks of docs/quickstart.md that carry one mark, in their order, so that CI
 # runs the steps exactly as the guide shows them:
 #
-#     deploy/quickstart-steps.sh quickstart-server | bash -euxo pipefail
+#     bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-server)"
+#
+# Not through a pipe: bash reads a script from a pipe line by line, and `docker compose exec`
+# reads its stdin too, so it would take the lines after it and they would never run.
 #
 # A block carries a mark after its language, as in ```bash quickstart-server, and GitHub shows
 # it as an ordinary bash block. A block inside a list is indented: like GitHub, this script

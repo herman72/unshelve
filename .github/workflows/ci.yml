@@ -140,9 +140,21 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: The steps of the guide
-        run: deploy/quickstart-steps.sh quickstart-local | bash -euxo pipefail
+        run: bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-local)"
       - name: The check of the guide
-        run: deploy/quickstart-steps.sh quickstart-local-check | bash -euxo pipefail
+        run: bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-local-check)"
+      # The service makes its first backup by itself at the start: wait for it, so that the
+      # backup of the guide is the second one. No sudo: the service, which runs as root, gives
+      # the files to the owner of the folder, and the guide made the folder as this user.
+      - name: The first backup, by the service itself
+        run: timeout 120 bash -c 'until find backups/db -mindepth 2 -name SHA256SUMS 2>/dev/null | grep -q .; do sleep 2; done'
+      - name: The backup of the guide
+        run: bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-backup)"
+      - name: Two complete backups that this user can read, and the service is healthy
+        run: |
+          docker compose exec -T backup bash /deploy/backup/backup.sh health
+          test "$(find backups/db -mindepth 2 -name SHA256SUMS | wc -l)" -eq 2
+          test -z "$(find backups ! -user "$(id -u)")"
       - name: Logs
         if: failure()
         run: docker compose logs --no-color
@@ -160,13 +172,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: The steps of the guide
-        run: deploy/quickstart-steps.sh quickstart-server | bash -euxo pipefail
+        run: bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-server)"
       - name: Trust the local authority of Caddy, as the browser of the owner would
         run: docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt "$RUNNER_TEMP/caddy-root.crt"
       - name: The check of the guide
         env:
           CURL_CA_BUNDLE: ${{ runner.temp }}/caddy-root.crt
-        run: deploy/quickstart-steps.sh quickstart-server-check | bash -euxo pipefail
+        run: bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-server-check)"
       - name: No port but those of Caddy is open
         run: |
           for port in 3000 8000 54329; do
