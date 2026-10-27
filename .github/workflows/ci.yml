@@ -148,6 +148,9 @@ jobs:
       # the files to the owner of the folder, and the guide made the folder as this user.
       - name: The first backup, by the service itself
         run: timeout 120 bash -c 'until find backups/db -mindepth 2 -name SHA256SUMS 2>/dev/null | grep -q .; do sleep 2; done'
+      # Rows of each kind and files, so that the backup of the guide has something to restore.
+      - name: Data for the backup (an import of a made-up export with files)
+        run: deploy/backup/drill-data.sh
       - name: The backup of the guide
         run: bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-backup)"
       - name: Two complete backups that this user can read, and the service is healthy
@@ -155,10 +158,55 @@ jobs:
           docker compose exec -T backup bash /deploy/backup/backup.sh health
           test "$(find backups/db -mindepth 2 -name SHA256SUMS | wc -l)" -eq 2
           test -z "$(find backups ! -user "$(id -u)")"
+          # The backup of the guide, with the data: the name that the restore of the guide uses.
+          docker compose run --rm -T restore list | tee "$RUNNER_TEMP/backups"
+          tail -n 1 "$RUNNER_TEMP/backups" | grep -v $'\t0 items'
+          echo "NAME=$(tail -n 1 "$RUNNER_TEMP/backups" | cut -f1)" >> "$GITHUB_ENV"
+      - name: The drill of the guide, beside the running stack
+        run: bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-drill)"
+      - name: A drill refuses a backup with a damaged file, and changes nothing
+        run: |
+          cp -R backups "$RUNNER_TEMP/broken"
+          file=$(find "$RUNNER_TEMP/broken/blobs" -type f | head -n 1)
+          python3 -c 'import sys; p = sys.argv[1]; b = bytearray(open(p, "rb").read()); b[0] ^= 1; open(p, "wb").write(b)' "$file"
+          if UNSHELVE_BACKUP_DIR="$RUNNER_TEMP/broken" deploy/backup/drill.sh >"$RUNNER_TEMP/drill.out" 2>&1; then
+            cat "$RUNNER_TEMP/drill.out"
+            exit 1
+          fi
+          grep "not ok: blob $(basename "$file")" "$RUNNER_TEMP/drill.out"
+      - name: The copy of the guide
+        run: bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-export)"
+      # A new computer: no volume, no backups folder, and a new password for the database.
+      - name: A new computer
+        run: |
+          docker compose down --volumes
+          rm -rf backups
+          echo "UNSHELVE_DB_PASSWORD=$(openssl rand -hex 24)" >> .env
+      - name: The restore of the guide
+        run: |
+          bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-restore-files)"
+          test "$(tar -tf ~/unshelve-backup.tar | head -n 1)" = "db/$NAME/"
+          bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-restore-test)"
+          bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-restore)"
+      # The data check of the restore compared each fact before the start. After it, the worker
+      # goes on with the jobs that were pending in the backup, so the rows can only grow.
+      - name: The restored instance signs in, and has at least the rows of the backup
+        run: |
+          bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-local-check)"
+          for table in items assets; do
+            backup=$(awk -F'\t' -v key="$table" '$1 == key { print $2 }' "backups/db/$NAME/info.txt")
+            now=$(docker compose exec -T db psql -U unshelve -d unshelve -At -c "SELECT count(*) FROM $table")
+            echo "$table: $backup in the backup, $now now"
+            test "$backup" -gt 0
+            test "$now" -ge "$backup"
+          done
+          docker compose exec -T backup bash /deploy/backup/backup.sh health
       - name: Logs
         if: failure()
         run: docker compose logs --no-color
       - run: docker compose down --volumes
+        if: always()
+      - run: docker compose -p unshelve-drill down --volumes
         if: always()
 
   quickstart-server:
