@@ -232,7 +232,7 @@ docker compose logs bot --tail 5
 
 One line must have the text `capture.stored`.
 
-4. Sign in to the web app and open the inbox. The [README](../../README.md#development) says how to sign in. The card of your post is there.
+4. Sign in to the web app and open the inbox. The [README](../../README.md#try-it-on-your-computer) says how to sign in. The card of your post is there.
 
 ## Exercise (15 minutes)
 
