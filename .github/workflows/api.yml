@@ -6,7 +6,8 @@ name: API
 on:
   pull_request:
     # The tests of the API read the stack files, the guide, the schema of the feed and the files of
-    # CI; the contract check reads the generated types and needs pnpm.
+    # CI; the contract check reads the generated types and needs pnpm. Ruff and the build of the
+    # package skip each file that the .gitignore of the root names.
     paths:
       - apps/api/**
       - packages/api-client/**
@@ -16,6 +17,7 @@ on:
       - compose.prod.yaml
       - docs/quickstart.md
       - .env.example
+      - .gitignore
       - Makefile
       - package.json
       - pnpm-lock.yaml
