@@ -18,7 +18,7 @@ env:
 
 jobs:
   api:
-    name: API (lint, types, tests)
+    name: API (lint, types, tests, contract)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -43,11 +43,29 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
-      - run: uv sync --locked
+      - id: sync
+        run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run ruff format --check .
       - run: uv run pyright
       - run: uv run pytest
+      # The API contract: openapi.json and the generated types must match the code. These steps
+      # run also after a failed check above, so that one run reports both.
+      - uses: pnpm/action-setup@v6
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+      - uses: actions/setup-node@v7
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - id: pnpm
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+      - name: The API contract is up to date
+        if: ${{ !cancelled() && steps.pnpm.outcome == 'success' }}
+        working-directory: .
+        run: make openapi-check
 
   web:
     name: Web (lint, types, build)
@@ -67,7 +85,7 @@ jobs:
       - run: pnpm -r build
 
   web-e2e:
-    name: Web (end-to-end, against a pretend API)
+    name: Web (end-to-end and next dev, against a pretend API)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -76,10 +94,21 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - id: install
+        run: pnpm install --frozen-lockfile
       # Playwright drives the Google Chrome of the runner (channel "chrome"): no browser to
       # download. The config builds the app for the pretend API and starts both.
       - run: pnpm --filter @unshelve/web test:e2e
+      # next dev logs errors that the production build above cannot show, for example a clock
+      # read in a stage of the render that a prerender would see. The spec fails on each route
+      # error in its log and on each error in the browser console. It runs also after a failed
+      # end-to-end test, so that one run reports both.
+      - id: dev
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --filter @unshelve/web test:dev
+      - name: Log of next dev
+        if: ${{ failure() && steps.dev.outcome == 'failure' }}
+        run: cat apps/web/test-results/next-dev.log
 
   site-example:
     name: Example site (end-to-end, the search of the feed)
@@ -95,42 +124,6 @@ jobs:
       # The config builds examples/site for production, as a site that uses the package would
       # be built, and searches it in the Google Chrome of the runner.
       - run: pnpm --filter @unshelve/example-site test:e2e
-
-  web-dev:
-    name: Web (each page under next dev, against a pretend API)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      # next dev logs errors that the production build of web-e2e cannot show, for example a
-      # clock read in a stage of the render that a prerender would see. The spec fails on each
-      # route error in its log and on each error in the browser console.
-      - run: pnpm --filter @unshelve/web test:dev
-      - name: Log of next dev
-        if: failure()
-        run: cat apps/web/test-results/next-dev.log
-
-  contract:
-    name: API contract is up to date
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
-        with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: true
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: make openapi-check
 
   # Both jobs run the marked blocks of docs/quickstart.md on this fresh checkout, as written
   # there: a change of the guide is tested, and a step that stops working fails here.
