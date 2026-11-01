@@ -29,14 +29,14 @@ The same numbers are a gate. CI runs the evaluation with the other tests, and it
 
 A *golden set* is a fixed list of questions with answers that a person checked. Ours is [`golden.json`](../../apps/api/evals/search/golden.json): 39 made-up items and 38 queries. The real items are private, so they cannot be in the repository or in CI.
 
-A person gives each query its *grades*:
+Each query gives *grades* to the items:
 
 - 3: the item answers the query;
 - 2: it is about the topic;
 - 1: it touches the topic;
 - 0: it does not help.
 
-An item without a grade counts as 0. An example:
+An item without a grade counts as 0. In our set, the coding assistant that also wrote the search wrote the grades, together with the items and the queries; no person graded them on their own ([the evaluation report](../evaluation.md#the-golden-set)). An example:
 
 | Query | Item | Grade |
 |---|---|---|
@@ -159,7 +159,7 @@ The golden set has 39 items, so the first 10 places hold a quarter of it. A rele
 ## What a senior engineer checks here
 
 - **Can the gate fail?** Yes: a planted regression (no trigram in the fusion) drops nDCG@10 from 0.973533 to 0.971169, and the test fails.
-- **Can each metric still move?** recall@10 is at its ceiling (1.000) with the vectors of Voyage, so it can no longer fail. Look at the numbers, not only at the green check.
+- **Can each metric still move?** recall@10 is at its ceiling (1.000) with the vectors of Voyage, so it cannot show a gain, and it fails only when a relevant item leaves the first 10 places. Look at the numbers, not only at the green check.
 - **Is the run the same each time?** The vectors are recorded and rounded, ties go by the item id, and the gate allows only the last bits of a float.
 - **Is the golden set large enough?** No golden set is. With 38 queries, one query changes a mean by up to 1/38 = 0.026. The gate is an alarm for a change, not a benchmark against other systems.
 - **Are the grades independent of the system?** Write the grades from the question and the item, before you look at what search returns. Grades written from the results only teach the system its own mistakes.

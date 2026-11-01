@@ -4,7 +4,7 @@
 
 ## In one minute
 
-You import the export of your channel: 2,000 posts. Each post needs a card from the model. With the prices of the comparison of 15 October ([note 17](17-model-card.md), part 6):
+You import the export of your channel: 2,000 posts. Each post needs a card from the model. With the prices of the comparison of 15 October ([note 17](17-model-card.md), part 7):
 
 | | One card | 2,000 cards | The cards come |
 |---|---|---|---|
