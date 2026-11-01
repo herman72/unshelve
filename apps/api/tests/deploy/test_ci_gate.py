@@ -226,6 +226,27 @@ def test_each_file_that_keys_a_cache_exists_and_starts_the_groups_of_the_cache()
     ] == []
 
 
+def test_each_file_of_the_repository_is_in_a_list_or_read_by_no_job() -> None:
+    module = _module()
+    groups = module.groups()
+    tracked = subprocess.run(
+        ["git", "ls-files"],  # noqa: S607 - the git of this computer
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+
+    # A file here can change a job, but no pull request run starts for it. Add it to the list of
+    # each group whose jobs read it, or to NOT_READ_BY_CI if no job reads it.
+    assert [
+        file
+        for file in tracked
+        if not module.selects(module.NOT_READ_BY_CI, file)
+        and not any(module.selects(group.paths, file) for group in groups.values())
+    ] == []
+
+
 def test_a_changed_workflow_starts_its_group_and_the_tests_of_ci(
     history: History, gate: Gate
 ) -> None:
@@ -244,17 +265,31 @@ def test_a_moved_file_counts_also_at_its_old_place(history: History, gate: Gate)
     assert _running(gate()) == ["api", "stack"]
 
 
-def test_a_folder_selects_only_its_own_files(history: History, gate: Gate) -> None:
+def test_a_folder_selects_only_its_own_files(history: History, gate: Gate, tmp_path: Path) -> None:
     # apps/web/** names the folder apps/web, not each name that starts with "apps/web".
     history.change("apps/website/page.tsx", "Makefile.local")
 
-    assert _running(gate()) == []
+    assert _running(gate()) == list(GROUPS)
+    # Each group runs because the files are in no list, not because they are its own.
+    rows = (tmp_path / "summary").read_text().splitlines()
+    assert [row for row in rows if "Makefile.local is in no list of CI, and no proof" in row] == [
+        f"| {group} | yes | Makefile.local is in no list of CI, and no proof |" for group in GROUPS
+    ]
 
 
 def test_prose_runs_no_group(history: History, gate: Gate) -> None:
-    history.change("docs/learn/01-note.md", "docs/learn/02-note.md")
+    history.change("docs/learn/01-note.md", "docs/learn/02-note.md", "README.md", "LICENSE")
 
     assert _running(gate()) == []
+
+
+def test_a_file_in_no_list_runs_each_group_without_a_proof(history: History, gate: Gate) -> None:
+    # A new file of a tool: pnpm reads it in each install, and no list names it yet.
+    history.change(".npmrc")
+
+    assert _running(gate()) == list(GROUPS)
+    # A group that passed on this tree tested the new file too.
+    assert _running(gate(web_yml=_proof(5, history.tree()))) == ["api", "site", "stack"]
 
 
 @pytest.mark.parametrize(
