@@ -1,0 +1,2 @@
+# The gate of main.yml follows the rules of the API code.
+extend = "../../apps/api/pyproject.toml"

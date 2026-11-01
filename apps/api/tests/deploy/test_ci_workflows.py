@@ -28,12 +28,13 @@ READS = {
         "deploy/Dockerfile.api",
         "deploy/backup/restore.sh",
         "docs/quickstart.md",
-        # The tests of CI read each workflow.
+        # The tests of CI read each workflow and run the gate.
         ".github/workflows/api.yml",
         ".github/workflows/main.yml",
         ".github/workflows/site.yml",
         ".github/workflows/stack.yml",
         ".github/workflows/web.yml",
+        ".github/scripts/ci_gate.py",
         # The tests of the feed read the schema and the cases of the search package.
         "packages/site-search/schema/feed-v1.schema.json",
         "packages/site-search/fixtures/feed.json",
@@ -162,6 +163,20 @@ def test_main_calls_each_group_and_no_other_workflow_exists() -> None:
         group: f"./.github/workflows/{group}.yml" for group in GROUPS
     }
     assert [group for group in GROUPS if "workflow_call" not in _triggers(_workflow(group))] == []
+
+
+def test_on_main_a_group_runs_unless_the_gate_says_false() -> None:
+    jobs = _workflow("main")["jobs"]
+
+    assert set(jobs["gate"]["outputs"]) == set(GROUPS)
+    for group in GROUPS:
+        assert jobs[group]["needs"] == "gate"
+        # "!= 'false'", not "== 'true'": a failed gate gives empty outputs, and each group runs.
+        condition = f"!cancelled() && needs.gate.outputs.{group} != 'false'"
+        assert jobs[group]["if"] == f"${{{{ {condition} }}}}"
+    # The gate reads the runs of the groups; no other job gets more than to read the code.
+    assert jobs["gate"]["permissions"] == {"contents": "read", "actions": "read"}
+    assert _workflow("main")["permissions"] == {"contents": "read"}
 
 
 def test_a_group_cancels_only_the_older_runs_of_a_pull_request() -> None:

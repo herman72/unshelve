@@ -64,8 +64,9 @@ jobs:
           enable-cache: true
       - id: sync
         run: uv sync --locked
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
+      # The gate of main.yml follows the rules of the API code (.github/scripts/ruff.toml).
+      - run: uv run ruff check . ../../.github/scripts
+      - run: uv run ruff format --check . ../../.github/scripts
       - run: uv run pyright
       - run: uv run pytest
       # The API contract: openapi.json and the generated types must match the code. These steps

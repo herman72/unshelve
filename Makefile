@@ -1,6 +1,8 @@
 .DEFAULT_GOAL := help
 SHELL := /bin/bash
 API := apps/api
+# The gate of main.yml, linted with the rules of the API (from $(API)).
+SCRIPTS := ../../.github/scripts
 COMPOSE := docker compose
 
 .PHONY: help setup hooks db up down logs fmt lint typecheck test eval eval-live eval-baseline site-search test-site-search backup backup-status restore-drill openapi openapi-check check
@@ -29,10 +31,10 @@ logs: ## Follow the logs
 	$(COMPOSE) logs -f --tail=100
 
 fmt: ## Format and apply safe fixes
-	cd $(API) && uv run ruff format . && uv run ruff check --fix .
+	cd $(API) && uv run ruff format . $(SCRIPTS) && uv run ruff check --fix . $(SCRIPTS)
 
 lint: ## Lint Python and TypeScript
-	cd $(API) && uv run ruff check . && uv run ruff format --check .
+	cd $(API) && uv run ruff check . $(SCRIPTS) && uv run ruff format --check . $(SCRIPTS)
 	pnpm -r lint
 
 typecheck: ## Type-check Python and TypeScript

@@ -1,13 +1,15 @@
 name: Main
 
-# A push to main runs the groups of CI on the new main (docs/learn/53). A pull request runs each
-# group from its own file, and only when it changes the files of that group.
+# A push to main runs only the groups of CI that it changed, and that no green pull_request run
+# tested on the same tree (docs/learn/53, ADR 0016). A manual run runs each group.
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-# A push waits for the run before it: a run on main is never cancelled while it runs.
+# A push waits for the run before it: a run on main is never cancelled while it runs. A pending
+# run can still give its place to a newer push. The gate then compares with the last green run,
+# so the newer run tests the changes of both pushes.
 concurrency:
   group: main-${{ github.ref }}
   cancel-in-progress: false
@@ -15,12 +17,51 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  UV_VERSION: "0.9.3"
+
 jobs:
+  gate:
+    name: Which groups run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # The gate reads the runs of the groups.
+      actions: read
+    outputs:
+      api: ${{ steps.gate.outputs.api }}
+      web: ${{ steps.gate.outputs.web }}
+      site: ${{ steps.gate.outputs.site }}
+      stack: ${{ steps.gate.outputs.stack }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+      - id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --script .github/scripts/ci_gate.py
+
+  # A group runs unless the gate said "false". When the gate fails, its outputs are empty, and
+  # each group runs: a doubt costs minutes, never a check.
   api:
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.api != 'false' }}
     uses: ./.github/workflows/api.yml
   web:
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.web != 'false' }}
     uses: ./.github/workflows/web.yml
   site:
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.site != 'false' }}
     uses: ./.github/workflows/site.yml
   stack:
+    needs: gate
+    if: ${{ !cancelled() && needs.gate.outputs.stack != 'false' }}
     uses: ./.github/workflows/stack.yml
