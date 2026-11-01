@@ -5,7 +5,7 @@
 - **Small commits.** One logical change per commit, written as a [Conventional Commit](https://www.conventionalcommits.org/): `feat(queue): reap expired leases`.
 - **One branch per work package.** Branch names follow `m<milestone>-<n>/<short-name>`, for example `m1-2/export-importer`.
 - **Pull requests are rebase-merged**, so the small commits stay visible in a linear history.
-- **CI must pass.** Lint, type check, tests and the OpenAPI drift check.
+- **CI must pass.** Lint, type check, tests and the OpenAPI drift check. A pull request runs only the groups of CI whose files it changes. If a test or a step starts to read a new file, add the file to the `paths` of its group ([note 53](docs/learn/53-fewer-minutes-of-ci.md)).
 - **No private data in the repository.** Fixtures are synthetic. Exports, roadmaps and `.env` files stay outside git.
 
 ## Frozen interfaces
