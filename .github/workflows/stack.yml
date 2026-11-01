@@ -1,138 +1,38 @@
-name: CI
+name: Stack
 
+# A pull request runs this group only when it changes one of these files, and a push to main
+# runs it through main.yml (docs/learn/53). If a test or a step starts to read another file,
+# add the file here: test_ci_workflows.py checks the files that the tests read today.
 on:
-  push:
-    branches: [main]
   pull_request:
+    # The guide on a fresh clone: the images copy apps/api, apps/web, packages/api-client and the
+    # files of pnpm, and the import of the drill reads a made-up export of the API tests.
+    paths:
+      - apps/api/**
+      - apps/web/**
+      - packages/api-client/**
+      - deploy/**
+      - compose.yaml
+      - compose.prod.yaml
+      - docs/quickstart.md
+      - .env.example
+      - .dockerignore
+      - Makefile
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/stack.yml
+  workflow_call:
 
+# The group name has its own prefix: in a called workflow, github.workflow names the caller.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: stack-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
-env:
-  UV_VERSION: "0.9.3"
-  NODE_VERSION: "24"
-
 jobs:
-  api:
-    name: API (lint, types, tests, contract)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/api
-    services:
-      postgres:
-        image: pgvector/pgvector:0.8.7-pg17
-        env:
-          POSTGRES_USER: unshelve
-          POSTGRES_PASSWORD: unshelve
-          POSTGRES_DB: unshelve
-        ports:
-          - 54329:5432
-        options: >-
-          --health-cmd "pg_isready -U unshelve -d unshelve"
-          --health-interval 2s
-          --health-timeout 3s
-          --health-retries 30
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v10.3.0
-        with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: true
-      - id: sync
-        run: uv sync --locked
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run pyright
-      - run: uv run pytest
-      # The API contract: openapi.json and the generated types must match the code. These steps
-      # run also after a failed check above, so that one run reports both.
-      - uses: pnpm/action-setup@v6
-        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
-      - uses: actions/setup-node@v7
-        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - id: pnpm
-        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
-        working-directory: .
-        run: pnpm install --frozen-lockfile
-      - name: The API contract is up to date
-        if: ${{ !cancelled() && steps.pnpm.outcome == 'success' }}
-        working-directory: .
-        run: make openapi-check
-      # actionlint checks the expressions of the workflows, and shellcheck their run blocks. A
-      # step, not a job: a job bills at least one more minute.
-      - name: Lint the workflows
-        if: ${{ !cancelled() }}
-        working-directory: .
-        env:
-          LINT: rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9
-        run: docker run --rm -v "$PWD:/repo:ro" -w /repo "$LINT" -color
-
-  web:
-    name: Web (lint, types, build)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm -r lint
-      - run: pnpm -r typecheck
-      # Node runs these tests on the TypeScript files themselves: no build step.
-      - run: pnpm --filter @unshelve/site-search test
-      - run: pnpm -r build
-
-  web-e2e:
-    name: Web (end-to-end and next dev, against a pretend API)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - id: install
-        run: pnpm install --frozen-lockfile
-      # Playwright drives the Google Chrome of the runner (channel "chrome"): no browser to
-      # download. The config builds the app for the pretend API and starts both.
-      - run: pnpm --filter @unshelve/web test:e2e
-      # next dev logs errors that the production build above cannot show, for example a clock
-      # read in a stage of the render that a prerender would see. The spec fails on each route
-      # error in its log and on each error in the browser console. It runs also after a failed
-      # end-to-end test, so that one run reports both.
-      - id: dev
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
-        run: pnpm --filter @unshelve/web test:dev
-      - name: Log of next dev
-        if: ${{ failure() && steps.dev.outcome == 'failure' }}
-        run: cat apps/web/test-results/next-dev.log
-
-  site-example:
-    name: Example site (end-to-end, the search of the feed)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v7
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      # The config builds examples/site for production, as a site that uses the package would
-      # be built, and searches it in the Google Chrome of the runner.
-      - run: pnpm --filter @unshelve/example-site test:e2e
-
   # Both jobs run the marked blocks of docs/quickstart.md on this fresh checkout, as written
   # there: a change of the guide is tested, and a step that stops working fails here.
   quickstart-local:

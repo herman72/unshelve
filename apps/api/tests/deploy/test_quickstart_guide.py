@@ -71,7 +71,7 @@ def test_a_mark_that_the_guide_does_not_have_stops_the_printer() -> None:
 
 
 def test_ci_runs_each_mark_with_bash_c_and_not_through_a_pipe() -> None:
-    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
+    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "stack.yml").read_text())
     lines = [
         line.strip()
         for job in workflow["jobs"].values()

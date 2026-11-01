@@ -1,0 +1,72 @@
+name: Web
+
+# A pull request runs this group only when it changes one of these files, and a push to main
+# runs it through main.yml (docs/learn/53). If a test or a step starts to read another file,
+# add the file here: test_ci_workflows.py checks the files that the tests read today.
+on:
+  pull_request:
+    # pnpm -r lints, types and builds each package of the workspace, the example site too.
+    paths:
+      - apps/web/**
+      - packages/**
+      - examples/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/web.yml
+  workflow_call:
+
+# The group name has its own prefix: in a called workflow, github.workflow names the caller.
+concurrency:
+  group: web-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  web:
+    name: Web (lint, types, build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r lint
+      - run: pnpm -r typecheck
+      # Node runs these tests on the TypeScript files themselves: no build step.
+      - run: pnpm --filter @unshelve/site-search test
+      - run: pnpm -r build
+
+  web-e2e:
+    name: Web (end-to-end and next dev, against a pretend API)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - id: install
+        run: pnpm install --frozen-lockfile
+      # Playwright drives the Google Chrome of the runner (channel "chrome"): no browser to
+      # download. The config builds the app for the pretend API and starts both.
+      - run: pnpm --filter @unshelve/web test:e2e
+      # next dev logs errors that the production build above cannot show, for example a clock
+      # read in a stage of the render that a prerender would see. The spec fails on each route
+      # error in its log and on each error in the browser console. It runs also after a failed
+      # end-to-end test, so that one run reports both.
+      - id: dev
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pnpm --filter @unshelve/web test:dev
+      - name: Log of next dev
+        if: ${{ failure() && steps.dev.outcome == 'failure' }}
+        run: cat apps/web/test-results/next-dev.log
