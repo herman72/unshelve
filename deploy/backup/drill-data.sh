@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Data for the restore in CI (.github/workflows/ci.yml, job quickstart-local): an import of the
+# Data for the restore in CI (.github/workflows/stack.yml, job quickstart-local): an import of the
 # made-up export of the tests, with two photos and a PDF, so that the backup holds rows of each
 # kind and files. Then it waits until the pipeline ends with each item. Not for a real instance.
 set -euo pipefail

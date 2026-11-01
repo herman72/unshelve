@@ -30,7 +30,7 @@ def _services(tmp_path: Path, *, dotenv: str | None = None, **variables: str) ->
 
 def test_the_backup_and_the_database_use_one_image_and_so_does_ci(tmp_path: Path) -> None:
     services = _services(tmp_path)
-    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
+    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "api.yml").read_text())
 
     # pg_dump must not be older than the server: one image gives both the same version.
     assert services["db"]["image"] == services["backup"]["image"] == POSTGRES_IMAGE

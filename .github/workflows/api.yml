@@ -1,0 +1,95 @@
+name: API
+
+# A pull request runs this group only when it changes one of these files, and a push to main
+# runs it through main.yml (docs/learn/53). If a test or a step starts to read another file,
+# add the file here: test_ci_workflows.py checks the files that the tests read today.
+on:
+  pull_request:
+    # The tests of the API read the stack files, the guide, the schema of the feed and the files of
+    # CI; the contract check reads the generated types and needs pnpm.
+    paths:
+      - apps/api/**
+      - packages/api-client/**
+      - packages/site-search/**
+      - deploy/**
+      - compose.yaml
+      - compose.prod.yaml
+      - docs/quickstart.md
+      - .env.example
+      - Makefile
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/**
+  workflow_call:
+
+# The group name has its own prefix: in a called workflow, github.workflow names the caller.
+concurrency:
+  group: api-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.9.3"
+  NODE_VERSION: "24"
+
+jobs:
+  api:
+    name: API (lint, types, tests, contract)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.7-pg17
+        env:
+          POSTGRES_USER: unshelve
+          POSTGRES_PASSWORD: unshelve
+          POSTGRES_DB: unshelve
+        ports:
+          - 54329:5432
+        options: >-
+          --health-cmd "pg_isready -U unshelve -d unshelve"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - id: sync
+        run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run pyright
+      - run: uv run pytest
+      # The API contract: openapi.json and the generated types must match the code. These steps
+      # run also after a failed check above, so that one run reports both.
+      - uses: pnpm/action-setup@v6
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+      - uses: actions/setup-node@v7
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - id: pnpm
+        if: ${{ !cancelled() && steps.sync.outcome == 'success' }}
+        working-directory: .
+        run: pnpm install --frozen-lockfile
+      - name: The API contract is up to date
+        if: ${{ !cancelled() && steps.pnpm.outcome == 'success' }}
+        working-directory: .
+        run: make openapi-check
+      # actionlint checks the expressions of the workflows, and shellcheck their run blocks. A
+      # step, not a job: a job bills at least one more minute.
+      - name: Lint the workflows
+        if: ${{ !cancelled() }}
+        working-directory: .
+        env:
+          LINT: rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9
+        run: docker run --rm -v "$PWD:/repo:ro" -w /repo "$LINT" -color

@@ -1,0 +1,26 @@
+name: Main
+
+# A push to main runs the groups of CI on the new main (docs/learn/53). A pull request runs each
+# group from its own file, and only when it changes the files of that group.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A push waits for the run before it: a run on main is never cancelled while it runs.
+concurrency:
+  group: main-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  api:
+    uses: ./.github/workflows/api.yml
+  web:
+    uses: ./.github/workflows/web.yml
+  site:
+    uses: ./.github/workflows/site.yml
+  stack:
+    uses: ./.github/workflows/stack.yml

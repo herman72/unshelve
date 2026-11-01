@@ -1,0 +1,43 @@
+name: Example site
+
+# A pull request runs this group only when it changes one of these files, and a push to main
+# runs it through main.yml (docs/learn/53). If a test or a step starts to read another file,
+# add the file here: test_ci_workflows.py checks the files that the tests read today.
+on:
+  pull_request:
+    # The example site and the package that it searches with.
+    paths:
+      - examples/**
+      - packages/site-search/**
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - .github/workflows/site.yml
+  workflow_call:
+
+# The group name has its own prefix: in a called workflow, github.workflow names the caller.
+concurrency:
+  group: site-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+
+jobs:
+  site-example:
+    name: Example site (end-to-end, the search of the feed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The config builds examples/site for production, as a site that uses the package would
+      # be built, and searches it in the Google Chrome of the runner.
+      - run: pnpm --filter @unshelve/example-site test:e2e
