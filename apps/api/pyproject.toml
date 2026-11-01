@@ -77,7 +77,7 @@ ignore = [
 ban-relative-imports = "all"
 
 [tool.pyright]
-include = ["src", "tests", "migrations"]
+include = ["src", "tests", "migrations", "../../.github/scripts"]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 venvPath = "."

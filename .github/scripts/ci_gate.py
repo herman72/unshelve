@@ -1,0 +1,152 @@
+# /// script
+# requires-python = ">=3.12"
+# dependencies = ["pyyaml==6.0.3"]
+# ///
+"""The gate of main.yml: which groups of CI a push to main runs (docs/learn/53).
+
+A group runs when the push changed one of its files, and no green pull_request run of the group
+tested the same tree. The owner merges by rebase, so main gets new commits, but their tree is the
+tree that the pull request tested. Each doubt runs the group: a manual run, no green run of
+main.yml to compare with, or a failed call of the GitHub API.
+
+It writes `<group>=true|false` to $GITHUB_OUTPUT and a table of its reasons to the summary.
+"""
+
+import json
+import os
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+WORKFLOWS = Path(__file__).resolve().parents[1] / "workflows"
+# A change of these files changes the key of a cache of setup-uv or setup-node. A new pull request
+# restores the cache of main, and main saves a cache only when a job runs there. So a group with
+# such a cache runs on main after such a change, also after a proof.
+LOCKFILES = (
+    "apps/api/uv.lock",
+    "apps/api/pyproject.toml",
+    "apps/api/.python-version",
+    "pnpm-lock.yaml",
+)
+CACHING_ACTIONS = ("astral-sh/setup-uv@", "actions/setup-node@")
+
+
+@dataclass(frozen=True)
+class Group:
+    paths: list[str]  # the paths of its pull_request trigger
+    cached: bool  # whether a job of the group restores a cache of setup-uv or setup-node
+
+
+def run(*command: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, capture_output=True, text=True, check=False)  # noqa: S603 - git and gh
+
+
+def git(*args: str) -> str:
+    done = run("git", *args)
+    if done.returncode != 0:
+        raise RuntimeError(f"git {' '.join(args)}: {done.stderr.strip()}")
+    return done.stdout.strip()
+
+
+def api(path: str) -> Any:
+    """The answer of the GitHub API, or None when the call failed."""
+    done = run("gh", "api", path)
+    if done.returncode != 0:
+        sys.stderr.write(f"gh api {path} failed: {done.stderr.strip()}\n")
+        return None
+    return json.loads(done.stdout)
+
+
+def selects(paths: list[str] | tuple[str, ...], file: str) -> bool:
+    """The match of GitHub for the two forms of the lists: a file, or a folder and `/**`."""
+    return any(
+        file.startswith(path.removesuffix("**")) if path.endswith("/**") else file == path
+        for path in paths
+    )
+
+
+def groups() -> dict[str, Group]:
+    """Each group that main.yml calls."""
+    main: dict[str, Any] = yaml.safe_load((WORKFLOWS / "main.yml").read_text())
+    found: dict[str, Group] = {}
+    for name, job in main["jobs"].items():
+        if "uses" in job:
+            file = WORKFLOWS / Path(job["uses"]).name
+            workflow: dict[Any, Any] = yaml.safe_load(file.read_text())
+            steps = [step for one in workflow["jobs"].values() for step in one.get("steps", [])]
+            found[name] = Group(
+                # YAML 1.1 reads the key `on` as the boolean true. GitHub reads it as the word.
+                paths=workflow[True]["pull_request"]["paths"],
+                cached=any(str(step.get("uses", "")).startswith(CACHING_ACTIONS) for step in steps),
+            )
+    return found
+
+
+def last_green_main(repo: str) -> str | None:
+    """The commit of the last green run of main.yml on main, if this clone has it."""
+    workflow = f"repos/{repo}/actions/workflows/main.yml/runs"
+    answer = api(f"{workflow}?branch=main&status=success&per_page=1")
+    runs: list[dict[str, Any]] = answer["workflow_runs"] if answer else []
+    if not runs:
+        return None
+    sha = str(runs[0]["head_sha"])
+    # A rewritten history can lose that commit: then there is nothing to compare with.
+    return sha if run("git", "cat-file", "-e", f"{sha}^{{commit}}").returncode == 0 else None
+
+
+def proof(repo: str, group: str, tree: str) -> int | None:
+    """The id of a green pull_request run of the group on this tree, or None."""
+    workflow = f"repos/{repo}/actions/workflows/{group}.yml/runs"
+    answer = api(f"{workflow}?event=pull_request&status=success&per_page=100")
+    runs: list[dict[str, Any]] = answer["workflow_runs"] if answer else []
+    for one in runs:
+        if one["head_commit"]["tree_id"] == tree:
+            return int(one["id"])
+    return None
+
+
+def decide(repo: str, event: str) -> dict[str, tuple[bool, str]]:
+    """For each group: whether it runs, and why."""
+    all_groups = groups()
+    if event == "workflow_dispatch":
+        return dict.fromkeys(all_groups, (True, "a manual run runs each group"))
+    base = last_green_main(repo)
+    if base is None:
+        return dict.fromkeys(all_groups, (True, "no green run of main.yml to compare with"))
+    # Without renames, a moved file counts at its old place and at its new place.
+    changed = git("diff", "--name-only", "--no-renames", base, "HEAD").splitlines()
+    locks = [file for file in changed if selects(LOCKFILES, file)]
+    tree = git("rev-parse", "HEAD^{tree}")
+    decisions: dict[str, tuple[bool, str]] = {}
+    for name, group in all_groups.items():
+        mine = [file for file in changed if selects(group.paths, file)]
+        if not mine:
+            decisions[name] = (False, f"no file of the group changed since {base[:7]}")
+        elif locks and group.cached:
+            decisions[name] = (True, f"{locks[0]} changed: main saves the new cache")
+        elif (found := proof(repo, name, tree)) is not None:
+            decisions[name] = (False, f"pull request run {found} passed on this tree")
+        else:
+            decisions[name] = (True, f"{len(mine)} of its files changed, and no proof")
+    return decisions
+
+
+def main() -> None:
+    decisions = decide(os.environ["GITHUB_REPOSITORY"], os.environ.get("GITHUB_EVENT_NAME", ""))
+    rows = ["| Group | Runs | Why |", "|---|---|---|"]
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+        for group, (runs, why) in decisions.items():
+            output.write(f"{group}={str(runs).lower()}\n")
+            rows.append(f"| {group} | {'yes' if runs else 'no'} | {why} |")
+            sys.stdout.write(f"{group}: {'runs' if runs else 'skips'} ({why})\n")
+    if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
+        with Path(summary).open("a") as file:
+            file.write("\n".join(rows) + "\n")
+
+
+if __name__ == "__main__":
+    main()
