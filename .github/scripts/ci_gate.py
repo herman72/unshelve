@@ -7,7 +7,7 @@
 A group runs when the push changed one of its files, and no green pull_request run of the group
 tested the same tree. The owner merges by rebase, so main gets new commits, but their tree is the
 tree that the pull request tested. Each doubt runs the group: a manual run, no green run of
-main.yml to compare with, or a failed call of the GitHub API.
+main.yml to compare with, a failed call of the GitHub API, or a changed file that no list names.
 
 It writes `<group>=true|false` to $GITHUB_OUTPUT and a table of its reasons to the summary.
 """
@@ -28,6 +28,17 @@ WORKFLOWS = Path(__file__).resolve().parents[1] / "workflows"
 # main after a change of a file that keys one of its caches, also after a proof.
 UV_KEYS = ("apps/api/uv.lock", "apps/api/pyproject.toml", "apps/api/.python-version")
 PNPM_KEYS = ("pnpm-lock.yaml",)
+# The files that no job of CI reads. A changed file that no list of a group selects, and that is
+# not here, runs each group without a proof: a new file of a tool (.npmrc, uv.toml, .gitattributes)
+# can change any job before a list names it. A pull request with only such a file runs no group.
+NOT_READ_BY_CI = (
+    "docs/**",
+    "README.md",
+    "CONTRIBUTING.md",
+    "LICENSE",
+    ".editorconfig",
+    ".pre-commit-config.yaml",
+)
 
 
 @dataclass(frozen=True)
@@ -126,18 +137,26 @@ def decide(repo: str, event: str) -> dict[str, tuple[bool, str]]:
     # Without renames, a moved file counts at its old place and at its new place.
     changed = git("diff", "--name-only", "--no-renames", base, "HEAD").splitlines()
     tree = git("rev-parse", "HEAD^{tree}")
+    unknown = [
+        file
+        for file in changed
+        if not selects(NOT_READ_BY_CI, file)
+        and not any(selects(group.paths, file) for group in all_groups.values())
+    ]
     decisions: dict[str, tuple[bool, str]] = {}
     for name, group in all_groups.items():
         mine = [file for file in changed if selects(group.paths, file)]
         keys = [file for file in mine if file in group.cache_keys]
-        if not mine:
+        if not mine and not unknown:
             decisions[name] = (False, f"no file of the group changed since {base[:7]}")
         elif keys:
             decisions[name] = (True, f"{keys[0]} changed: main saves the new cache")
         elif (found := proof(repo, name, tree)) is not None:
             decisions[name] = (False, f"pull request run {found} passed on this tree")
-        else:
+        elif mine:
             decisions[name] = (True, f"{len(mine)} of its files changed, and no proof")
+        else:
+            decisions[name] = (True, f"{unknown[0]} is in no list of CI, and no proof")
     return decisions
 
 
