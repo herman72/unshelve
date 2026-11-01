@@ -66,6 +66,14 @@ jobs:
         if: ${{ !cancelled() && steps.pnpm.outcome == 'success' }}
         working-directory: .
         run: make openapi-check
+      # actionlint checks the expressions of the workflows, and shellcheck their run blocks. A
+      # step, not a job: a job bills at least one more minute.
+      - name: Lint the workflows
+        if: ${{ !cancelled() }}
+        working-directory: .
+        env:
+          LINT: rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9
+        run: docker run --rm -v "$PWD:/repo:ro" -w /repo "$LINT" -color
 
   web:
     name: Web (lint, types, build)
