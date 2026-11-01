@@ -1,6 +1,6 @@
 # 53. Fewer minutes of CI
 
-> Pull request: [#125](https://github.com/herman72/unshelve/pull/125) · Code: [`main.yml`](../../.github/workflows/main.yml), [`ci_gate.py`](../../.github/scripts/ci_gate.py), [`api.yml`](../../.github/workflows/api.yml), [`web.yml`](../../.github/workflows/web.yml), [`site.yml`](../../.github/workflows/site.yml), [`stack.yml`](../../.github/workflows/stack.yml) · Tests: [`test_ci_gate.py`](../../apps/api/tests/deploy/test_ci_gate.py), [`test_ci_workflows.py`](../../apps/api/tests/deploy/test_ci_workflows.py) · Decision: [ADR 0016](../adr/0016-ci-runs-by-the-files-of-a-change-and-main-trusts-a-proof-by-tree.md)
+> Pull requests: [#125](https://github.com/herman72/unshelve/pull/125), [#126](https://github.com/herman72/unshelve/pull/126) · Code: [`main.yml`](../../.github/workflows/main.yml), [`ci_gate.py`](../../.github/scripts/ci_gate.py), [`api.yml`](../../.github/workflows/api.yml), [`web.yml`](../../.github/workflows/web.yml), [`site.yml`](../../.github/workflows/site.yml), [`stack.yml`](../../.github/workflows/stack.yml) · Tests: [`test_ci_gate.py`](../../apps/api/tests/deploy/test_ci_gate.py), [`test_ci_workflows.py`](../../apps/api/tests/deploy/test_ci_workflows.py) · Decisions: [ADR 0016](../adr/0016-ci-runs-by-the-files-of-a-change-and-main-trusts-a-proof-by-tree.md), [ADR 0017](../adr/0017-ci-a-lockfile-runs-the-groups-of-its-cache-and-a-file-in-no-list-runs-each-group.md)
 
 ## In one minute
 
@@ -15,11 +15,11 @@ This change gives CI four groups, each with its own list of files. A push to mai
 
 | | October, as it ran | October, with the new rules (my estimate) |
 |---|---|---|
-| Pull request runs (122) | 1,048 min | 783 min |
-| Pushes to main (70) | 639 min | 98 min, and 70 min for the gate |
-| Total | 1,687 min | 951 min (44% less) |
+| Pull request runs (122) | 1,048 min | 777 min |
+| Pushes to main (70) | 639 min | 96 min, and 70 min for the gate |
+| Total | 1,687 min | 943 min (44% less) |
 
-The replay uses the real files of each run, the real time of each job, and the real result of each job. It is an estimate for two reasons. The new lint step of the API job is not measured yet (I counted 10 s). And a stacked pull request has a smaller diff on GitHub than in the replay, so the true saving is a little larger.
+The replay uses the real files of each run, the real time of each job, and the real result of each job. The new lint step of the API job took 4 s in the first run on main, and the replay counts those 4 s. It is still an estimate: a stacked pull request has a smaller diff on GitHub than in the replay, so the true saving is a little larger.
 
 ## 1. A minute is the smallest unit
 
@@ -63,6 +63,8 @@ Some real changes, and the groups that they start:
 
 **The danger is a file that a job reads, but that no list names.** Then a pull request can break the job, and no run shows it. `test_ci_workflows.py` names the files outside each app that the jobs read, and fails when a list does not select one of them. When a test starts to read a new file, add the file to that test and to the list.
 
+A tool can read a file too, not only a test. Ruff skips each file that the `.gitignore` of the root names, so the list of the API names `.gitignore`. A second test checks that each file of the repository is in a list, or in `NOT_READ_BY_CI`: the files that no job reads, such as the notes and the README.
+
 A list uses only two forms: a file (`docs/quickstart.md`), or a folder and `/**` (`deploy/**`). The gate of main (section 4) matches the same lists, and with only these two forms its match is the same as the match of GitHub. A test refuses other wildcards.
 
 ## 3. The same tree, tested two times
@@ -90,9 +92,9 @@ The run of the pull request had tested exactly the files of main. In October, th
 flowchart TD
     P["push to main"] --> M{"a manual run, or no green<br/>run of main.yml to compare with?"}
     M -->|"yes"| R["run the group"]
-    M -->|"no"| F{"did a file of the group change<br/>since the last green run of main?"}
+    M -->|"no"| F{"since the last green run of main, did a file<br/>of the group change, or a file in no list?"}
     F -->|"no"| S["skip"]
-    F -->|"yes"| L{"did a lockfile change, and does<br/>the group restore a cache?"}
+    F -->|"yes"| L{"did a file change that keys<br/>a cache of the group?"}
     L -->|"yes"| R
     L -->|"no"| T{"did a green pull request run<br/>of the group test this tree?"}
     T -->|"yes"| S2["skip: proven"]
@@ -102,7 +104,7 @@ flowchart TD
 Three details:
 
 - **The gate compares with the last green run of main, not with the push before.** A run on main waits for the run before it. A pending run can give its place to a newer push, and the newer run then tests the changes of both pushes.
-- **A lockfile change runs the groups that restore a cache.** `setup-uv` and `setup-node` save a cache only in a run, and a new pull request restores the cache of main. Without a run on main, each new pull request would install everything from the start. The stack builds images and restores no cache of GitHub, so its proof still counts.
+- **A change of a file that keys a cache runs the groups with that cache.** The files of uv (`uv.lock`, `pyproject.toml`, `.python-version`) key the cache of `setup-uv`, and `pnpm-lock.yaml` keys the pnpm cache of `setup-node`. Both actions save a cache only in a run, and a new pull request restores the cache of main. Without a run on main, each new pull request would install everything from the start. A change of `uv.lock` runs only the API group, because the pnpm cache of Web does not depend on it. The stack builds images and restores no cache of GitHub, so its proof still counts.
 - **The gate writes its reasons.** The summary of each run of Main has a table: the group, "yes" or "no", and why. For example: "pull request run 41 passed on this tree".
 
 ## 5. A doubt runs the group
@@ -112,7 +114,8 @@ The gate skips a group only when it is sure. Each of these doubts runs the group
 - a manual run (Actions → Main → Run workflow): it runs each group;
 - no green run of main.yml yet, or a green commit that the clone does not have;
 - a failed call of the GitHub API;
-- a failed gate: its outputs are empty, and the condition `!= 'false'` is true for an empty value.
+- a failed gate: its outputs are empty, and the condition `!= 'false'` is true for an empty value;
+- a changed file that no list selects and that `NOT_READ_BY_CI` does not name, for example a new `.npmrc`, which pnpm reads in each install. A group without a proof on the tree runs. A pull request with only such a file runs no group, so the run on main is the first run that sees it.
 
 This is called *fail open*: when the check itself fails, the safe action happens. Here the safe action costs minutes, and a skip could hide a failure. `test_ci_gate.py` has one test for each doubt.
 
@@ -136,6 +139,8 @@ A self-hosted runner on the laptop also costs no minutes. But the stack jobs run
 - **Is each list complete?** A list kept by hand gets old. The test that names the read files is the guard, and its comment says what to do.
 - **What happens when the check fails?** A gate that fails closed would stop CI on main. A gate that fails open costs minutes. Choose by the cost of a miss.
 - **Measure before and after.** The first version of this change kept `.github/**` in the rule that always runs. The replay showed that it cost 40 minutes and protected nothing that a pull request run did not test already. So the replay changed the design.
+- **Audit the lists by what the tools read, not only by what the tests read.** An audit after the merge found two files that a job reads and no list named: the `.gitignore` of the root (ruff, and the build of the package) and `exports/README.md` (the drill copies into `exports/`). A file that does not exist yet cannot be in a list, so main treats a file in no list as a doubt.
+- **Test a rule with a change of two groups at once.** The first gate ran each group with a cache after any lockfile change: a change of `pyproject.toml` also ran Web and the example site. Each test changed one group at a time, so no test saw it. A run of the gate with the real API, after the merge, showed it.
 
 ## Try it yourself
 
@@ -150,17 +155,17 @@ After the next merge, open Actions → Main → the run → Summary on GitHub, a
 
 ## Exercise (10 minutes)
 
-1. In `.github/scripts/ci_gate.py`, change `elif locks and group.cached:` to `elif locks:`.
+1. In `.github/scripts/ci_gate.py`, change `if file in group.cache_keys` to `if file in UV_KEYS + PNPM_KEYS`.
 2. Run `uv run pytest tests/deploy/test_ci_gate.py` in `apps/api`.
 
-Which test fails? After a change of `apps/api/uv.lock` that a pull request proved, which groups would run on main with the mistake? How many minutes does that cost each time?
+Which tests fail? After a change of `apps/api/uv.lock` that a pull request proved, which groups would run on main with the mistake? How many minutes does that cost each time?
 
 <details>
 <summary>The answer</summary>
 
-The test "the lockfile of uv" fails: it expects `["api"]`, and it gets `["api", "stack"]`.
+Four tests fail. For example, the test "the lockfile of uv" expects `["api"]`, and it gets `["api", "stack"]`.
 
-With the mistake, the stack runs on main after each change of the lockfile of uv. The two quickstart jobs each took about 2 minutes 15 seconds in October (median 137 s and 132 s), so each such push bills about 6 minutes more. The stack restores no cache of GitHub, so the run gives nothing back: its images are built from the start each time. Put `group.cached` back.
+With the mistake, the stack runs on main after each change of the lockfile of uv. The two quickstart jobs each took about 2 minutes 15 seconds in October (median 137 s and 132 s), so each such push bills about 6 minutes more. The stack restores no cache of GitHub, so the run gives nothing back: its images are built from the start each time. Put `group.cache_keys` back.
 
 </details>
 

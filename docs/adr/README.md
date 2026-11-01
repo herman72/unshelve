@@ -20,6 +20,7 @@ Each record states one decision, why it was made, and what it costs. A record is
 | [0014](0014-scores-a-vector-prefilter-then-one-question-for-all-goals.md) | Scores: a vector prefilter, then one question to the model for all goals | Accepted |
 | [0015](0015-backups-a-logical-dump-and-a-mirror-of-the-files.md) | Backups: a logical dump from one snapshot, and a mirror of the files | Accepted |
 | [0016](0016-ci-runs-by-the-files-of-a-change-and-main-trusts-a-proof-by-tree.md) | CI runs by the files of a change, and main trusts a proof by tree | Accepted |
+| [0017](0017-ci-a-lockfile-runs-the-groups-of-its-cache-and-a-file-in-no-list-runs-each-group.md) | CI: a lockfile runs the groups of its cache, and a file in no list runs each group | Accepted |
 
 ## Template
 
