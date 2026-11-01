@@ -23,22 +23,17 @@ from typing import Any
 import yaml
 
 WORKFLOWS = Path(__file__).resolve().parents[1] / "workflows"
-# A change of these files changes the key of a cache of setup-uv or setup-node. A new pull request
-# restores the cache of main, and main saves a cache only when a job runs there. So a group with
-# such a cache runs on main after such a change, also after a proof.
-LOCKFILES = (
-    "apps/api/uv.lock",
-    "apps/api/pyproject.toml",
-    "apps/api/.python-version",
-    "pnpm-lock.yaml",
-)
-CACHING_ACTIONS = ("astral-sh/setup-uv@", "actions/setup-node@")
+# The files that key the cache of setup-uv, and the cache of pnpm in setup-node. A new pull request
+# restores the cache of main, and main saves a cache only when a job runs there. So a group runs on
+# main after a change of a file that keys one of its caches, also after a proof.
+UV_KEYS = ("apps/api/uv.lock", "apps/api/pyproject.toml", "apps/api/.python-version")
+PNPM_KEYS = ("pnpm-lock.yaml",)
 
 
 @dataclass(frozen=True)
 class Group:
     paths: list[str]  # the paths of its pull_request trigger
-    cached: bool  # whether a job of the group restores a cache of setup-uv or setup-node
+    cache_keys: tuple[str, ...]  # the files that key a cache that a job of the group restores
 
 
 def run(*command: str) -> subprocess.CompletedProcess[str]:
@@ -69,6 +64,17 @@ def selects(paths: list[str] | tuple[str, ...], file: str) -> bool:
     )
 
 
+def cache_keys(step: dict[str, Any]) -> tuple[str, ...]:
+    """The files that key the cache that a step restores, or none."""
+    uses = str(step.get("uses", ""))
+    options: dict[str, Any] = step.get("with") or {}
+    if uses.startswith("astral-sh/setup-uv@") and options.get("enable-cache") is not False:
+        return UV_KEYS
+    if uses.startswith("actions/setup-node@") and options.get("cache") == "pnpm":
+        return PNPM_KEYS
+    return ()
+
+
 def groups() -> dict[str, Group]:
     """Each group that main.yml calls."""
     main: dict[str, Any] = yaml.safe_load((WORKFLOWS / "main.yml").read_text())
@@ -81,7 +87,7 @@ def groups() -> dict[str, Group]:
             found[name] = Group(
                 # YAML 1.1 reads the key `on` as the boolean true. GitHub reads it as the word.
                 paths=workflow[True]["pull_request"]["paths"],
-                cached=any(str(step.get("uses", "")).startswith(CACHING_ACTIONS) for step in steps),
+                cache_keys=tuple(sorted({key for step in steps for key in cache_keys(step)})),
             )
     return found
 
@@ -119,15 +125,15 @@ def decide(repo: str, event: str) -> dict[str, tuple[bool, str]]:
         return dict.fromkeys(all_groups, (True, "no green run of main.yml to compare with"))
     # Without renames, a moved file counts at its old place and at its new place.
     changed = git("diff", "--name-only", "--no-renames", base, "HEAD").splitlines()
-    locks = [file for file in changed if selects(LOCKFILES, file)]
     tree = git("rev-parse", "HEAD^{tree}")
     decisions: dict[str, tuple[bool, str]] = {}
     for name, group in all_groups.items():
         mine = [file for file in changed if selects(group.paths, file)]
+        keys = [file for file in mine if file in group.cache_keys]
         if not mine:
             decisions[name] = (False, f"no file of the group changed since {base[:7]}")
-        elif locks and group.cached:
-            decisions[name] = (True, f"{locks[0]} changed: main saves the new cache")
+        elif keys:
+            decisions[name] = (True, f"{keys[0]} changed: main saves the new cache")
         elif (found := proof(repo, name, tree)) is not None:
             decisions[name] = (False, f"pull request run {found} passed on this tree")
         else:
