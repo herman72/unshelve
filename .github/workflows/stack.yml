@@ -6,7 +6,8 @@ name: Stack
 on:
   pull_request:
     # The guide on a fresh clone: the images copy apps/api, apps/web, packages/api-client and the
-    # files of pnpm, and the import of the drill reads a made-up export of the API tests.
+    # files of pnpm, and the import of the drill reads a made-up export of the API tests. The drill
+    # copies it into exports/, which exists in a clone only because of exports/README.md.
     paths:
       - apps/api/**
       - apps/web/**
@@ -17,6 +18,7 @@ on:
       - docs/quickstart.md
       - .env.example
       - .dockerignore
+      - exports/**
       - Makefile
       - package.json
       - pnpm-lock.yaml

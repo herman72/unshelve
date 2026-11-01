@@ -40,6 +40,8 @@ READS = {
         "packages/site-search/fixtures/feed.json",
         "packages/site-search/src/u-norm-table.ts",
         "packages/site-search/test/u-norm-cases.json",
+        # Ruff and the build of the package skip each file that it names.
+        ".gitignore",
         # The contract check makes the types again and compares them.
         "Makefile",
         "packages/api-client/src/schema.d.ts",
@@ -78,6 +80,9 @@ READS = {
         "deploy/check-instance.sh",
         "deploy/backup/drill-data.sh",
         "apps/api/tests/ingest/fixtures/export_made_up/messages.html",
+        # The drill copies the export into exports/: without this file, a clone has no exports/,
+        # Docker makes it for root when it mounts it, and the copy fails.
+        "exports/README.md",
         "compose.yaml",
         "compose.prod.yaml",
         ".env.example",
