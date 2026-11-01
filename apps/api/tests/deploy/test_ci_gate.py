@@ -5,12 +5,14 @@ new commit on it. A pretend `gh` answers the calls of the gate from a table. The
 real lists of the four groups, so these tests also show what each list selects.
 """
 
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from types import ModuleType
 from typing import Any
 
 import pytest
@@ -172,10 +174,11 @@ def test_a_run_on_another_tree_proves_nothing(history: History, gate: Gate) -> N
     [
         # The stack builds images, and restores no cache of GitHub: its proof still counts.
         pytest.param("apps/api/uv.lock", ["api"], id="the lockfile of uv"),
+        pytest.param("apps/api/pyproject.toml", ["api"], id="the project file of uv"),
         pytest.param("pnpm-lock.yaml", ["api", "web", "site"], id="the lockfile of pnpm"),
     ],
 )
-def test_a_lockfile_runs_the_groups_with_a_cache_also_after_a_proof(
+def test_a_lockfile_runs_the_groups_with_its_cache_also_after_a_proof(
     history: History, gate: Gate, changed: str, groups: list[str]
 ) -> None:
     history.change(changed)
@@ -183,6 +186,44 @@ def test_a_lockfile_runs_the_groups_with_a_cache_also_after_a_proof(
 
     # A new pull request restores the cache of main, and main saves the new one only in a run.
     assert _running(gate(**proofs)) == groups
+
+
+def test_a_lockfile_does_not_run_a_group_with_another_cache(history: History, gate: Gate) -> None:
+    history.change("apps/api/uv.lock", "apps/web/src/page.tsx")
+    proofs = {f"{group}_yml": _proof(7, history.tree()) for group in GROUPS}
+
+    # The cache of pnpm does not depend on the lockfile of uv, so the proof of web counts.
+    assert _running(gate(**proofs)) == ["api"]
+
+
+def _module() -> ModuleType:
+    spec = importlib.util.spec_from_file_location("ci_gate", GATE)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_each_file_that_keys_a_cache_exists_and_starts_the_groups_of_the_cache() -> None:
+    module = _module()
+    groups = module.groups()
+    uv_and_pnpm = (*sorted(module.UV_KEYS), *module.PNPM_KEYS)
+
+    assert {name: group.cache_keys for name, group in groups.items()} == {
+        "api": uv_and_pnpm,
+        "web": module.PNPM_KEYS,
+        "site": module.PNPM_KEYS,
+        "stack": (),
+    }
+    assert [file for file in uv_and_pnpm if not (REPO / file).is_file()] == []
+    # A key that the list of its group does not select would never run the group on main.
+    assert [
+        (name, file)
+        for name, group in groups.items()
+        for file in group.cache_keys
+        if not module.selects(group.paths, file)
+    ] == []
 
 
 def test_a_changed_workflow_starts_its_group_and_the_tests_of_ci(
