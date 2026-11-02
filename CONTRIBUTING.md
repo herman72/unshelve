@@ -35,6 +35,7 @@ Everything else depends on these. If your change needs a new field or a new meth
 - Every implementation of a Protocol passes the same conformance tests as its fake.
 - Text that came from the internet is untrusted. It is never given to a model that has tools, and it is escaped when rendered.
 - A workflow uses each action, and each reusable workflow of another repository, only at a full commit SHA, with its release in a comment on the same line: `uses: owner/action@<40 hex characters> # v1.2.3`. A tag can move to other code; a commit cannot. Dependabot moves the pin and the comment together, and `test_ci_workflows.py` fails for a tag.
+- Each image in `deploy/` and in CI has its tag and its digest: `name:tag@sha256:<64 hex characters>`. The owner of an image can push a tag again with other content; a digest cannot change. Dependabot updates the tag and the digest together, but it reads no workflow and no `COPY --from=`: copy a new database image of `deploy/compose.yaml` to `api.yml` by hand, and take files (`COPY --from`, `RUN --mount=...,from=`) only from a named stage. `test_image_pins.py` fails for an image without a digest in a Dockerfile, a Compose file of `deploy/` or a workflow.
 
 ## Learning notes
 
