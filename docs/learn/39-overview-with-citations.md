@@ -135,7 +135,7 @@ My estimate for 12 items: a card is about 150 tokens, and a piece about 400. Tha
 - **No question without a passage.** When no item has a chunk, no model is asked, and the answer is empty: no cost.
 - **Prompt injection.** No tools, data marked as data, and three walls against a loaded image.
 - **The cost is visible.** The ledger has each call, its tokens and its price; the command prints them; the budget holds.
-- **The live API is not tested here.** Each test uses a pretend API or the fake model. The request follows the SDK types and the documentation, but no real call was made: that needs your yes, because it costs money.
+- **The live API is not tested here.** Each test uses a pretend API or the fake model. The request follows the SDK types and the documentation, but no real call was made: that needs an explicit approval, because it costs money.
 - **Can the tests fail?** I put 37 typical mistakes into the code, one at a time. Before the run, the list of mistakes showed five gaps in the tests:
   - a new question with the same sources;
   - a piece of the old set of vectors;

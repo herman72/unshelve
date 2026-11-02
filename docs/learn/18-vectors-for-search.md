@@ -118,7 +118,7 @@ When Voyage fails, the step uses the three groups of [note 17](17-model-card.md)
 
 The vectors of two models cannot be compared. A vector of the fake embedder (64 numbers) and a vector of Voyage (1,024 numbers) are in two different spaces. So each model has its own **embedding set** ([ADR 0007](../adr/0007-embedding-sets-and-exact-search-first.md)), and search reads only one set: the **active** one.
 
-Your instance has one set now: the fake one, active. Here is the change to Voyage, step by step:
+The local instance has one set now: the fake one, active. Here is the change to Voyage, step by step:
 
 ```text
 $ unshelve embeddings status
@@ -174,11 +174,11 @@ How do we cut a text?
 - **Can a vector of an old text stay?** No. A test changes the card during the request; a second test makes Voyage fail after a change.
 - **Can a new model break search?** No. It gets its own set, and search reads the active set until you switch.
 - **Can a request leave the host of the service?** No. A test tries a whole address and a path that starts with `//`.
-- **Can a test reach Voyage, or read your `.env`?** No. The live tests run only with `-m live`. My review found that the tests read the `.env` of the developer: with the settings of your `.env` (a live fetcher, the Haiku model), two tests of the services failed. Now no test reads a `.env` file.
+- **Can a test reach Voyage, or read the `.env` file?** No. The live tests run only with `-m live`. A review found that the tests read the `.env` of the developer: with live settings in `.env` (a live fetcher, the Haiku model), two tests of the services failed. Now no test reads a `.env` file.
 - **Is a real model a pure function?** No. A model on a GPU gives the same text numbers that differ a little: a cosine of 0.998 or more, from call to call and between a batch and a single text. The first live run failed two tests that asked for 0.999. The tests now ask for "nearer than 0.99, and the nearest to its own text"; two different short texts were at 0.79. The embed step keeps a stored vector, so this noise never changes your vectors.
 - **Can the tests fail?** I broke the new code in 79 places, one at a time. The first run found 68. For each of the other 11, I added a test: for example, a proxy in the environment, a Persian question mark, and an item that goes back to the start during the request. Now the tests find each of the 79.
 - **What is not done:**
-  - The live tests passed on 15 October 2026 (8 of 8, after the change of the two limits above). Your own items are not embedded by Voyage yet.
+  - The live tests passed on 15 October 2026 (8 of 8, after the change of the two limits above). The items of the local instance are not embedded by Voyage yet.
   - Where do the texts go? Voyage can keep them for training until you opt out (part "Try it yourself", step 4).
   - Search itself (M4) does not read the vectors yet.
   - A title that you change by hand (M2-6) must add an embed job, or the card vector stays old.
@@ -195,7 +195,7 @@ Do this after the pull request is merged. Steps 3 and 4 make real calls to Voyag
 docker compose exec worker unshelve embeddings status
 ```
 
-3. Add `UNSHELVE_EMBEDDER=voyage` to `.env` (your `VOYAGE_API_KEY` is there already). Run `make up` again. Then make one test call:
+3. Add `UNSHELVE_EMBEDDER=voyage` to `.env` (the file has `VOYAGE_API_KEY` already). Run `make up` again. Then make one test call:
 
 ```bash
 docker compose exec worker unshelve embeddings check

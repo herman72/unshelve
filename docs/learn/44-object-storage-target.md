@@ -121,7 +121,7 @@ The same choice was made for Voyage in [ADR 0012](../adr/0012-voyage-vectors-thr
 - **Can a reader see half a feed?** No: one PUT replaces the object in one step.
 - **What does a publish cost?** One GET, and one PUT when the feed changed. R2 and S3 count requests by the thousand, so a few requests each day cost almost nothing.
 - **What is not done:**
-  - no request to a real bucket: that needs your bucket and your key (the live test is ready);
+  - no request to a real bucket: that needs a real bucket and its key (the live test is ready);
   - no "virtual-hosted style" (the bucket in the host name), which AWS also documents; the path style works on R2;
   - no upload in parts: S3 takes one PUT of up to 5 GB, and the feed is a few megabytes;
   - the public read and the CORS of the bucket are yours to set.

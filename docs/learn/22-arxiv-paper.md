@@ -64,7 +64,7 @@ The version is a fact of the computer, not of the code:
 
 | Where | Python | expat |
 |---|---|---|
-| your worker (Docker) | 3.13.16 | 2.8.5 |
+| the worker image (Docker) | 3.13.16 | 2.8.5 |
 | a Mac with Homebrew | 3.13.1 | 2.7.4 |
 | CI (the Python that uv downloads) | 3.13.9 | 2.6.3 |
 

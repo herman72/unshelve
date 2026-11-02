@@ -132,7 +132,7 @@ The tests of the target use bare repositories on this computer: no network, no k
 - **Can two workers break the copy?** No: one publish at a time for each working copy (a file lock), and a test runs two at once.
 - **Can a secret reach a log?** Not through the target: each message hides the user and the password of an address.
 - **What is not done:**
-  - no push to GitHub: that needs your repository and your deploy key;
+  - no push to GitHub: that needs a real repository and its deploy key;
   - no folder or key of the stack: in Docker, the key must be mounted into the worker (M6);
   - the image of the API is 108 MB larger;
   - the lock uses `fcntl`, so the worker runs on Linux and macOS, not Windows.

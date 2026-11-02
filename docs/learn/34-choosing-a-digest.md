@@ -178,7 +178,7 @@ How does a digest fill its minutes?
 3. After the pull request is merged, run `git pull`, and then `make up`.
 4. Open `http://localhost:3000/digest`, and choose a time to read.
 
-Your items have no scores yet. Until they have scores, the page shows recent items and a random pick. To score the old items, run this command. It shows the price first, and it asks before it calls the model:
+The items of the local instance have no scores yet. Until they have scores, the page shows recent items and a random pick. To score the old items, run this command. It shows the price first, and it asks before it calls the model:
 
 ```bash
 docker compose exec api unshelve goals rescore

@@ -329,7 +329,7 @@ With the lock, one guard is still in the database: a key cannot belong to two it
 - **An old mistake that the experiment found.** On a new database, two workers that run their first "embed" step at the same moment could fail one time: 8 of 60 tries. The job ran again and passed, so no data was wrong. The cause was one index name in an `INSERT`. It is corrected, and it has a test.
 - **What is not done:**
   - A file from an export has no key, because an export gives no id for a file ([issue #57](https://github.com/herman72/unshelve/issues/57)).
-  - A second save of an item that you archived only raises the number. You decided: this stays until you use Unshelve for real ([issue #60](https://github.com/herman72/unshelve/issues/60)).
+  - A second save of an item that you archived only raises the number. The decision: this stays until Unshelve is in real use ([issue #60](https://github.com/herman72/unshelve/issues/60)).
   - The web app cannot change a title yet ([issue #24](https://github.com/herman72/unshelve/issues/24)). When it can, a restart must keep your title, because the pipeline now writes the title on each run.
 
 ## Try it yourself

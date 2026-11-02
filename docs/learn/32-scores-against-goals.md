@@ -139,7 +139,7 @@ How many questions for one item?
 - **Does a second run pay again?** No. A test runs the step two times and counts one question.
 - **Does a label stay?** Yes, also a label that comes during the question. Two tests.
 - **Is an item without a card vector called far?** No. A test removes the vectors, and the model is asked.
-- **Is the threshold measured?** On three made-up cards, yes: it moved from 0.2 to 0.3. On your items, not yet: `unshelve goals rescore` shows how many items each value answers, and the labels of M3-3 will show how often a 0 of the prefilter was wrong.
+- **Is the threshold measured?** On three made-up cards, yes: it moved from 0.2 to 0.3. On real saved items, not yet: `unshelve goals rescore` shows how many items each value answers, and the labels of M3-3 will show how often a 0 of the prefilter was wrong.
 - **Is the estimate of the price checked?** Yes. The first estimate was 15% under the real input tokens of the live check; the command now counts 2.0 characters for each token, and it stays a little above the price.
 - **Can the tests fail?** I broke the new code in 43 places, one at a time: 41 in Python and 2 in the web app. The tests found each of the 43. Before that run, the list of the mistakes showed about ten rules without a test, and I wrote those tests first. An example is the rule of the exercise: the step left out the labels that it read, so no test saw the rule of the write.
 - **What is not done:**
