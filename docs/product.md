@@ -8,7 +8,7 @@ The usual answer is a better place to store things. That does not help. A better
 
 ## Who it is for
 
-**First user: the author.** One engineer with a private Telegram channel full of saved items and a written 12-month growth plan.
+**First user: the author.** One engineer with a private Telegram channel full of saved items and a written list of learning goals.
 
 **Next users:** developers who self-host their tools and already use Telegram as an inbox.
 

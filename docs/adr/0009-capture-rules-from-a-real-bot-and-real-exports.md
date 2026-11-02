@@ -73,7 +73,7 @@ Not tested, and thus still open:
 
 ## Alternatives considered
 
-- **Buttons under each post in the channel.** The owner could mark a post as read where he saved it. But a button is refused on an album, each button is an edit of a post of the owner, and the channel must stay the place where saving costs nothing.
+- **Buttons under each post in the channel.** The owner could mark a post as read where the post was saved. But a button is refused on an album, each button is an edit of a post of the owner, and the channel must stay the place where saving costs nothing.
 - **A reaction of the bot as a "saved" mark.** It works and it is small. It is left out of version 1 because it mixes with the reactions of the owner in the same count. It can come back as a setting.
 - **JSON as the only import format.** JSON is the cleaner format. But a user with an app from the Mac App Store cannot make it for one chat, and the first step of a new user must not need a third app.
 - **Use `available_reactions` to know if reactions work.** The field was empty when reactions worked.
