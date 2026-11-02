@@ -74,7 +74,7 @@ A moved branch has new commit names. A normal `git push` is refused. You must fo
 git reset --hard HEAD~1
 ```
 
-`HEAD~1` means "one commit below where I am now". The first run removed the correct commit. The second run removed one more: the 23 tests of the exercise.
+`HEAD~1` means "one commit below where I am now". The first run removed the correct commit. The second run removed one more: the 23 tests of the queue store.
 
 **Do this:** name the target. This gives the same result on every run:
 

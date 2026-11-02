@@ -20,7 +20,7 @@ state = 'pending', locked_by = 'w1'                          refused by the data
 
 Four things write to this table: the API, the worker, the bot, and you with `psql`. A rule in Python protects only the Python code that remembers the rule. A rule in the database protects all four.
 
-This rule helps while you write the queue code of [note 4](04-job-queue.md). If `complete()` forgets `locked_by=None`, the database refuses the change, and the test shows the name of the rule: `ck_jobs_running_has_lease`.
+This rule helps in the queue code of [note 4](04-job-queue.md). If `complete()` forgets `locked_by=None`, the database refuses the change, and the test shows the name of the rule: `ck_jobs_running_has_lease`.
 
 **A comparison from daily life:** a rule in Python is a sign that says "please close the door". A rule in the database is a door that closes itself.
 
