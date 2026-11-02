@@ -27,7 +27,7 @@ The same numbers are a gate. CI runs the evaluation with the other tests, and it
 
 ## 1. The golden set
 
-A *golden set* is a fixed list of questions with answers that a person checked. Ours is [`golden.json`](../../apps/api/evals/search/golden.json): 39 made-up items and 38 queries. The real items are private, so they cannot be in the repository or in CI.
+A *golden set* is a fixed list of questions with graded answers. Ours is [`golden.json`](../../apps/api/evals/search/golden.json): 39 made-up items and 38 queries. The real items are private, so they cannot be in the repository or in CI.
 
 Each query gives *grades* to the items:
 
@@ -36,7 +36,7 @@ Each query gives *grades* to the items:
 - 1: it touches the topic;
 - 0: it does not help.
 
-An item without a grade counts as 0. In our set, the coding assistant that also wrote the search wrote the grades, together with the items and the queries; no person graded them on their own ([the evaluation report](../evaluation.md#the-golden-set)). An example:
+An item without a grade counts as 0. In our set, the author of the search wrote the grades, together with the items and the queries; no independent person graded them ([the evaluation report](../evaluation.md#the-golden-set)). An example:
 
 | Query | Item | Grade |
 |---|---|---|
@@ -216,8 +216,8 @@ With k = 0, one first place counts much more than agreement ([note 37](37-fusion
 
 | Word | Meaning |
 |---|---|
-| Golden set | A fixed list of questions with answers that a person checked |
-| Grade | How well an item answers a query, from 0 to 3, by a person |
+| Golden set | A fixed list of questions with graded answers |
+| Grade | How well an item answers a query, from 0 to 3 |
 | Cassette | A file of recorded calls (here: vectors) that a test plays back |
 | Replay | Answering from the recording instead of the real service |
 | Baseline | The committed numbers that the gate compares with |

@@ -1,5 +1,5 @@
 {
-  "about": "The golden set of search (docs/learn/40). Made-up items and queries. A grade is the judgement of a person: 3 the item answers the query, 2 it is about the topic, 1 it touches it, 0 it does not help. An item without a grade counts as 0.",
+  "about": "The golden set of search (docs/learn/40). Made-up items and queries. The author of the search wrote the grades with the set, not an independent grader. A grade: 3 the item answers the query, 2 it is about the topic, 1 it touches it, 0 it does not help. An item without a grade counts as 0.",
   "items": [
     {
       "key": "pg-queue",

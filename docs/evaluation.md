@@ -60,7 +60,7 @@ The first recording used the fake embedder of the tests, which counts words. The
 - **39 made-up items** of the kind that a developer saves: databases and queues, search and retrieval, machine learning, languages and infrastructure, 4 posts in Persian, and 3 posts on other subjects (bread, coffee, running). 6 long texts give 9 pieces, so search also finds a passage inside a long text.
 - **38 queries.** 3 of them are in Persian script.
 - **84 grades from 0 to 3**: 38 times 3 (the item answers the query), 7 times 2 (about the topic), 38 times 1 (it touches the topic), and 1 explicit 0. 36 queries have exactly one item with the grade 3. 'combine keyword and vector results' has two. The typo query 'postgress' has none: its best items have the grade 2.
-- **Who graded.** The coding assistant that also wrote the search code wrote the items, the queries and the grades together, in pull request #101, before the first run. No person graded them on their own, and no grade comes from your own items.
+- **Who graded.** The author of the search code wrote the items, the queries and the grades together, in pull request #101, before the first run. No independent person graded them, and no grade comes from real saved items.
 
 [Note 40](learn/40-measuring-search.md) explains how the set was made and why each rule of the loader exists.
 

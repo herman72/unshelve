@@ -1,5 +1,4 @@
-"""The golden set of search: made-up items, queries, and the grades that a person gave
-(docs/learn/40).
+"""The golden set of search: made-up items, queries, and their grades (docs/learn/40).
 
 A grade says how well an item answers a query: 3 it answers it, 2 it is about the topic, 1 it
 touches it, 0 it does not help. An item without a grade counts as 0. The metrics read the
