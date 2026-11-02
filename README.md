@@ -78,14 +78,13 @@ Right or Wrong: is the score of the goal right?
 You need:
 
 - git, and Docker Engine 25 or newer with Compose 2.24 or newer (`docker version` and `docker compose version` show them).
-- While the repository is private: a GitHub account with read access to it, and an SSH key that GitHub knows.
 
 You need no API key: by default, the stack uses fake model providers and reads no web page.
 
 1. Get the code:
 
    ```bash
-   git clone git@github.com:herman72/unshelve.git
+   git clone https://github.com/herman72/unshelve.git
    cd unshelve
    ```
 

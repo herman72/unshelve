@@ -9,7 +9,7 @@ CI runs each marked step of this guide on a fresh clone, as written here, for A 
 
 ## What you need
 
-- git, and an SSH key that GitHub knows for your account.
+- git.
 - Docker Engine 25 or newer, with Compose 2.24 or newer. `docker version` and `docker compose version` show the versions.
 - For B: a Linux server that the internet can reach on ports 80 and 443, and a domain name that points to the address of the server, for example `unshelve.example.com`.
 
@@ -18,7 +18,7 @@ CI runs each marked step of this guide on a fresh clone, as written here, for A 
 1. Get the code:
 
    ```bash
-   git clone git@github.com:herman72/unshelve.git
+   git clone https://github.com/herman72/unshelve.git
    cd unshelve
    ```
 
