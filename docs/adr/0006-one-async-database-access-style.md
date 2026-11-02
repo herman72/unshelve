@@ -5,7 +5,7 @@
 
 ## Context
 
-The API, the worker and the bot all wait on the network: Telegram, web pages, model providers. Several contributors, some of them coding agents, will write database code in parallel. Mixed sync and async styles, or lazy loads fired from unexpected places, would produce bugs that only appear under load.
+The API, the worker and the bot all wait on the network: Telegram, web pages, model providers. Database code will be written in many branches in parallel, so one style must be easy to follow and quick to review. Mixed sync and async styles, or lazy loads fired from unexpected places, would produce bugs that only appear under load.
 
 ## Decision
 
