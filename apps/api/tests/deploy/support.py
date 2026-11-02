@@ -1,10 +1,11 @@
 """Helpers for the tests of the deploy files: Compose, and the image of the database."""
 
 import os
-import re
 import shutil
 import subprocess
 from pathlib import Path
+
+import yaml
 
 REPO = Path(__file__).resolve().parents[4]
 # A plain word, so that no scanner takes it for a real secret.
@@ -13,10 +14,10 @@ TEST_PASSWORD = "unshelvetest"  # noqa: S105 - a made-up password for the tests
 
 def _postgres_image() -> str:
     """The image of the database and of its backups, as deploy/compose.yaml names it."""
-    text = (REPO / "deploy" / "compose.yaml").read_text(encoding="utf-8")
-    found = re.search(r"^x-postgres-image: &postgres-image (\S+)$", text, re.MULTILINE)
-    assert found, "deploy/compose.yaml names no x-postgres-image"
-    return str(found.group(1))
+    compose = yaml.safe_load((REPO / "deploy" / "compose.yaml").read_text(encoding="utf-8"))
+    image = compose.get("x-postgres", {}).get("image")
+    assert isinstance(image, str), "deploy/compose.yaml names no image in x-postgres"
+    return image
 
 
 POSTGRES_IMAGE = _postgres_image()

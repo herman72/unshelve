@@ -16,11 +16,14 @@ x-app: &app
   restart: unless-stopped
 
 # The database and its backups use one image, so pg_dump always has the version of the server.
-x-postgres-image: &postgres-image pgvector/pgvector:0.8.7-pg17
+# Each service merges this mapping (<<): Dependabot updates the image on this line, but not an
+# image behind an alias (image: *name). The digest fixes the content of the tag.
+x-postgres: &postgres
+  image: pgvector/pgvector:0.8.7-pg17@sha256:7d0a41464797aeb9862dfdc0bbf1526b82cfd324cdd8036df19e3545f4a9ccb8
 
 services:
   db:
-    image: *postgres-image
+    <<: *postgres
     environment:
       POSTGRES_USER: unshelve
       POSTGRES_PASSWORD: ${UNSHELVE_DB_PASSWORD:-unshelve}
@@ -89,7 +92,7 @@ services:
   # (docs/learn/50). The backups go to a folder of this computer, not into a Docker volume,
   # so that `docker compose down --volumes` cannot delete them.
   backup:
-    image: *postgres-image
+    <<: *postgres
     command: ["bash", "/deploy/backup/backup.sh", "loop"]
     environment:
       - PGHOST=db
@@ -124,7 +127,7 @@ services:
   # The restore of a backup into an empty instance (docs/learn/50, docs/quickstart.md). Only
   # `docker compose run --rm restore NAME|latest` starts it; `run --rm restore` lists the backups.
   restore:
-    image: *postgres-image
+    <<: *postgres
     profiles: ["restore"]
     entrypoint: ["bash", "/deploy/backup/restore.sh"]
     command: ["list"]

@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
-# Next.js standalone build. Build context: the repository root.
-FROM node:24-slim AS build
+# Next.js standalone build. Build context: the repository root. Each image has its tag and its
+# digest (see Dockerfile.api).
+FROM node:24-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c AS build
 
 ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH \
@@ -25,7 +26,7 @@ ENV UNSHELVE_API_INTERNAL_URL=$UNSHELVE_API_INTERNAL_URL
 RUN pnpm --filter @unshelve/web build
 
 
-FROM node:24-slim
+FROM node:24-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
