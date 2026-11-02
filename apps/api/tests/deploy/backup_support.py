@@ -30,7 +30,9 @@ Sessions = async_sessionmaker[AsyncSession]
 BACKUP_MARKS = [
     pytest.mark.db,
     pytest.mark.skipif(
-        not docker_available("image", "inspect", POSTGRES_IMAGE), reason="needs docker"
+        not docker_available("image", "inspect", POSTGRES_IMAGE),
+        # An image pulled by its digest has no tag, so `docker image prune` can remove it.
+        reason=f"needs docker and {POSTGRES_IMAGE} (docker compose pull db)",
     ),
 ]
 # Docker Desktop shows each file of a shared folder as the file of the user, whoever wrote it.

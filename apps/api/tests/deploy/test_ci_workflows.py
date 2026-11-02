@@ -27,6 +27,7 @@ READS = {
         "deploy/compose.prod.yaml",
         "deploy/quickstart-steps.sh",
         "deploy/Dockerfile.api",
+        "deploy/Dockerfile.web",
         "deploy/backup/restore.sh",
         "docs/quickstart.md",
         # The tests of CI read each workflow and run the gate. A step checks the lock of the gate.
