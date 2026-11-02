@@ -4,7 +4,7 @@
 
 ## In one minute
 
-It is Sunday, 09:00 in Helsinki. Take the made-up inbox of [note 34](34-choosing-a-digest.md). Two messages come from the bot. The first is the digest:
+It is Sunday, 09:00 local time. Take the made-up inbox of [note 34](34-choosing-a-digest.md). Two messages come from the bot. The first is the digest:
 
 ```text
 Your digest

@@ -83,7 +83,7 @@ The reader finds these parts with *selectors*. A selector is a short pattern for
 
 The page says that the first post was sent at `22:40:37`, and it adds `UTC+02:00`.
 
-That zone is wrong. The computer was in Helsinki in summer time, which is UTC+03:00. The second Telegram app writes `13 October 2026, 22:40:37` and no zone.
+That zone is wrong. The computer was at UTC+03:00, in summer time. The second Telegram app writes `13 October 2026, 22:40:37` and no zone.
 
 So the importer does not use the zone text of the page. It uses the clock time, and you give the zone: `--timezone Europe/Helsinki`.
 

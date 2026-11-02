@@ -4,7 +4,7 @@
 
 ## In one minute
 
-You import 40 links at 15:20 in Helsinki. At 16:00, 20 items have a card, but 16 items have no card yet. Why?
+You import 40 links at 15:20 local time. At 16:00, 20 items have a card, but 16 items have no card yet. Why?
 
 Before this change, you had to read the tables with `psql`. Now one request gives the answer: `GET /api/v1/stats`. These are numbers from its answer for that afternoon. The rows are made up, but the code counted them:
 
@@ -16,7 +16,7 @@ Before this change, you had to read the tables with `psql`. Now one request give
 | `queue.oldest_ready_seconds` | 95.0 | One job has waited 95 seconds for a worker |
 | `queue.depth` | 18 | 18 jobs are still to do: the 16 cards, 1 vector job that runs and 1 that waits |
 
-So the 16 cards come after midnight in Helsinki, when the budget starts again. The last error of each of these jobs says the same: "model: the daily budget of $1.00 is used".
+So the 16 cards come after midnight local time, when the budget starts again. The last error of each of these jobs says the same: "model: the daily budget of $1.00 is used".
 
 The logs changed too. Before, the lines of the libraries were plain text, also with `UNSHELVE_LOG_JSON=true`. This is a real line of the API before the change:
 

@@ -725,7 +725,7 @@ def test_import_stores_the_posts_of_an_export(
     assert [(chat, message) for chat, message, _ in stored] == [
         (int(CHANNEL), message) for message in (2, 3, 4, 5, 6)
     ]
-    # 22:40:37 on the clock of a computer in Helsinki, in summer time.
+    # 22:40:37 local time, at UTC+03:00 (summer time).
     assert stored[0][2] == datetime(2026, 10, 13, 19, 40, 37, tzinfo=UTC)
 
 
