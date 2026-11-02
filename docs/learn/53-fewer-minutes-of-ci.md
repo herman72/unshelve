@@ -21,6 +21,8 @@ This change gives CI four groups, each with its own list of files. A push to mai
 
 The replay uses the real files of each run, the real time of each job, and the real result of each job. The new lint step of the API job took 4 s in the first run on main, and the replay counts those 4 s. It is still an estimate: a stacked pull request has a smaller diff on GitHub than in the replay, so the true saving is a little larger.
 
+**Added on 2026-11-02:** the repository is public now. GitHub bills no minutes for standard runners in a public repository, so the monthly limit no longer stops CI. The groups and the gate stay: a pull request gets its answer sooner, and the minutes stay low if the repository becomes private again ([ADR 0016](../adr/0016-ci-runs-by-the-files-of-a-change-and-main-trusts-a-proof-by-tree.md)).
+
 ## 1. A minute is the smallest unit
 
 GitHub rounds the time of each job up to a whole minute. So many short jobs cost more than one long job.

@@ -35,10 +35,11 @@ The repository has no branch protection, so a red run does not stop a merge. The
 - A diff of more than 3,000 files can skip a pull request run (a limit of GitHub). The gate of main reads the full diff with git, so main still runs the group.
 - The gate needs `actions: read` to read the runs of the groups. No other job gets more than `contents: read`.
 - Added on 2026-11-02, before the repository becomes public: a proof counts only when the pull request run comes from a branch of this repository (`head_repository`), and the base of the diff is the last green `push` run of `main.yml`. A pull request from a fork controls its own run, so its green run proves nothing.
+- Added on 2026-11-02, when the repository became public: GitHub bills no minutes for standard runners in a public repository, so the monthly limit no longer stops CI. The groups and the gate stay. A pull request gets its answer sooner, and the minutes stay low if the repository becomes private again.
 
 ## Alternatives considered
 
 - **No run on main.** It costs 0 minutes on main, but 9 trees on main in October had no green pull request run. With no branch protection, nothing would test them.
 - **Skip a push only when its commit SHA has a green run.** Rebase merges give new SHAs, so this skips almost nothing. The tree id is the same for the same files.
 - **A self-hosted runner on the laptop.** It costs no minutes. But the stack jobs run `docker compose down --volumes` for the project `unshelve`, and on the computer of the real stack this deletes the real database.
-- **A public repository.** Standard runners are free for public repositories. The repository becomes public only when the owner decides it.
+- **A public repository.** Standard runners are free for public repositories. On the day of this decision, the repository was private. It became public a day later (see the last consequence).
