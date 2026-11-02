@@ -220,7 +220,7 @@ An edit of a post is stored as a message of its own, with the time of the edit a
 
 ## Try it yourself
 
-Do this after the pull request is merged. Your file `.env` has the token and the two ids already.
+Do this after the pull request is merged. The `.env` file has the token and the two ids already.
 
 1. Run `git pull`, and then `make up`. The first command gets the new code. The second builds the stack with it.
 2. Post a link in the channel "Unshelve test".

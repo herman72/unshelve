@@ -181,7 +181,7 @@ Where does the cache go?
 - **Does the code trust each field of the model?** No. A title that is a link does not reach the item (part 7), and a tag without a Latin letter or a digit is dropped. A test for each.
 - **A mistake that the review found.** On the night when the clocks go back, the wait until midnight was one hour too short. Python ignores a change of the clocks when it subtracts two times of the same time zone. A test for 25 October 2026 in Helsinki found it, and the difference is now taken in UTC.
 - **What is not done:**
-  - No real call was made yet. It needs a yes from the owner, because it costs money.
+  - The tests make no real call, because a real call costs money. The first real calls (16 items, 15 October 2026) are in part 7.
   - Batch mode for a large import came later: half the price, within hours ([note 29](29-cards-in-a-batch.md)).
   - The embedder stays fake until package M2-5.
   - Images were not sent to the model yet. The image extractor does it now ([note 28](28-image.md)).

@@ -141,7 +141,7 @@ docker compose exec api unshelve extract --file /imports/screenshot.png
 
 The pretend model answers with words from the request, not from the image. The line `Reader: image` shows that the image extractor took the file.
 
-3. With your yes for a paid call, read it with the real model. With Claude Haiku 5.5 this costs less than $0.001:
+3. Read it with the real model, in a paid call. With Claude Haiku 5.5 this costs less than $0.001:
 
 ```bash
 docker compose exec -e UNSHELVE_PROVIDERS=live api unshelve extract --file /imports/screenshot.png

@@ -110,14 +110,14 @@ How does a card come to wait for a batch?
 - **Can a card be paid two times?** The command refuses in live mode, and a question in a batch that runs is not sent again. A test sends two times and counts the questions.
 - **Does a job spin while it waits?** No: a waiting card has no job. A test counts the pending jobs.
 - **Is a failure of the batch a dead end?** No: a question without an answer, and a batch that failed, leave their items waiting for the next batch. Tests for each case.
-- **Can the tests fail?** I broke the new code in 34 places, one at a time. The tests found 31. The three that they missed showed weak tests: a card step that failed looked like a card step that waited, a test sent the second batch too late to see an answered question, and no test looked at the estimate of the tokens. Now the tests find each of the 34. During the run, the ledger of your instance kept its 38 rows: no test reached it.
+- **Can the tests fail?** I broke the new code in 34 places, one at a time. The tests found 31. The three that they missed showed weak tests: a card step that failed looked like a card step that waited, a test sent the second batch too late to see an answered question, and no test looked at the estimate of the tokens. Now the tests find each of the 34. During the run, the ledger of the local instance kept its 38 rows: no test reached it.
 - **What is not done:**
   - The images of an import are read at once, at the normal price, in the fetch step ([note 28](28-image.md)).
   - A batch cannot be canceled from Unshelve.
 
 ## Try it yourself
 
-Do this after the pull request is merged, for the import of your real channel.
+Do this after the pull request is merged, for the import of a real channel.
 
 1. Run `git pull`, and then `make up`. The migration 0004 runs.
 2. Put `UNSHELVE_CARDS=batch` and `UNSHELVE_PROVIDERS=live` into `.env`, and run `make up` again.

@@ -172,7 +172,7 @@ This export cannot be read: messages.html: message 3 has a date in a form that t
 
 The format of the export has no documentation. So the tests need pages with the real structure.
 
-I wrote the two first test pages by hand, after I looked at your real exports. All tests passed. Then a small script compared each test page with the real page, element by element. It found one difference:
+I wrote the two first test pages by hand, after I looked at the real exports of a test channel. All tests passed. Then a small script compared each test page with the real page, element by element. It found one difference:
 
 ```text
 real page:   <div class="message service">                    a line with a date, without an id
