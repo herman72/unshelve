@@ -53,7 +53,7 @@ flowchart LR
 
 A copy of a template takes a few milliseconds. Each database has a random name, for example `unshelve_test_3fa9c1`.
 
-Why: you and a coding agent can run the tests at the same moment against one Postgres. With random names, the two runs never see the rows of the other run. Tests that share data are the most common reason for tests that fail "sometimes".
+Why: two test runs can start at the same moment against one Postgres, for example from two worktrees. With random names, the two runs never see the rows of the other run. Tests that share data are the most common reason for tests that fail "sometimes".
 
 ## 4. A view: a window onto a table
 
