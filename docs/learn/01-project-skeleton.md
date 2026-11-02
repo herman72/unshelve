@@ -114,7 +114,7 @@ In [`apps/api/tests/test_ops.py`](../../apps/api/tests/test_ops.py), one test us
 2. Measure how long the test takes.
 3. Explain the number. Hint: look for `connect_timeout` in the address.
 
-(The author of this project did this exercise in pull request #51.)
+(Pull request #51 has one solution.)
 
 ## Words used in this note
 

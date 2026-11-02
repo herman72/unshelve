@@ -112,14 +112,13 @@ async def heartbeat(
 
 
 # ------------------------------------------------------------------------------------------
-# The four functions below are the M0-4 exercise. The tests in tests/queue/test_store.py are
-# the specification: make them pass, one function at a time, in this order.
+# claim, complete, fail and reap_expired. The tests in tests/queue/test_store.py specify them:
 #
 #     cd apps/api && uv run pytest tests/queue -x
 #
-# Use ``_now(now)`` wherever you need the current time, and ``_held_by(job)`` to test that a
-# claim is still valid. The CHECK constraints on ``jobs`` will tell you when a transition
-# leaves the row in an impossible state.
+# Use ``_now(now)`` for the current time, and ``_held_by(job)`` to test that a claim is still
+# valid. The CHECK constraints on ``jobs`` reject a transition that leaves the row in an
+# impossible state.
 # ------------------------------------------------------------------------------------------
 
 
