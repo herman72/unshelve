@@ -41,7 +41,7 @@ jobs:
     name: Quickstart on this computer (docs/quickstart.md)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: The steps of the guide
         run: bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-local)"
       - name: The check of the guide
@@ -121,7 +121,7 @@ jobs:
       DOMAIN: localhost
       OWNER_TELEGRAM_ID: "4242"
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: The steps of the guide
         run: bash -euxo pipefail -c "$(deploy/quickstart-steps.sh quickstart-server)"
       - name: Trust the local authority of Caddy, as the browser of the owner would
