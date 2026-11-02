@@ -34,6 +34,7 @@ Everything else depends on these. If your change needs a new field or a new meth
 - Job handlers are idempotent. A job can run twice. See [ADR 0002](docs/adr/0002-postgres-job-queue-with-leases.md).
 - Every implementation of a Protocol passes the same conformance tests as its fake.
 - Text that came from the internet is untrusted. It is never given to a model that has tools, and it is escaped when rendered.
+- A workflow uses an action or a reusable workflow from outside `actions/` only at a full commit SHA, with its release in a comment on the same line: `uses: owner/action@<40 hex characters> # v1.2.3`. A tag can move to other code; a commit cannot. Dependabot moves the pin and the comment together, and `test_ci_workflows.py` fails for a tag.
 
 ## Learning notes
 
