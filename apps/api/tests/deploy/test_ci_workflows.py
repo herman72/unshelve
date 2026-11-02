@@ -208,10 +208,11 @@ def test_each_workflow_uses_the_same_tool_versions() -> None:
     assert versions["NODE_VERSION"] == {"24"}
 
 
-def test_each_action_outside_actions_is_pinned_to_one_commit() -> None:
-    # The owner of an action can move a tag to other code, but not a commit. The actions in
-    # actions/ are GitHub's own, and they stay on their major tag. The comment after a pin names
-    # its release, for the reader and for Dependabot, which moves the pin and the comment together.
+def test_each_action_is_pinned_to_one_commit() -> None:
+    # The owner of an action can move a tag to other code, but not a commit. This is true for the
+    # actions of GitHub in actions/ too, and the setting "Require actions to be pinned to a
+    # full-length commit SHA" counts them. The comment after a pin names its release, for the reader
+    # and for Dependabot, which moves the pin and the comment together.
     pins: dict[str, set[str]] = {}
     for path in WORKFLOWS.glob("*.yml"):
         text = path.read_text()
@@ -222,7 +223,7 @@ def test_each_action_outside_actions_is_pinned_to_one_commit() -> None:
             str(uses)
             for job in workflow["jobs"].values()
             for uses in (job.get("uses"), *(step.get("uses") for step in job.get("steps", [])))
-            if uses is not None and not str(uses).startswith(("./", "actions/"))
+            if uses is not None and not str(uses).startswith("./")
         ]
         for uses in set(values):
             action, _, ref = uses.partition("@")
@@ -234,7 +235,12 @@ def test_each_action_outside_actions_is_pinned_to_one_commit() -> None:
             for release in releases:
                 pins.setdefault("/".join(action.split("/")[:2]), set()).add(f"{ref} # {release}")
 
-    assert {"astral-sh/setup-uv", "pnpm/action-setup"} <= set(pins)
+    assert {
+        "actions/checkout",
+        "actions/setup-node",
+        "astral-sh/setup-uv",
+        "pnpm/action-setup",
+    } <= set(pins)
     assert {
         repository: refs
         for repository, refs in pins.items()
