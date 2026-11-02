@@ -80,7 +80,7 @@ Not tested, and thus still open:
 
 ## The real answers
 
-Private values are masked: the owner has the id `111111111`, the test channel `-1001234567890`, the bot `2222222222`. File ids are cut.
+Private values are masked: the owner has the id `111111111`, the test channel `-1001234567890`, the bot `2222222222`. File ids are cut. The bot name in these records is replaced by an example name.
 
 **One message of the album.** The other two differ in `message_id` (8 and 9) and in the photo. Only the largest photo size is shown.
 
@@ -212,7 +212,7 @@ Private values are masked: the owner has the id `111111111`, the test channel `-
         "id": 2222222222,
         "is_bot": true,
         "first_name": "Unshelve",
-        "username": "mattsh_unshelve_bot"
+        "username": "example_unshelve_bot"
       },
       "status": "administrator",
       "can_manage_chat": true,

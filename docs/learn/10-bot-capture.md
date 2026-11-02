@@ -14,10 +14,10 @@ A message with three photos arrives as three messages. A job waits five seconds 
 
 ## 1. A real run
 
-This is the log of the bot with the test channel. The channel had three posts: three photos in one message, a YouTube link, and a forwarded post.
+This is the log of the bot with the test channel. The channel had three posts: three photos in one message, a YouTube link, and a forwarded post. The bot name in the log is replaced by an example name.
 
 ```text
-bot.started      username=mattsh_unshelve_bot  capture_chats=1
+bot.started      username=example_unshelve_bot  capture_chats=1
 bot.chat_ready   status=administrator
 capture.stored   message_id=9   album=14335384938541892
 capture.stored   message_id=7   album=14335384938541892

@@ -189,7 +189,7 @@ async def test_a_message_that_the_bot_does_not_know_gets_a_hint(
 async def test_login_with_the_name_of_the_bot_works_too(
     dispatcher: Dispatcher, telegram: PretendTelegram
 ) -> None:
-    await _arrive(dispatcher, telegram, _message("/login@mattsh_unshelve_bot"))
+    await _arrive(dispatcher, telegram, _message("/login@example_unshelve_bot"))
 
     (sent,) = telegram.sent
     assert "/login#token=" in sent.text
