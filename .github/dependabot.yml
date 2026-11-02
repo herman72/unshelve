@@ -1,0 +1,22 @@
+# Version updates for the actions of CI. The workflows pin each action outside actions/ to a
+# commit, and Dependabot alerts skip an action with such a pin. So these updates are the way that a
+# pin gets a new release, also a release that fixes a security problem. Dependabot changes the pin
+# and the release in the comment after it together.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # A new release waits 7 days before an update proposes it: a bad release of a pinned action has
+    # time to be found and removed before it runs in CI. A release that fixes a security problem
+    # waits too, so change the pin by hand for an urgent fix. The actions in actions/ follow their
+    # major tag, and a new release of them runs with no wait.
+    cooldown:
+      default-days: 7
+    # One pull request for all actions: each pull request runs the groups of CI that it changes.
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: ci
