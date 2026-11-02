@@ -49,7 +49,7 @@ The watch page is about 2 MB of HTML. In it, one script holds the facts of the p
 
 The extractor finds `ytInitialPlayerResponse =`, reads one JSON object from that place, and checks the fields that it needs with Pydantic. The rest of the object (about 0.5 MB) is not used.
 
-The request has `hl=en`. Without it, YouTube writes its messages in the language of the country of the IP. From your computer in Finland, the reason for a video that does not exist came back in Finnish: "Video ei ole käytettävissä".
+The request has `hl=en`. Without it, YouTube writes its messages in the language of the country of the IP. In a test without it, the reason for a video that does not exist came back in the local language: "Video ei ole käytettävissä".
 
 ## 3. When the page has no facts
 
