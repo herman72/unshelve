@@ -39,6 +39,7 @@ NOT_READ_BY_CI = (
     "docs/**",
     "README.md",
     "CONTRIBUTING.md",
+    "SECURITY.md",
     "LICENSE",
     ".editorconfig",
     ".pre-commit-config.yaml",
