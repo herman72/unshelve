@@ -34,6 +34,7 @@ The repository has no branch protection, so a red run does not stop a merge. The
 - The first run of `main.yml` has no green run to compare with, so it runs each group.
 - A diff of more than 3,000 files can skip a pull request run (a limit of GitHub). The gate of main reads the full diff with git, so main still runs the group.
 - The gate needs `actions: read` to read the runs of the groups. No other job gets more than `contents: read`.
+- Added on 2026-11-02, before the repository becomes public: a proof counts only when the pull request run comes from a branch of this repository (`head_repository`), and the base of the diff is the last green `push` run of `main.yml`. A pull request from a fork controls its own run, so its green run proves nothing.
 
 ## Alternatives considered
 

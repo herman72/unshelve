@@ -96,16 +96,17 @@ flowchart TD
     F -->|"no"| S["skip"]
     F -->|"yes"| L{"did a file change that keys<br/>a cache of the group?"}
     L -->|"yes"| R
-    L -->|"no"| T{"did a green pull request run<br/>of the group test this tree?"}
+    L -->|"no"| T{"did a green pull request run of the group,<br/>from a branch of this repository, test this tree?"}
     T -->|"yes"| S2["skip: proven"]
     T -->|"no, or the API failed"| R
 ```
 
-Three details:
+Four details:
 
 - **The gate compares with the last green run of main, not with the push before.** A run on main waits for the run before it. A pending run can give its place to a newer push, and the newer run then tests the changes of both pushes.
 - **A change of a file that keys a cache runs the groups with that cache.** The files of uv (`uv.lock`, `pyproject.toml`, `.python-version`) key the cache of `setup-uv`, and `pnpm-lock.yaml` keys the pnpm cache of `setup-node`. Both actions save a cache only in a run, and a new pull request restores the cache of main. Without a run on main, each new pull request would install everything from the start. A change of `uv.lock` runs only the API group, because the pnpm cache of Web does not depend on it. The stack builds images and restores no cache of GitHub, so its proof still counts.
 - **The gate writes its reasons.** The summary of each run of Main has a table: the group, "yes" or "no", and why. For example: "pull request run 41 passed on this tree".
+- **Only runs of this repository count.** In a public repository, anyone can open a pull request from a fork, and GitHub lists its runs with the runs of the repository. The fork controls what its run does: it can change a workflow, fill a cache of its own pull request, or start a test again until a flaky test passes. So a green run of a fork proves nothing for main. The gate accepts a proof only when `head_repository` of the run is this repository, and it takes the base of the diff only from a `push` run of `main.yml`. A pull request from a fork can add a trigger to `main.yml`, and its branch can be named `main` too.
 
 ## 5. A doubt runs the group
 
