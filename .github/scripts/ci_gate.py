@@ -9,6 +9,10 @@ tested the same tree. The owner merges by rebase, so main gets new commits, but 
 tree that the pull request tested. Each doubt runs the group: a manual run, no green run of
 main.yml to compare with, a failed call of the GitHub API, or a changed file that no list names.
 
+Only runs of this repository count. In a public repository, anyone can open a pull request from
+a fork, and its runs are in the same lists: a fork controls what such a run does, so its green
+run proves nothing.
+
 It writes `<group>=true|false` to $GITHUB_OUTPUT and a table of its reasons to the summary.
 """
 
@@ -103,12 +107,20 @@ def groups() -> dict[str, Group]:
     return found
 
 
+def ours(one: dict[str, Any], repo: str) -> bool:
+    """Whether a run comes from a branch of this repository, not from a fork."""
+    head: dict[str, Any] = one.get("head_repository") or {}
+    return head.get("full_name") == repo
+
+
 def last_green_main(repo: str) -> str | None:
     """The commit of the last green run of main.yml on main, if this clone has it."""
     workflow = f"repos/{repo}/actions/workflows/main.yml/runs"
-    answer = api(f"{workflow}?branch=main&status=success&per_page=1")
+    # Only a push runs main.yml on main. A pull request from a fork can add a trigger to main.yml,
+    # and its branch can be named main too.
+    answer = api(f"{workflow}?branch=main&event=push&status=success&per_page=1")
     runs: list[dict[str, Any]] = answer["workflow_runs"] if answer else []
-    if not runs:
+    if not runs or not ours(runs[0], repo):
         return None
     sha = str(runs[0]["head_sha"])
     # A rewritten history can lose that commit: then there is nothing to compare with.
@@ -121,7 +133,7 @@ def proof(repo: str, group: str, tree: str) -> int | None:
     answer = api(f"{workflow}?event=pull_request&status=success&per_page=100")
     runs: list[dict[str, Any]] = answer["workflow_runs"] if answer else []
     for one in runs:
-        if one["head_commit"]["tree_id"] == tree:
+        if ours(one, repo) and one["head_commit"]["tree_id"] == tree:
             return int(one["id"])
     return None
 
