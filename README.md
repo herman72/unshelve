@@ -330,6 +330,10 @@ make eval    # measure search on the golden set
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Security
+
+Report a vulnerability in private, as [SECURITY.md](SECURITY.md) explains.
+
 ## License
 
 [MIT](LICENSE)
