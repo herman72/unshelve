@@ -1,7 +1,9 @@
-# Version updates for the actions of CI. The workflows pin each action to a commit, and Dependabot
-# alerts skip an action with such a pin. So these updates are the way that a pin gets a new
-# release, also a release that fixes a security problem. Dependabot changes the pin and the release
-# in the comment after it together.
+# Version updates for the actions of CI and for the images of the stack. A workflow pins each action
+# to a commit, and Dependabot alerts skip an action with such a pin. A file of deploy/ pins each
+# image to a digest, and the image keeps that content until an update changes the digest. So these
+# updates are the way that a pin gets a new release or a new build, also one that fixes a security
+# problem. Dependabot changes the pin and the release (the comment of an action, the tag of an
+# image) together.
 version: 2
 updates:
   - package-ecosystem: github-actions
@@ -19,3 +21,57 @@ updates:
         patterns: ["*"]
     commit-message:
       prefix: ci
+
+  # The images of the FROM lines of deploy/Dockerfile.*. For Python, Node and uv, only a new
+  # build of the same tag comes (a new digest): their versions change with the code and with CI
+  # (.python-version, NODE_VERSION, UV_VERSION), by hand. test_image_pins.py checks that they
+  # agree.
+  - package-ecosystem: docker
+    directory: /deploy
+    schedule:
+      interval: weekly
+    # Dependabot takes the date of a push only from Docker Hub. There, a new build comes only when
+    # its tag had no push in the 7 days before the weekly run. For ghcr.io (uv), Dependabot skips
+    # the cooldown.
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]
+      - dependency-name: astral-sh/uv
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+          - version-update:semver-patch
+    groups:
+      images:
+        patterns: ["*"]
+    commit-message:
+      prefix: build
+
+  # The images of deploy/compose*.yaml: the database (also of the backups) and Caddy. The database
+  # service of CI (api.yml) has the same image, but Dependabot does not read a workflow. So its pull
+  # request fails test_image_pins.py until the same line is copied to api.yml. A new database image
+  # can bring a new C library: then a server with data needs REINDEX and a rewrite of the tables
+  # (docs/learn/46-site-search.md, "a new C library").
+  - package-ecosystem: docker-compose
+    directory: /deploy
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    ignore:
+      # pgvector is at 0.x: a minor release (0.9) can change its behaviour, so it comes by hand.
+      # A patch release and a new build come here. The suffix -pg17 keeps the major version of
+      # Postgres.
+      - dependency-name: pgvector/pgvector
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: caddy
+        update-types: ["version-update:semver-major"]
+    groups:
+      images:
+        patterns: ["*"]
+    commit-message:
+      prefix: build
