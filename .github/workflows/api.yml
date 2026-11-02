@@ -69,6 +69,9 @@ jobs:
       # The gate of main.yml follows the rules of the API code (.github/scripts/ruff.toml).
       - run: uv run ruff check . ../../.github/scripts
       - run: uv run ruff format --check . ../../.github/scripts
+      # main.yml runs the gate only with its lock. A change of the dependencies of the gate without
+      # a new lock (uv lock --script) fails here, not on main.
+      - run: uv lock --check --script ../../.github/scripts/ci_gate.py
       - run: uv run pyright
       - run: uv run pytest
       # The API contract: openapi.json and the generated types must match the code. These steps

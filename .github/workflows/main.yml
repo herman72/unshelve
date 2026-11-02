@@ -42,10 +42,12 @@ jobs:
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: false
+      # --locked: the gate runs with the versions and hashes of ci_gate.py.lock. A stale lock fails
+      # the gate, and then each group runs. The API group checks the lock on a pull request.
       - id: gate
         env:
           GH_TOKEN: ${{ github.token }}
-        run: uv run --script .github/scripts/ci_gate.py
+        run: uv run --locked --script .github/scripts/ci_gate.py
 
   # A group runs unless the gate said "false". When the gate fails, its outputs are empty, and
   # each group runs: a doubt costs minutes, never a check.

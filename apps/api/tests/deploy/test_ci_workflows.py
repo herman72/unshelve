@@ -29,13 +29,14 @@ READS = {
         "deploy/Dockerfile.api",
         "deploy/backup/restore.sh",
         "docs/quickstart.md",
-        # The tests of CI read each workflow and run the gate.
+        # The tests of CI read each workflow and run the gate. A step checks the lock of the gate.
         ".github/workflows/api.yml",
         ".github/workflows/main.yml",
         ".github/workflows/site.yml",
         ".github/workflows/stack.yml",
         ".github/workflows/web.yml",
         ".github/scripts/ci_gate.py",
+        ".github/scripts/ci_gate.py.lock",
         # The tests of the feed read the schema and the cases of the search package.
         "packages/site-search/schema/feed-v1.schema.json",
         "packages/site-search/fixtures/feed.json",
