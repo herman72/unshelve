@@ -1,8 +1,9 @@
 """The gate of main.yml (.github/scripts/ci_gate.py), on a made-up history and a pretend GitHub.
 
 Each test makes a small git repository with a base commit, the last green commit of main, and a
-new commit on it. A pretend `gh` answers the calls of the gate from a table. The gate reads the
-real lists of the four groups, so these tests also show what each list selects.
+new commit on it. A pretend `gh` answers the calls of the gate from a table, and writes each path
+that the gate asks for to a file. The gate reads the real lists of the four groups, so these tests
+also show what each list selects.
 """
 
 import importlib.util
@@ -20,10 +21,14 @@ import pytest
 REPO = Path(__file__).resolve().parents[4]
 GATE = REPO / ".github" / "scripts" / "ci_gate.py"
 GROUPS = ("api", "web", "site", "stack")
+REPOSITORY = "owner/repo"
+FORK = "someone/repo"
 FAKE_GH = """#!{python}
 import json, sys
 
 # gh api <path>: the first key that is in the path gives the answer; null is a failed call.
+with open({calls!r}, "a") as calls:
+    calls.write(sys.argv[2] + "\\n")
 answers = json.load(open({answers!r}))
 for key, answer in answers.items():
     if key in sys.argv[2]:
@@ -103,20 +108,21 @@ def gate(tmp_path: Path, history: History) -> Gate:
     def run(event: str = "push", **answers: Any) -> dict[str, str]:
         """The outputs of the gate. Each keyword is a part of an API path, and its answer."""
         table = {key.replace("_", "."): value for key, value in answers.items()}
-        table.setdefault("main.yml", {"workflow_runs": [{"head_sha": history.base}]})
+        table.setdefault("main.yml", _main_run(history.base))
         (tmp_path / "answers.json").write_text(json.dumps(table))
         bin_folder = tmp_path / "bin"
         bin_folder.mkdir(exist_ok=True)
         fake = bin_folder / "gh"
         answers_file = str(tmp_path / "answers.json")
-        fake.write_text(FAKE_GH.format(python=sys.executable, answers=answers_file))
+        calls = str(tmp_path / "calls")
+        fake.write_text(FAKE_GH.format(python=sys.executable, answers=answers_file, calls=calls))
         fake.chmod(0o755)
         output = tmp_path / "output"
         output.write_text("")
         env = {
             "PATH": f"{bin_folder}{os.pathsep}{os.environ['PATH']}",
             "HOME": str(tmp_path),
-            "GITHUB_REPOSITORY": "owner/repo",
+            "GITHUB_REPOSITORY": REPOSITORY,
             "GITHUB_EVENT_NAME": event,
             "GITHUB_OUTPUT": str(output),
             "GITHUB_STEP_SUMMARY": str(tmp_path / "summary"),
@@ -129,9 +135,22 @@ def gate(tmp_path: Path, history: History) -> Gate:
     return run
 
 
-def _proof(run_id: int, tree: str) -> dict[str, Any]:
+def _main_run(sha: str, repository: str = REPOSITORY) -> dict[str, Any]:
+    """The answer of the API for the last green run of main.yml on main."""
+    return {"workflow_runs": [{"head_sha": sha, "head_repository": {"full_name": repository}}]}
+
+
+def _proof(run_id: int, tree: str, repository: str = REPOSITORY) -> dict[str, Any]:
     """The answer of the API for a green pull_request run of a group on a tree."""
-    return {"workflow_runs": [{"id": run_id, "head_commit": {"tree_id": tree}}]}
+    return {
+        "workflow_runs": [
+            {
+                "id": run_id,
+                "head_commit": {"tree_id": tree},
+                "head_repository": {"full_name": repository},
+            }
+        ]
+    }
 
 
 def _running(outputs: dict[str, str]) -> list[str]:
@@ -158,6 +177,35 @@ def test_a_pull_request_run_on_the_same_tree_proves_a_group(
         "| web | no | pull request run 41 passed on this tree |"
         in (tmp_path / "summary").read_text()
     )
+
+
+def test_a_pull_request_run_from_a_fork_proves_nothing(history: History, gate: Gate) -> None:
+    history.change("apps/web/src/page.tsx")
+
+    # A fork controls what its run does: a green run on the same tree tested nothing for main.
+    fork = _proof(41, history.tree(), repository=FORK)
+    ours = _proof(42, history.tree())
+
+    assert _running(gate(web_yml=fork, stack_yml=ours)) == ["web"]
+    # The first run of this repository on the tree counts, also after a run of a fork.
+    both = {"workflow_runs": [*fork["workflow_runs"], *ours["workflow_runs"]]}
+    assert _running(gate(web_yml=both, stack_yml=ours)) == []
+
+
+def test_the_base_is_a_green_push_run_of_this_repository(
+    history: History, gate: Gate, tmp_path: Path
+) -> None:
+    history.change("apps/web/src/page.tsx")
+
+    gate()
+
+    # A pull request run of main.yml (a fork can add a trigger) is never the base of the diff.
+    calls = (tmp_path / "calls").read_text().splitlines()
+    assert [call for call in calls if "main.yml" in call] == [
+        f"repos/{REPOSITORY}/actions/workflows/main.yml/runs"
+        "?branch=main&event=push&status=success&per_page=1"
+    ]
+    assert _running(gate(main_yml=_main_run(history.base, repository=FORK))) == list(GROUPS)
 
 
 def test_a_run_on_another_tree_proves_nothing(history: History, gate: Gate) -> None:
@@ -300,7 +348,7 @@ def test_a_file_in_no_list_runs_each_group_without_a_proof(history: History, gat
         pytest.param("push", {"main_yml": None}, id="a failed call for the runs of main"),
         pytest.param(
             "push",
-            {"main_yml": {"workflow_runs": [{"head_sha": "1" * 40}]}},
+            {"main_yml": _main_run("1" * 40)},
             id="a green commit that this clone does not have",
         ),
     ],
