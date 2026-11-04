@@ -80,6 +80,9 @@ services:
     volumes:
       # The files that you send, under the SHA-256 of their bytes (FileBlobStore).
       - blobs:/app/var/blobs
+      # The deploy key and the host keys of the git target of the feed (keys/README.md). Only
+      # the worker publishes, so only the worker gets them, and it cannot change them.
+      - ${UNSHELVE_KEYS_DIR:-../keys}:/keys:ro
 
   bot:
     <<: *app

@@ -9,6 +9,9 @@ var/
 /backups/
 /exports/*
 !/exports/README.md
+# The deploy key of the git target (keys/README.md): a secret, never in git.
+/keys/*
+!/keys/README.md
 *.private.md
 *.private.yaml
 

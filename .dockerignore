@@ -8,6 +8,7 @@ data
 var
 exports
 backups
+keys
 docs
 **/.venv
 **/__pycache__
