@@ -100,6 +100,11 @@ class Settings(BaseSettings):
     publish_git_dir: Path = Path("var/publish")
     publish_git_ssh_key: Path | None = None
     publish_git_known_hosts: Path | None = None
+    # The author of each commit of the feed. A host that builds the site can refuse a commit
+    # whose author it does not know: Vercel builds a commit of a private repository on the
+    # Hobby plan only when its email belongs to the owner of the Vercel account (docs/learn/43).
+    publish_git_author_name: str = "Unshelve"
+    publish_git_author_email: str = "unshelve@localhost"
     # The address of the object storage (https, a host and nothing after it), the region that
     # signs each request ("auto" for R2), and a key pair that may write this one object only.
     publish_s3_endpoint: str | None = None
