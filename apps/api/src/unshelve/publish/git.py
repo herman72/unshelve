@@ -11,7 +11,8 @@ When another push came first, the remote refuses ours. Then the target starts ag
 at most ``TRIES`` times. A commit of someone else is never lost: the feed goes on top of it.
 
 Git runs with no git config of this computer (no prompt, no signing, no credential helper),
-so it does the same on each computer. A deploy key goes in through ``GIT_SSH_COMMAND``.
+so it does the same on each computer. The author of each commit comes from the settings, and a
+deploy key goes in through ``GIT_SSH_COMMAND``.
 """
 
 import asyncio
@@ -31,6 +32,7 @@ from unshelve.contracts.errors import PublishError
 TRIES = 3
 # One git command; a fetch over a slow network fits.
 COMMAND_TIMEOUT = 60.0
+# The author of each commit when a caller gives none (the settings have their own default).
 AUTHOR_NAME = "Unshelve"
 AUTHOR_EMAIL = "unshelve@localhost"
 
@@ -44,7 +46,8 @@ _NO_BRANCH = "couldn't find remote ref"
 _LASTING = re.compile(
     r"does not appear to be a git repository|repository .* not found|Repository not found"
     r"|Permission denied|Authentication failed|Host key verification failed"
-    r"|could not read Username|terminal prompts disabled",
+    r"|could not read Username|terminal prompts disabled"
+    r"|name consists only of disallowed characters",
     re.IGNORECASE,
 )
 
@@ -105,6 +108,8 @@ class GitTarget:
         workdir: Path,
         ssh_key: Path | None = None,
         known_hosts: Path | None = None,
+        author_name: str = AUTHOR_NAME,
+        author_email: str = AUTHOR_EMAIL,
     ) -> None:
         self._url = url
         self._branch = branch
@@ -114,6 +119,8 @@ class GitTarget:
         self._lock_file = workdir / "lock"
         self._ssh_key = ssh_key
         self._known_hosts = known_hosts
+        self._author_name = author_name
+        self._author_email = author_email
         # The environment of git, made when the lock is taken (``_locked``).
         self._env: dict[str, str] = {}
 
@@ -229,10 +236,11 @@ class GitTarget:
             "GIT_TERMINAL_PROMPT": "0",
             # English messages, so that a fault is known by its words.
             "LC_ALL": "C",
-            "GIT_AUTHOR_NAME": AUTHOR_NAME,
-            "GIT_AUTHOR_EMAIL": AUTHOR_EMAIL,
-            "GIT_COMMITTER_NAME": AUTHOR_NAME,
-            "GIT_COMMITTER_EMAIL": AUTHOR_EMAIL,
+            # One person writes and commits: a host that builds the site can check this person.
+            "GIT_AUTHOR_NAME": self._author_name,
+            "GIT_AUTHOR_EMAIL": self._author_email,
+            "GIT_COMMITTER_NAME": self._author_name,
+            "GIT_COMMITTER_EMAIL": self._author_email,
         }
         if self._ssh_key is not None:
             environment["GIT_SSH_COMMAND"] = ssh_command(

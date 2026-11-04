@@ -124,6 +124,8 @@ def _git_target(settings: Settings) -> FeedTarget:
             workdir=settings.publish_git_dir,
             ssh_key=settings.publish_git_ssh_key,
             known_hosts=settings.publish_git_known_hosts,
+            author_name=settings.publish_git_author_name,
+            author_email=settings.publish_git_author_email,
         )
     except ValueError as error:
         return UnusableTarget(f"UNSHELVE_PUBLISH_GIT_PATH: {error}")

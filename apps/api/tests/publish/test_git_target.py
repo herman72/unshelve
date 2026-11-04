@@ -319,6 +319,37 @@ def test_the_settings_choose_the_git_target(tmp_path: Path) -> None:
     assert isinstance(build_feed_target(settings), GitTarget)
 
 
+async def test_the_author_of_the_settings_writes_and_commits_the_feed(tmp_path: Path) -> None:
+    # A host that builds the site checks the author: on the Hobby plan of Vercel, a commit to a
+    # private repository must come from the owner of the account.
+    remote = bare_remote(tmp_path)
+    target = build_feed_target(
+        Settings(
+            env="test",
+            publish_target="git",
+            publish_git_url=str(remote),
+            publish_git_dir=tmp_path / "work",
+            publish_git_author_name="Site Owner",
+            publish_git_author_email="12345+site-owner@users.noreply.github.com",
+        )
+    )
+    assert target is not None
+
+    await target.publish(FEED)
+
+    people = run_git("log", "-1", "--format=%an <%ae>|%cn <%ce>", "main", cwd=remote).strip()
+    assert people.split("|") == ["Site Owner <12345+site-owner@users.noreply.github.com>"] * 2
+
+
+async def test_an_author_with_no_name_is_a_lasting_fault(tmp_path: Path) -> None:
+    target = _target(bare_remote(tmp_path), tmp_path, author_name=" ")
+
+    with pytest.raises(PublishError, match="name consists only of disallowed characters") as raised:
+        await target.publish(FEED)
+
+    assert raised.value.retryable is False
+
+
 @pytest.mark.parametrize(
     ("options", "reason"),
     [
