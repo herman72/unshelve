@@ -15,6 +15,7 @@ on:
       - deploy/**
       - compose.yaml
       - compose.prod.yaml
+      - .dockerignore
       - docs/quickstart.md
       - .env.example
       - .gitignore
