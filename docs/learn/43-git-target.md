@@ -1,6 +1,6 @@
 # 43. Publishing to a git repository
 
-> Pull request: [#110](https://github.com/herman72/unshelve/pull/110) · Code: [`publish/git.py`](../../apps/api/src/unshelve/publish/git.py), [`publish/targets.py`](../../apps/api/src/unshelve/publish/targets.py) · Tests: [`tests/publish/test_git_target.py`](../../apps/api/tests/publish/test_git_target.py)
+> Pull requests: [#110](https://github.com/herman72/unshelve/pull/110) (the target), [#140](https://github.com/herman72/unshelve/pull/140) (the key in the stack, the author) · Code: [`publish/git.py`](../../apps/api/src/unshelve/publish/git.py), [`publish/targets.py`](../../apps/api/src/unshelve/publish/targets.py), [`deploy/compose.yaml`](../../deploy/compose.yaml), [`keys/README.md`](../../keys/README.md) · Tests: [`tests/publish/test_git_target.py`](../../apps/api/tests/publish/test_git_target.py), [`tests/deploy/test_worker_keys.py`](../../apps/api/tests/deploy/test_worker_keys.py)
 
 ## In one minute
 
@@ -72,15 +72,24 @@ The feed bytes are stable ([note 42](42-public-feed.md)): the same items give th
 
 ## 4. Git without the git config of this computer
 
-Each git command runs with `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1` and `GIT_TERMINAL_PROMPT=0`, with the author "Unshelve". So the commands do the same on your Mac, in Docker and on CI. No password prompt can wait forever, and no helper of your computer can answer for the worker.
+Each git command runs with `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1` and `GIT_TERMINAL_PROMPT=0`. So the commands do the same on your Mac, in Docker and on CI. No password prompt can wait forever, and no helper of your computer can answer for the worker.
 
 A test proves it. It writes a git config that breaks each commit: it asks for a signature from a program that always fails. The publish still works, because git never reads that config.
+
+**The author comes from the settings.** `UNSHELVE_PUBLISH_GIT_AUTHOR_NAME` and `UNSHELVE_PUBLISH_GIT_AUTHOR_EMAIL` give the author and the committer of each commit. The default is "Unshelve <unshelve@localhost>". A host that builds the site can check this person before it builds:
+
+| The host of the site | A commit of "Unshelve <unshelve@localhost>" | A commit with the email of the owner |
+|---|---|---|
+| Vercel, Hobby plan, private repository | no deployment: only the owner of the account can deploy | a production deployment |
+| A host that builds each commit of the branch | a deployment | a deployment |
+
+GitHub links a commit to an account by its email. Each account has a noreply address, `<id>+<login>@users.noreply.github.com`, so the feed can name the owner and still show no private address. A name of only spaces, or of only the signs `, : ; < > "`, makes git fail with "name consists only of disallowed characters". Git accepts other names, also `123`. That is a lasting fault: the job ends, and the message names the cause.
 
 ## 5. The deploy key and the host key
 
 **The deploy key** is an SSH key that GitHub accepts for one repository only, read-only by default, with write access when you allow it. If the worker leaks it, an attacker can write to your site, and to nothing else.
 
-The target gives git one key and no other: `GIT_SSH_COMMAND` runs `ssh -i <key> -o IdentitiesOnly=yes -o BatchMode=yes`. ssh refuses a key that other users can read, and a key mounted into a container keeps the owner and the mode of the host. So the target first makes a private copy of the key (mode 600) in its own folder.
+The target gives git one key and no other: `GIT_SSH_COMMAND` runs `ssh -i <key> -o IdentitiesOnly=yes -o BatchMode=yes`. ssh refuses a key that other users can read, and on Linux a key mounted into a container keeps the owner and the mode of the host (see the table below). So the target first makes a private copy of the key (mode 600) in its own folder.
 
 **The host key** proves that the server is GitHub, and not a machine in between:
 
@@ -93,6 +102,18 @@ The target gives git one key and no other: `GIT_SSH_COMMAND` runs `ssh -i <key> 
 GitHub publishes ready lines for a `known_hosts` file. I recommend the file.
 
 A test checks all of this without a network. A pretend `ssh`, first on the `PATH`, writes down how git called it: `-i …/ssh/deploy_key`, `StrictHostKeyChecking=yes`, `UserKnownHostsFile=` the file of the settings, and the host `git@example.invalid`.
+
+**The key in the stack.** The stack shows the folder `keys/` of the clone to the worker as `/keys`, and the worker can only read it. So the settings are `UNSHELVE_PUBLISH_GIT_SSH_KEY=/keys/deploy_key` and `UNSHELVE_PUBLISH_GIT_KNOWN_HOSTS=/keys/known_hosts`. [keys/README.md](../../keys/README.md) has the steps. Git ignores the keys, and `.dockerignore` keeps them out of each build. The API, the bot and the backup get no mount: only the worker publishes.
+
+The worker runs as the user 10001. ssh-keygen makes the key with the mode 600, so only its owner can read it. Who is the owner in the container?
+
+| The computer | The key on the host | The key in the container | Can the worker read it? |
+|---|---|---|---|
+| macOS with Docker Desktop | user 501, mode 600 | user 10001, mode 600 | yes |
+| Linux | user 1000, mode 600 | user 1000, mode 600 | no: "Permission denied" |
+| Linux, after `sudo chown 10001 keys/deploy_key` | user 10001, mode 600 | user 10001, mode 600 | yes |
+
+Docker Desktop shows each shared file as a file of the user in the container. Linux shows the real owner. A key that the worker cannot read is a lasting fault: "cannot read the deploy key /keys/deploy_key: Permission denied".
 
 ## 6. No secret in a message
 
@@ -111,7 +132,7 @@ In each case, the other jobs of the worker go on: an optional feature cannot sto
 
 ## 8. The tests
 
-The tests of the target use bare repositories on this computer: no network, no key of yours. They cover each section above: a commit on top of the site, no commit for the same bytes, a new branch, a branch deleted on the server, a new address, the race, two publishes at once, a stale lock of git, the git config of this computer, the key and the host keys through a pretend `ssh`, and a token in an address. One test of the command line pushes the real feed of the made-up world into a bare repository.
+The tests of the target use bare repositories on this computer: no network, no key of yours. They cover each section above: a commit on top of the site, no commit for the same bytes, a new branch, a branch deleted on the server, a new address, the race, two publishes at once, a stale lock of git, the git config of this computer, the author of the settings, the key and the host keys through a pretend `ssh`, and a token in an address. One test of the command line pushes the real feed of the made-up world into a bare repository. The tests of the stack read `docker compose config`: the mount of the keys, its folder, and the production stack.
 
 **Can these tests fail?** I put 28 typical mistakes into the target and its settings, one at a time, and each one made a named test fail. A mistake in a race can be caught by luck, so I ran one of them more often: without the lock, the test of two publishes at once failed in each of 4 runs; with the lock, it passed in each of 5 runs.
 
@@ -131,9 +152,11 @@ The tests of the target use bare repositories on this computer: no network, no k
 - **Can a stopped run block the next one?** No: a stale `index.lock` of git is removed, under the lock of the target.
 - **Can two workers break the copy?** No: one publish at a time for each working copy (a file lock), and a test runs two at once.
 - **Can a secret reach a log?** Not through the target: each message hides the user and the password of an address.
+- **Does the key reach only the worker, and only to read?** Yes: a test reads the stack as Compose joins it, also the production stack.
 - **What is not done:**
-  - no push to GitHub: that needs a real repository and its deploy key;
-  - no folder or key of the stack: in Docker, the key must be mounted into the worker (M6);
+  - no push to GitHub in the tests: that needs a real repository and its deploy key;
+  - no check of the key before the first publish: `ssh -T` in the worker (keys/README.md, step 7) shows only that GitHub accepts the key, not that it may write;
+  - each change of the feed is one more build of the site (on the Hobby plan of Vercel, at most 100 deployments a day);
   - the image of the API is 108 MB larger;
   - the lock uses `fcntl`, so the worker runs on Linux and macOS, not Windows.
 
@@ -191,11 +214,13 @@ In the stack, the job of the feed would fail as a fault that can pass. The worke
 | Deploy key | An SSH key that a server accepts for one repository only |
 | Host key | The key that proves which server you talk to |
 | Trust on first use | Accept the key of the first connection, and check the later ones against it |
+| Noreply address | An email address that GitHub gives each account, so that a commit can name the account and show no private address |
 
 ## To read more
 
 - [git push](https://git-scm.com/docs/git-push), git documentation. Read "NOTE ABOUT FAST-FORWARDS": why the server refuses a push that would leave out a commit.
 - [Managing deploy keys](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys), GitHub documentation. Read "Deploy keys": one repository, read-only by default, write access when you allow it.
 - [GitHub's SSH key fingerprints](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/githubs-ssh-key-fingerprints), GitHub documentation. It has the lines for a `known_hosts` file.
+- [Why aren't commits triggering deployments on Vercel?](https://vercel.com/kb/guide/why-aren-t-commits-triggering-deployments-on-vercel), Vercel Knowledge Base. Read "The commit author has to clear the access boundary": the rules for a private repository and for the Hobby plan.
 
 Previous: [42. The public feed](42-public-feed.md) · Next: [44. Publishing to object storage](44-object-storage-target.md) · Back to the [list of notes](README.md)
