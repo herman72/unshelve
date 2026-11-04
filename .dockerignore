@@ -1,11 +1,12 @@
 # Keep build contexts small and keep secrets and private data out of images.
 # A name matches only at the root of the context; **/ matches it in each folder. A worker that runs
-# outside Docker keeps its state in apps/api/var (tests/deploy/test_build_context.py).
+# outside Docker keeps its state in apps/api/var and can read apps/api/.env
+# (tests/deploy/test_build_context.py).
 .git
 .github
-.env
-.env.*
-!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 data
 **/var
 exports

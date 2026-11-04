@@ -22,17 +22,24 @@ pytestmark = pytest.mark.skipif(
 )
 
 # The files that a worker outside Docker can leave in a clone (.gitignore, config.py): blobs of
-# private files, and the working copy of the git target with a copy of its deploy key.
+# private files, the working copy of the git target with a copy of its deploy key, and the
+# settings with their secrets (config.py reads apps/api/.env too).
 PRIVATE = (
     "var/blobs/ab/cdef",
     "apps/api/var/blobs/ab/cdef",
     "apps/api/var/publish/ssh/deploy_key",
     "apps/api/var/public/feed.json",
+    ".env",
+    "apps/api/.env",
+    "apps/web/.env.local",
 )
-# Files that the image needs, and a name that only starts like a private folder.
+# Files that the image needs, a name that only starts like a private folder, and the examples of
+# the settings, which hold no secret.
 KEPT = (
     "apps/api/pyproject.toml",
     "apps/api/src/unshelve/variables.py",
+    ".env.example",
+    "apps/api/.env.example",
 )
 
 
