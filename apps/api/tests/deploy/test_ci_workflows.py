@@ -151,6 +151,17 @@ def test_a_list_names_only_a_file_or_a_folder_that_exists(group: str) -> None:
     assert wrong == []
 
 
+@pytest.mark.parametrize("group", GROUPS)
+def test_a_list_names_each_file_once(group: str) -> None:
+    # Two branches can add the same file at two places of a list, and git merges both lines with
+    # no conflict. A second copy changes no run, but when a change removes one copy, the file stays
+    # in the list.
+    paths, reads = _paths(group), READS[group]
+
+    assert sorted({path for path in paths if paths.count(path) > 1}) == []
+    assert sorted({file for file in reads if reads.count(file) > 1}) == []
+
+
 def test_prose_starts_no_group_and_the_guide_starts_two() -> None:
     prose = (
         "README.md",
