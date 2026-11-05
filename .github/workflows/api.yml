@@ -8,7 +8,7 @@ on:
     # The tests of the API read the stack files, the guide, the schema of the feed and the files of
     # CI; the contract check reads the generated types and needs pnpm. Ruff and the build of the
     # package skip each file that the .gitignore of the root names. The tests of the folder keys/
-    # read its guide and .dockerignore.
+    # read its guide, and the tests of keys/ and of the build context read .dockerignore.
     paths:
       - apps/api/**
       - packages/api-client/**
@@ -20,7 +20,6 @@ on:
       - docs/quickstart.md
       - .env.example
       - .gitignore
-      - .dockerignore
       - keys/README.md
       - Makefile
       - package.json

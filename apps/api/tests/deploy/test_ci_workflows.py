@@ -46,9 +46,8 @@ READS = {
         "packages/site-search/test/u-norm-cases.json",
         # Ruff and the build of the package skip each file that it names.
         ".gitignore",
-        # The tests of the folder keys/: git keeps its guide, and docker build skips the folder.
+        # The tests of the folder keys/: git keeps its guide. They read .dockerignore too (above).
         "keys/README.md",
-        ".dockerignore",
         # The contract check makes the types again and compares them.
         "Makefile",
         "packages/api-client/src/schema.d.ts",
