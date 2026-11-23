@@ -4,16 +4,29 @@ The bot uses long polling (docs/adr/0008): it asks Telegram "anything new?" and 
 answers when there is something, or after some seconds. No address of this computer must be
 open to the internet. Updates that arrived while the bot was down wait at Telegram for up to
 24 hours, so a restart loses nothing.
+
+Each answer of getUpdates marks the liveness file ``bot`` (``unshelve.alive``), and the
+healthcheck of Docker reads it (docs/learn/55). A bot without a token marks it on a timer.
 """
 
+import asyncio
+import contextlib
 import logging
+from datetime import timedelta
 from typing import Any
 
 import structlog
 from aiogram import Bot, Dispatcher
+from aiogram.client.session.middlewares.base import (
+    BaseRequestMiddleware,
+    NextRequestMiddlewareType,
+)
 from aiogram.exceptions import TelegramAPIError
+from aiogram.methods import GetUpdates, Response, TelegramMethod
+from aiogram.methods.base import TelegramType
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from unshelve import alive
 from unshelve.bot import capture, private
 from unshelve.config import Settings
 
@@ -28,6 +41,10 @@ ALLOWED_UPDATES = [
     "callback_query",
 ]
 ADMIN_STATUSES = frozenset({"administrator", "creator"})
+# The name of the liveness file of the bot (unshelve.alive, deploy/compose.yaml).
+ALIVE_NAME = "bot"
+# A bot without a token marks its liveness file this often.
+IDLE_MARK_EVERY = timedelta(seconds=30)
 
 
 def polling_options() -> dict[str, Any]:
@@ -60,6 +77,47 @@ class HideToken(logging.Filter):
 def hide_token_in_logs(token: str) -> None:
     for handler in logging.getLogger().handlers:
         handler.addFilter(HideToken(token))
+
+
+class MarkAlive(BaseRequestMiddleware):
+    """Marks the liveness file of the bot after each answer of getUpdates.
+
+    Only getUpdates counts. The polling loop of aiogram catches each error and asks again for
+    ever, so a bot that cannot reach Telegram, or whose token was revoked, still runs and only
+    logs "Failed to fetch updates". A message that the bot sent is no sign that it receives.
+    On a quiet chat, Telegram answers getUpdates after 10 s with no update, so the bot marks
+    at least every 10 s while it can poll.
+    """
+
+    def __init__(self) -> None:
+        # "N/M": N of the M capture chats send their posts to the bot. The next mark writes it.
+        self.chats_ready: str | None = None
+
+    async def __call__(
+        self,
+        make_request: NextRequestMiddlewareType[TelegramType],
+        bot: Bot,
+        method: TelegramMethod[TelegramType],
+    ) -> Response[TelegramType]:
+        answer = await make_request(bot, method)
+        if isinstance(method, GetUpdates):
+            if self.chats_ready is None:
+                alive.mark(ALIVE_NAME)
+            else:
+                alive.mark(ALIVE_NAME, chats_ready=self.chats_ready)
+        return answer
+
+
+async def idle(stop: asyncio.Event, *, every: timedelta = IDLE_MARK_EVERY) -> None:
+    """A bot without a token: no Telegram, only a sign of life, until ``stop`` is set.
+
+    The first mark comes at once: `docker compose up --wait` waits for the healthcheck.
+    """
+    while not stop.is_set():
+        alive.mark(ALIVE_NAME)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(stop.wait(), timeout=every.total_seconds())
+    alive.stopped(ALIVE_NAME)
 
 
 def build_dispatcher(settings: Settings, sessions: async_sessionmaker[AsyncSession]) -> Dispatcher:
@@ -105,6 +163,8 @@ async def run_bot(settings: Settings, sessions: async_sessionmaker[AsyncSession]
     token = settings.telegram_bot_token.get_secret_value()
     hide_token_in_logs(token)
     bot = Bot(token)
+    liveness = MarkAlive()
+    bot.session.middleware(liveness)
     dispatcher = build_dispatcher(settings, sessions)
 
     me = await bot.get_me()
@@ -119,10 +179,13 @@ async def run_bot(settings: Settings, sessions: async_sessionmaker[AsyncSession]
             "bot.no_capture_chats",
             hint="post in your channel; this log then shows the id for UNSHELVE_CAPTURE_CHAT_IDS",
         )
-    await check_capture_chats(bot, settings)
+    ready = await check_capture_chats(bot, settings)
+    # The first answer of getUpdates writes it: N of the M capture chats send their posts.
+    liveness.chats_ready = f"{len(ready)}/{len(settings.capture_chat_ids)}"
     # start_polling handles SIGINT and SIGTERM, finishes the handlers that run, and closes
     # the connection to Telegram.
     await dispatcher.start_polling(  # pyright: ignore[reportUnknownMemberType]
         bot, **polling_options()
     )
+    alive.stopped(ALIVE_NAME)
     log.info("bot.stopped")
