@@ -15,6 +15,20 @@ x-app: &app
     UNSHELVE_LOG_JSON: "true"
   restart: unless-stopped
 
+# The healthcheck of a process that marks a liveness file (unshelve.alive, docs/learn/55).
+# The process marks the file at least every 30 s. A check fails when the mark is older than
+# 180 s, or when the file says that its process stopped: after a restart, the new process must
+# mark the file first. After 3 failed checks in a row, Docker shows the service as unhealthy.
+# Docker does not restart an unhealthy container: the state only shows the problem.
+x-alive-check: &alive-check
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  # A failed check in the first minute does not count. In that minute, Docker checks every
+  # 2 s, so `docker compose up --wait` sees the first mark at once.
+  start_period: 60s
+  start_interval: 2s
+
 # The database and its backups use one image, so pg_dump always has the version of the server.
 # Each service merges this mapping (<<): Dependabot updates the image on this line, but not an
 # image behind an alias (image: *name). The digest fixes the content of the tag.
@@ -83,6 +97,11 @@ services:
       # The deploy key and the host keys of the git target of the feed (keys/README.md). Only
       # the worker publishes, so only the worker gets them, and it cannot change them.
       - ${UNSHELVE_KEYS_DIR:-../keys}:/keys:ro
+      # The liveness file: the loop and the lease of a long job mark it.
+      - alive:/app/var/alive
+    healthcheck:
+      <<: *alive-check
+      test: ["CMD", "python", "-m", "unshelve.alive", "check", "worker", "--max-age", "180"]
 
   bot:
     <<: *app
@@ -90,6 +109,12 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    volumes:
+      # The liveness file: each answer of getUpdates marks it. Without a token, a timer does.
+      - alive:/app/var/alive
+    healthcheck:
+      <<: *alive-check
+      test: ["CMD", "python", "-m", "unshelve.alive", "check", "bot", "--max-age", "180"]
 
   # A backup of the database and of the files when the newest one is older than a day
   # (docs/learn/50). The backups go to a folder of this computer, not into a Docker volume,
@@ -181,3 +206,4 @@ volumes:
   db-data:
   blobs:
   backup-status:
+  alive:
