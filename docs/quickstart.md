@@ -13,6 +13,8 @@ CI runs each marked step of this guide on a fresh clone, as written here, for A 
 - Docker Engine 25 or newer, with Compose 2.24 or newer. `docker version` and `docker compose version` show the versions.
 - For B: a Linux server that the internet can reach on ports 80 and 443, and a domain name that points to the address of the server, for example `unshelve.example.com`.
 
+Run each command of this guide in the root of the clone: the folder with `compose.yaml` and `.env`. Do not run Compose in `deploy/`. In that folder, Compose does not put the values of `.env` into its own file, so the address of the database gets the default password. `COMPOSE_FILE` and `COMPOSE_PROJECT_NAME` do not apply there, and the project gets the name `unshelve` from `deploy/compose.yaml`. The containers of the app (`migrate`, `api`, `worker` and `bot`) still get the values of `.env` through `env_file`. In a subfolder such as `apps/api`, Compose reads `.env` but ignores `COMPOSE_FILE`: on a server, it uses the stack of a laptop, without Caddy.
+
 ## A. On this computer
 
 1. Get the code:
@@ -85,7 +87,7 @@ Do these steps on the server.
    mkdir -p "$HOME/unshelve-backups"
    ```
 
-   `COMPOSE_FILE=compose.prod.yaml` makes each `docker compose` command in this folder use the production stack: Caddy in front of the web app, and no other open port. `UNSHELVE_BACKUP_DIR` keeps the backups outside the clone, so that a new clone cannot delete them. Give it an absolute path: Docker Compose reads a relative path from the folder `deploy/`, not from the clone.
+   `COMPOSE_FILE=compose.prod.yaml` makes each `docker compose` command in the root of the clone use the production stack. That stack has Caddy in front of the web app, and no other open port. `UNSHELVE_BACKUP_DIR` keeps the backups outside the clone, so that a new clone cannot delete them. Give it an absolute path: Docker Compose reads a relative path from the folder `deploy/`, not from the clone.
 
 4. Start the stack:
 

@@ -3,6 +3,7 @@ SHELL := /bin/bash
 API := apps/api
 # The gate of main.yml, linted with the rules of the API (from $(API)).
 SCRIPTS := ../../.github/scripts
+# Run make in the root of the clone, where Compose reads compose.yaml and .env (docs/quickstart.md).
 COMPOSE := docker compose
 
 .PHONY: help setup hooks db up down logs fmt lint typecheck test eval eval-live eval-baseline site-search test-site-search backup backup-status restore-drill openapi openapi-check check

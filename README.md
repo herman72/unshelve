@@ -260,7 +260,7 @@ For a large export, set `UNSHELVE_CARDS=batch` and run `docker compose up -d --w
 
 ## Everything it does
 
-Each row links the note that explains it. Run the commands in the folder of the repository. `make help` lists the `make` targets.
+Each row links the note that explains it. Run the commands in the root of the clone. `make help` lists the `make` targets.
 
 | Area | What you can do | Where | Note |
 |---|---|---|---|

@@ -8,6 +8,11 @@
 - **CI must pass.** Lint, type check, tests and the OpenAPI drift check. A pull request runs only the groups of CI whose files it changes. If a test or a step starts to read a new file, add the file to the `paths` of its group ([note 53](docs/learn/53-fewer-minutes-of-ci.md)).
 - **No private data in the repository.** Fixtures are synthetic. Exports, roadmaps and `.env` files stay outside git.
 
+## Run the stack
+
+- Run `make` and `docker compose` in the root of the clone. In `deploy/`, Compose does not put the values of `.env` into its own file, and the project gets the name `unshelve`. In `apps/api`, Compose ignores `COMPOSE_FILE`.
+- A worktree or a second clone gets the name of its folder as its project name. So two folders with the same name are one project: give a second clone another folder name. Do not copy a `.env` that sets `COMPOSE_PROJECT_NAME` into a worktree or a clone. There, each Compose command acts on the project of that name, also `down --volumes`.
+
 ## Frozen interfaces
 
 Two areas are changed only by the maintainer, in their own pull requests:
