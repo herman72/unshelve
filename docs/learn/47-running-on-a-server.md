@@ -62,7 +62,7 @@ services:
 
 3. **The `https://` address.** `UNSHELVE_WEB_BASE_URL` is `https://` and the domain. The sign-in links point there, and the API gives the session cookie the *Secure* flag: a browser sends such a cookie only over HTTPS, never over plain HTTP.
 
-`COMPOSE_FILE=compose.prod.yaml` in `.env` makes each `docker compose` command in the root of the clone use this stack. So the commands on the server are the same as on a laptop. In another folder, such as `deploy/` or `apps/api`, Compose ignores this setting and uses the stack of a laptop, without Caddy.
+`COMPOSE_FILE=compose.prod.yaml` in `.env` makes each `docker compose` command in the root of the clone use this stack. So the commands on the server are the same as on a laptop. In another folder, such as `deploy/` or `apps/api`, Compose ignores this setting and uses the stack of a laptop, without Caddy ([note 54](54-compose-from-the-root.md)).
 
 **A comparison from daily life:** a house has one plan. For the rental version, the owner writes a short list of changes ("a lock on the cellar door"), not a second plan. A second plan would drift away from the first one.
 

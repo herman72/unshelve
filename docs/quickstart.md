@@ -13,7 +13,9 @@ CI runs each marked step of this guide on a fresh clone, as written here: A, B, 
 - Docker Engine 25 or newer, with Compose 2.24 or newer. `docker version` and `docker compose version` show the versions.
 - For B: a Linux server that the internet can reach on ports 80 and 443, and a domain name that points to the address of the server, for example `unshelve.example.com`.
 
-Run each command of this guide in the root of the clone: the folder with `compose.yaml` and `.env`. Do not run Compose in `deploy/`. In that folder, Compose does not put the values of `.env` into its own file, so the address of the database gets the default password. `COMPOSE_FILE` and `COMPOSE_PROJECT_NAME` do not apply there, and the project gets the name `unshelve` from `deploy/compose.yaml`. The containers of the app (`migrate`, `api`, `worker` and `bot`) still get the values of `.env` through `env_file`. In a subfolder such as `apps/api`, Compose reads `.env` but ignores `COMPOSE_FILE`: on a server, it uses the stack of a laptop, without Caddy.
+Run each command of this guide in the root of the clone: the folder with `compose.yaml` and `.env`. Do not run Compose in `deploy/`. In that folder, Compose does not put the values of `.env` into its own file, so the address of the database gets the default password. `COMPOSE_FILE` and `COMPOSE_PROJECT_NAME` do not apply there, and the project gets the name `unshelve` from `deploy/compose.yaml`. The containers of the app (`migrate`, `api`, `worker` and `bot`) still get the values of `.env` through `env_file`.
+
+In a subfolder such as `apps/api`, Compose reads `.env` but ignores `COMPOSE_FILE`: on a server, it uses the stack of a laptop, without Caddy. [Note 54](learn/54-compose-from-the-root.md) shows each case.
 
 ## A. On this computer
 
