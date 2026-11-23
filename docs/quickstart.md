@@ -5,7 +5,7 @@ Unshelve runs in Docker. You can start it in two ways:
 - **A. On this computer**, to try it. The web app is at `http://localhost:3000`, and only this computer can open it.
 - **B. On a server**, to use it every day. The web app is at `https://` and your domain, with a certificate that Caddy gets and renews by itself.
 
-CI runs each marked step of this guide on a fresh clone, as written here, for A and for B. So these steps work. [Note 47](learn/47-running-on-a-server.md) explains how.
+CI runs each marked step of this guide on a fresh clone, as written here: A, B, a backup and a restore. So these steps work. The section Update has no marked step, and CI does not run it. [Note 47](learn/47-running-on-a-server.md) explains how.
 
 ## What you need
 
@@ -124,7 +124,7 @@ Do these steps on the server.
 - **Telegram.** To capture what you post, set `UNSHELVE_TELEGRAM_BOT_TOKEN` and `UNSHELVE_CAPTURE_CHAT_IDS` in `.env`, then run `docker compose up -d --wait`. The comments in `.env.example` explain each setting. Then the bot also sends you a sign-in link when you write `/login` to it.
 - **Real providers.** By default, the stack uses fake providers and no web, so it costs nothing. `UNSHELVE_PROVIDERS=live` with `ANTHROPIC_API_KEY`, and `UNSHELVE_FETCHER=live`, make real cards from real pages. The comments in `.env.example` give the prices and the limits. A key in `.env` is a secret: on a computer that others use too, run `chmod 600 .env`, as step 3 of B does.
 - **The public feed.** Nothing is published by default. To commit the feed of the public items to the git repository of a site, follow [keys/README.md](../keys/README.md): it makes a deploy key, and it gives the lines for `.env`. [Note 43](learn/43-git-target.md) explains the target, and `.env.example` lists the other targets.
-- **Update.** Run `git pull`, then `docker compose up -d --build --wait`. The service `migrate` updates the database before the API starts. The first update that brings the service `backup` needs a folder for the backups first: `mkdir -p backups` on this computer, or, on a server, `UNSHELVE_BACKUP_DIR=<an absolute path>` in `.env` and `mkdir -p` of that path. If Docker already made the folder for root, run `sudo chown -R "$(id -u):$(id -g)" backups`.
+- **Update.** Follow [Update](#update): a backup comes first, and a check of the database comes after `git pull`.
 - **Stop.** `docker compose stop` stops the stack, and `docker compose start` starts it again. `docker compose down` removes the containers and keeps the data.
 - **The data.** The database is in the Docker volume `db-data`, the files that you send are in `blobs`, and the certificates are in `caddy-data`. `docker compose down --volumes` deletes these volumes. The backups are in a folder of the computer, not in a volume: see "Backups".
 - **A new database password.** Postgres reads `UNSHELVE_DB_PASSWORD` only when it makes the volume `db-data`. To change it later, change it in the database first, then in `.env`, then restart:
@@ -134,6 +134,66 @@ Do these steps on the server.
   ```
 
   Then set the same value in `.env` and run `docker compose up -d --wait`. Use letters and digits only, because the password is also part of the database address.
+
+## Update
+
+Run these steps in the root of the clone. A backup comes before the new code. The bot, the worker, the API and the web app stop before the backup, and they start again in step 7. So no post comes in after the backup, and a restore of the backup loses no post.
+
+1. Stop the bot, the worker, the API and the web app. Telegram keeps the new posts for the bot for 24 hours, and the bot gets them in step 7:
+
+   ```bash
+   docker compose stop bot worker api web
+   ```
+
+2. Make a backup (or `make backup`). If the update goes wrong, this backup brings the data back:
+
+   ```bash
+   docker compose exec -T backup bash /deploy/backup/backup.sh once
+   ```
+
+3. Get the new code:
+
+   ```bash
+   git pull
+   ```
+
+4. Start the database with the image of the new code:
+
+   ```bash
+   docker compose up -d --wait db
+   ```
+
+5. Compare two versions of the C library: the version that the database recorded, and the version in its image:
+
+   ```bash
+   docker compose exec -T db psql -U unshelve -d unshelve -Atc "SELECT datcollversion, pg_database_collation_actual_version(oid) FROM pg_database WHERE datname = current_database()"
+   ```
+
+   Two equal values, for example `2.36|2.36`, show that the C library did not change. Then go to step 7.
+
+6. If the two values are different, for example `2.36|2.41`, do this step. psql then also prints the warning `database "unshelve" has a collation version mismatch`. The new image has a new C library (glibc), and that library sorts text and makes small letters. So the indexes of text and the search columns can hold old results ([note 46](learn/46-site-search.md)). Write the search columns again, build each index again, and record the new version:
+
+   ```bash
+   docker compose exec -T db psql -U unshelve -d unshelve -v ON_ERROR_STOP=1 \
+     -c "UPDATE items SET title = title" \
+     -c "UPDATE item_contents SET text = text" \
+     -c "REINDEX DATABASE unshelve" \
+     -c "ALTER DATABASE unshelve REFRESH COLLATION VERSION" \
+     -c "ALTER DATABASE template1 REFRESH COLLATION VERSION" \
+     -c "ALTER DATABASE postgres REFRESH COLLATION VERSION"
+   ```
+
+   Each `UPDATE` writes each row again, so Postgres computes the search columns with the new library. The last two commands record the new version for `template1` and `postgres`. These two databases hold no table of the app. `CREATE DATABASE` copies `template1`, and Postgres refuses a template with an old version, for example in the tests. After this step, the command of step 5 prints two equal values.
+
+7. Start the stack with the new code. The service `migrate` updates the database before the API starts:
+
+   ```bash
+   docker compose up -d --build --wait
+   ```
+
+If step 6 stops with an error, an index can be broken. Then restore the backup of step 2: follow [Restore a backup](#restore-a-backup) from step 3. A restore builds each index again from the data.
+
+An instance without the service `backup` cannot do step 2. For it, make the folder of the backups before step 7: `mkdir -p backups` on this computer. On a server, set `UNSHELVE_BACKUP_DIR=<an absolute path>` in `.env`, and run `mkdir -p` for that path. If Docker already made the folder for root, run `sudo chown -R "$(id -u):$(id -g)" backups`.
 
 ## Backups
 
