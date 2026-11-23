@@ -25,7 +25,7 @@ from unshelve.api.app import create_app
 from unshelve.auth import store as auth_store
 from unshelve.blobs import FileBlobStore
 from unshelve.bot import cards
-from unshelve.bot.runner import run_bot
+from unshelve.bot.runner import idle, run_bot
 from unshelve.config import Settings, get_settings
 from unshelve.contracts.dto import (
     EmbeddingSpec,
@@ -60,7 +60,7 @@ from unshelve.queue.registry import discover, registry
 from unshelve.queue.worker import Worker, WorkerConfig, new_worker_id
 from unshelve.relevance import golden, rescore
 from unshelve.resurface import plan, weekly
-from unshelve.runtime import shutdown_event, wait_for_shutdown
+from unshelve.runtime import shutdown_event
 from unshelve.search import hybrid, overview
 from unshelve.services import (
     build_batches,
@@ -327,9 +327,9 @@ async def _bot() -> None:
     log = _setup_logging()
     if settings.telegram_bot_token is None:
         # A new copy of the project has no bot. The process stays up and idle, so that the
-        # stack starts without one.
+        # stack starts without one, and its healthcheck passes.
         log.info("bot.idle", note="UNSHELVE_TELEGRAM_BOT_TOKEN is not set; waiting for shutdown")
-        await wait_for_shutdown()
+        await idle(shutdown_event())
         log.info("bot.stopped")
         return
     engine = create_engine(settings.database_url)
