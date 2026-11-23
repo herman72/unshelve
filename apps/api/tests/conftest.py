@@ -42,6 +42,15 @@ def _blob_dir(tmp_path_factory: pytest.TempPathFactory) -> Generator[None]:
         yield
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _alive_dir(tmp_path_factory: pytest.TempPathFactory) -> Generator[None]:
+    """The liveness files of the tests (unshelve.alive) go to a folder of their own, not to
+    ``/app/var/alive``. A test that reads a file sets a folder of its own too."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("UNSHELVE_ALIVE_DIR", str(tmp_path_factory.mktemp("alive")))
+        yield
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """A test marked ``live`` talks to a real service with a real key. It runs only when it
     is asked for: ``uv run pytest -m live -o addopts=""``. CI never asks."""
