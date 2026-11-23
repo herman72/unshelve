@@ -362,7 +362,7 @@ Run each command in the root of the clone, in one shell. Steps 2 and 3 set `BACK
 
    This step deletes the database, the files that the owner sent and the state of the backups. On a server, the certificates go too, and Caddy gets new ones.
 
-8. Give the new database a new password. Postgres reads `UNSHELVE_DB_PASSWORD` only when it makes the volume of the database. Step 7 deleted the old volume, so a new line in `.env` is sufficient. The last line of a name counts, and the command shows the password nowhere:
+8. Give the new database a new password. Postgres reads `UNSHELVE_DB_PASSWORD` only when it makes the volume of the database. Step 7 deleted the old volume, so a new line in `.env` is sufficient. On a computer that also runs the tests, give the tests a database of their own ([Run the stack](../CONTRIBUTING.md#run-the-stack)). The last line of a name counts, and the command shows the password nowhere:
 
    ```bash
    printf '\nUNSHELVE_DB_PASSWORD=%s\n' "$(openssl rand -hex 24)" >> .env

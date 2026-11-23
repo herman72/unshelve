@@ -12,6 +12,15 @@
 
 - Run `make` and `docker compose` in the root of the clone ([note 54](docs/learn/54-compose-from-the-root.md)). In `deploy/`, Compose does not put the values of `.env` into its own file, and the project gets the name `unshelve`. In `apps/api`, Compose ignores `COMPOSE_FILE`.
 - A worktree or a second clone gets the name of its folder as its project name. So two folders with the same name are one project: give a second clone another folder name. Do not copy a `.env` that sets `COMPOSE_PROJECT_NAME` into a worktree or a clone. There, each Compose command acts on the project of that name, also `down --volumes`.
+- The tests use the database server of the stack on port 54329, with the user `unshelve` and the password `unshelve` (`apps/api/tests/conftest.py`). If `.env` sets another `UNSHELVE_DB_PASSWORD`, start a database for the tests in a project of its own, and give its address to the tests:
+
+  ```bash
+  COMPOSE_PROJECT_NAME=unshelve-dev UNSHELVE_DB_PORT=54330 UNSHELVE_DB_PASSWORD=unshelve docker compose up -d --wait db
+  cd apps/api
+  UNSHELVE_TEST_SERVER_URL=postgresql+psycopg://unshelve:unshelve@localhost:54330/postgres uv run pytest
+  ```
+
+  The values of the shell win over the values of `.env`. So this database keeps the default password, and it gets volumes of its own.
 
 ## Frozen interfaces
 
