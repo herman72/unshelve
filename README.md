@@ -232,7 +232,7 @@ Each service is optional. Set its lines in `.env`, then run `docker compose up -
 - **`unshelve llm check` makes a real call to Claude**, also with `UNSHELVE_PROVIDERS=fake`, unless the daily budget is used. It costs a fraction of a cent, and it needs `ANTHROPIC_API_KEY`.
 - **Voyage can keep the texts that it gets and use them for training.** Opt out in its dashboard before you embed private texts. The opt-out needs a payment method ([note 18](docs/learn/18-vectors-for-search.md)).
 - **When you turn on Voyage, or change `UNSHELVE_EMBED_MODEL`** (`voyage-4-large` by default), search uses no vectors until the new set is active. Run `docker compose exec api unshelve embeddings backfill`. When `unshelve embeddings status` shows each item, run `unshelve embeddings activate <set>` with the number of the set that backfill printed ([note 18](docs/learn/18-vectors-for-search.md)).
-- **The items of the trial keep the cards and the scores of the fakes.** For a clean start, run `docker compose down -v` before you connect the real services. This deletes all data in the Docker volumes; the `backups` folder stays. To keep an item, click "Process again" on its page, and run `unshelve goals rescore --every-item` for the scores.
+- **The items of the trial keep the cards and the scores of the fakes.** For a clean start, follow [Start again with an empty instance](docs/quickstart.md#start-again-with-an-empty-instance), and then connect the real services. It copies the old backups to an archive, tests the archive with a drill, and gives the new database a new password. To keep an item, click "Process again" on its page, and run `unshelve goals rescore --every-item` for the scores.
 
 ### Connect the Telegram bot
 
