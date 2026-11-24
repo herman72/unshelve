@@ -12,11 +12,12 @@ from structlog.testing import capture_logs
 
 from unshelve.config import Settings
 from unshelve.contracts.enums import JobKind, JobState
+from unshelve.contracts.errors import FIX_BY_HAND, ProviderError
 from unshelve.contracts.jobs import FetchItemPayload, JobContext, Permanent, Retry, Services
 from unshelve.db.models import Job
 from unshelve.queue import store
 from unshelve.queue.registry import Registry
-from unshelve.queue.worker import Worker, WorkerConfig, backoff
+from unshelve.queue.worker import MAX_ERROR_LENGTH, Worker, WorkerConfig, backoff
 from unshelve.testing.fakes import FakeEmbedder, FakeFetcher, FakeLLM, InMemoryBlobStore
 
 pytestmark = pytest.mark.db
@@ -196,6 +197,26 @@ async def test_an_unexpected_error_is_tried_again_until_the_attempts_are_used_up
 
     assert (first.state, first.last_error) == (JobState.PENDING, "ValueError: boom")
     assert (second.state, second.attempts) == (JobState.DEAD, 2)
+
+
+async def test_the_cut_of_a_long_error_keeps_its_start_and_the_mark(committed_db: Sessions) -> None:
+    # A handler lets a ProviderError go up as it is: an unexpected error for the worker. The
+    # mark comes before a reason of 5,000 characters.
+    start = f"voyage 401: {FIX_BY_HAND}: "
+    registry = Registry()
+
+    @registry.handler(JobKind.FETCH_ITEM)
+    async def fetch_item(ctx: JobContext, payload: FetchItemPayload) -> None:  # pyright: ignore[reportUnusedFunction]
+        raise ProviderError(start + "x" * 5000, retryable=True)
+
+    job_id = await add(committed_db)
+
+    await make_worker(committed_db, registry).run_one()
+
+    job = await row(committed_db, job_id)
+    assert job.last_error is not None
+    assert len(job.last_error) == MAX_ERROR_LENGTH  # the worker cut the text
+    assert job.last_error.startswith(f"ProviderError: {start}")  # a watcher still finds it
 
 
 async def test_a_payload_of_the_wrong_shape_is_dead_and_the_handler_does_not_run(
