@@ -1,6 +1,6 @@
 # 55. Who says that it stopped
 
-> Pull request: [#155](https://github.com/herman72/unshelve/pull/155) · Issue: [#154](https://github.com/herman72/unshelve/issues/154) · Code: [`alive.py`](../../apps/api/src/unshelve/alive.py), [`queue/worker.py`](../../apps/api/src/unshelve/queue/worker.py), [`bot/runner.py`](../../apps/api/src/unshelve/bot/runner.py), the services `worker` and `bot` in [`deploy/compose.yaml`](../../deploy/compose.yaml), [`deploy/Dockerfile.api`](../../deploy/Dockerfile.api) · Tests: [`test_alive.py`](../../apps/api/tests/test_alive.py), [`queue/test_worker_alive.py`](../../apps/api/tests/queue/test_worker_alive.py), [`bot/test_bot_alive.py`](../../apps/api/tests/bot/test_bot_alive.py), [`deploy/test_alive_compose.py`](../../apps/api/tests/deploy/test_alive_compose.py)
+> Pull requests: [#155](https://github.com/herman72/unshelve/pull/155), and [#158](https://github.com/herman72/unshelve/pull/158) for part 3 · Issue: [#154](https://github.com/herman72/unshelve/issues/154) · Code: [`alive.py`](../../apps/api/src/unshelve/alive.py), [`queue/worker.py`](../../apps/api/src/unshelve/queue/worker.py), [`bot/runner.py`](../../apps/api/src/unshelve/bot/runner.py), the services `worker` and `bot` in [`deploy/compose.yaml`](../../deploy/compose.yaml), [`deploy/Dockerfile.api`](../../deploy/Dockerfile.api), [`watch/hide.py`](../../apps/api/src/unshelve/watch/hide.py), [`watch/limits.py`](../../apps/api/src/unshelve/watch/limits.py), [`watch/observations.py`](../../apps/api/src/unshelve/watch/observations.py) · Tests: [`test_alive.py`](../../apps/api/tests/test_alive.py), [`queue/test_worker_alive.py`](../../apps/api/tests/queue/test_worker_alive.py), [`bot/test_bot_alive.py`](../../apps/api/tests/bot/test_bot_alive.py), [`deploy/test_alive_compose.py`](../../apps/api/tests/deploy/test_alive_compose.py), [`watch/test_hide.py`](../../apps/api/tests/watch/test_hide.py), [`watch/test_pure.py`](../../apps/api/tests/watch/test_pure.py)
 
 ## In one minute
 
@@ -144,7 +144,93 @@ So a service becomes `unhealthy` 240 to 270 seconds after its last sign of life:
 
 **A comparison from daily life:** a smoke detector. It makes a noise, but it does not put out the fire. A person must act.
 
-The later parts of this note come with the watcher: who reads these files, and how a message gets to a person.
+The later parts of this note come with the watcher, one part with each work package. Parts 3 to 7 explain its core: the code that decides which message a person gets (m6-7c1 to m6-7c5). Part 8 explains the watcher service (m6-7d), and part 9 the ping from outside the computer (m6-7e). Part 10 explains the check on the host (m6-7f), and part 11 the verdict of the backup (m6-7g).
+
+## 3. No secret leaves the watcher
+
+The watcher will put texts from the database into its messages, for example the last error of a job. Such a text can hold a secret. This made-up error has 98 characters, and it starts with `embed: voyage 401: a person must fix it: `. An earlier cut ended it in the first 9 characters of a key. The table shows the end of the text after each step of the function `hide_secrets`:
+
+| The text | After 1. values | After 2. cut ends | After 3. patterns |
+|---|---|---|---|
+| `…key=MADEUPKEY0123456 claude=sk-ant-MADEUP01 key=MADEUPKEY` | `…key=<secret> claude=sk-ant-MADEUP01 key=MADEUPKEY` | `…key=<secret> claude=sk-ant-MADEUP01 key=<secret>` | `…key=<secret> claude=<anthropic key> key=<secret>` |
+
+The watcher holds the key `MADEUPKEY0123456`. The key `sk-ant-MADEUP01` has the shape of a key of Anthropic, and the watcher does not hold it. Both keys are made up. The clean step and the cut change nothing here, because the text is one line of fewer than 200 characters. So the last column is the end of the result.
+
+The steps of `hide_secrets`, in this order:
+
+1. **Values.** The watcher knows the value of each secret that it holds. Each place of a value becomes `<secret>`.
+2. **Cut ends.** An earlier cut can leave the first part of a secret at the end of a text. If a text ends with the first 8 or more characters of a value, these characters become `<secret>`. The same rule applies to the last characters of a value at the start of a text. White space at an end does not count, because a line break can come after a cut.
+3. **Patterns.** A *pattern* (a regular expression) finds each text with a given shape. The patterns find keys that the watcher does not hold, for example a key that starts with `sk-ant-`.
+4. **Clean.** A *control character* or a *format character* is a character that a person cannot see. Examples are the character with the code 0 and a zero-width space. In an error text, each run of white space, such as a tab or a line break, becomes one space. The clean step removes each other such character. In a message, each `\n` stays. The clean step removes each other such character, also `\r`. The removal of a character can join two parts of a secret, so steps 1 to 3 run again on the clean text.
+5. **Cut.** If an error text has more than 200 characters, it keeps its first 199 characters and gets "…" at the end. Step 5 does not cut a message.
+
+The end rule of step 2 changes the result only when step 5 keeps the end of the text. This is so for a message, and for an error text that has 200 characters or fewer before step 5, as in the example. The worker cuts an error at 2,000 characters, and an event keeps 300 characters.
+
+For example, put 1,902 letters before the made-up error. Then the result has 200 characters, ends in "…", and holds no `key=`. With 1,902 spaces, the clean step makes one space of them. Then the result has 90 characters, and step 2 hides the first 9 characters of the key at the end.
+
+The start rule of step 2 matters for each text, because the cut keeps the start. For example, a text of 2,000 characters starts with `EY0123456`, the last 9 characters of the key. The result starts with `<secret>`. Without step 2, it starts with `EY0123456`.
+
+The values come from the function `secrets_of`. It reads each setting of the type `SecretStr`. So `secrets_of` also finds a new secret setting, with no change in `hide.py`. Pydantic shows such a value as `**********` when a program prints the settings. The function also adds `ANTHROPIC_API_KEY`, which is not a setting, and the password of the database. It also adds the token in `UNSHELVE_PUBLISH_GIT_URL`, if the address holds one.
+
+An address can write "@" as "%40". So the password is a value in three forms: as it is in the address, decoded and encoded. A query decodes "+" as a space, so that decoded form is a value too. One address can also give up to three different passwords. This table shows the result of each program for the made-up password `Q7#hk2@Lm9vX4pZr8TnW` in the address `postgresql+psycopg://unshelve:Q7#hk2@Lm9vX4pZr8TnW@db:5432/unshelve`:
+
+| Who | The password | The rest of the address |
+|---|---|---|
+| SQLAlchemy, which connects | `Q7#hk2`: it ends at the first "@" | SQLAlchemy puts it into the host: `Lm9vX4pZr8TnW@db` |
+| The function `urlsplit` of Python | none | `urlsplit` ends the address at the "#". It reads `unshelve:Q7` as the host and the port |
+| `deploy/compose.yaml`, which writes the address | `Q7#hk2@Lm9vX4pZr8TnW`: it puts the password in as it is | |
+
+Each of these passwords is a value if it has 12 or more characters. Here `Q7#hk2` has only 6 characters, so it is not a value. SQLAlchemy puts the *rest*, the part of the password after its first raw "@", into the host. An error of the connection can quote the host. So the rest is a value too, here `Lm9vX4pZr8TnW`. SQLAlchemy can also read a part of the rest as the port or as the database. It can also read a part as an IPv6 host, or as a key or a value of the query.
+
+So each part of the rest from one *place* to a later place is a value too, if it has 12 or more characters. A place is the start or the end of the rest, or one of the characters "@", ":", "/", "?", "#", "=", "&", "[" and "]". A part can hold up to 8 places. The whole rest is always a value. With this limit, the number of values grows in proportion to the length of the password, not to its square. For example, with the password `Abc@[ijkl:mnop:qrst]`, SQLAlchemy reads the host `ijkl:mnop:qrst`, from "[" to "]". Each part between two ":" has only 4 characters, but the host has 14. The query of the address can also hold the password, as in `?password=...`, so that password is a value too.
+
+The type `Secrets` holds the values. Like a `SecretStr`, it shows no value when a program prints it. For two values, `print(secrets)` shows `Secrets(2 hidden)`.
+
+**Why the cut comes last.** In this example, a key comes after 195 or 185 characters of a long error. The result must have at most 200 characters:
+
+| The order | The end of the result, key after 195 characters | The end of the result, key after 185 characters |
+|---|---|---|
+| Hide, then cut (ours) | `xxxxxxx<sec…` | `xxxxx<secret> and t…` |
+| Cut, then hide | `xxxxxxxMADE…` | `xxxxxMADEUPKEY01234…` |
+
+If the cut comes first, the text ends with "…", and not with the part of the key. So step 2 does not find the part, whatever its length. In the first case, 4 characters of the key stay, and in the second case 14. If the cut comes last, the key is already `<secret>` when the cut starts.
+
+**Why a lookbehind, and not `\b`.** The bot sends each request to an address that holds its token. This is the address with the made-up token of the tests:
+
+| The pattern of a bot token | The result for `https://api.telegram.org/bot123456789:MADE-UP-token_for_the_tests-only/getMe` |
+|---|---|
+| `(?<![0-9])[0-9]{5,12}:[A-Za-z0-9_-]{30,}` (ours) | `https://api.telegram.org/bot<bot token>/getMe` |
+| `\b[0-9]{5,12}:[A-Za-z0-9_-]{30,}` | no change: the token stays |
+
+`\b` is a *word boundary*: a place between a word character and a character that is not a word character. A letter, a digit and "_" are word characters. The "t" of "bot" and the "1" are both word characters, so `\b` does not match between them. A *lookbehind* checks the character before a place, and it does not take the character into the match. `(?<![0-9])` only says that no digit comes before the token.
+
+**Why the default password stays.** The default password of the database is `unshelve`. Many fix texts name the command `unshelve`, for example `docker compose exec worker unshelve llm check`. A value of fewer than 12 characters is not a secret, so `secrets_of` gives no value for this password. The fix text stays as it is. A password of 13 characters, such as `Abcdefgh12345`, becomes `<secret>`.
+
+**What stays a risk.** These secrets, or parts of them, can stay in a text:
+
+- A key that the watcher does not hold, and that has no pattern. The secret key of S3 has no pattern. So the watcher hides it only when the watcher gets its value.
+- A part of the password after a raw "@" that has fewer than 12 characters. For example, with the password `Abcdefgh12345@xyz`, the host `xyz@db` stays in an error.
+- A token in the user part of the address of the git target, when the address also holds a password. For example, the user part can be the token `ghp_MADEUPtoken0123456789`, and the password can be `x-oauth-basic`. Then only `x-oauth-basic` is a value. If a cut ends a text in `ghp_MADEUPtoken0`, these 16 characters stay. If the text holds the whole address, the pattern of the user part hides the token.
+- The last part of a key that an invisible character splits, when the first part has the shape of a pattern. The first run of the steps puts a *label*, such as `<anthropic key>`, in place of the first part. Then the second run cannot find the whole value or the whole shape. In a test run, 19 characters of a held key of 43 characters stayed.
+- A key that a different invisible character splits. The clean step keeps U+034F and the variation selectors U+FE00 to U+FE0F. A person cannot see them, but they are not control characters or format characters.
+- A value that a library cuts in its middle. For example, pydantic shows a made-up key of 98 characters as `sk-ant-api03-MADEUP0made...MADEUP0made0up0TAIL0end`. The pattern of Anthropic hides the first part. The last 23 characters stay, because step 2 looks only at the two ends of the text.
+
+**What the watcher hides by mistake.** A pattern or step 2 can also hide a text that is not a secret. The watcher hides too much rather than too little. These results come from test runs:
+
+| The text | The result | The cause |
+|---|---|---|
+| `branch task-ant-colony-optimisation-notes was deleted` | `branch ta<anthropic key> was deleted` | The pattern of Anthropic has no lookbehind |
+| `config eu_pa-region-config-for-the-staging-cluster is missing` | `config eu_<voyage key> is missing` | A word after "_" or "/" can have the shape of a key of Voyage |
+| `item 1795504440:the-very-long-slug-of-an-article-title failed` | `item <bot token> failed` | The text has the shape of a bot token |
+| `Authentication scheme bearer is required for this endpoint` | `Authentication scheme Bearer <secret> required for this endpoint` | The pattern hides the word after each "bearer" |
+| `fetch: 404 for https://example.com?email=reader@example.org` | `fetch: 404 for https://<secret>@example.org` | The pattern of the user part reads an "@" in the query |
+| `Forbidden: bot was blocked by the user, bot 7412589630` | `Forbidden: bot was blocked by the user, bot <secret>` | Step 2: the id of the bot is the first part of the held token |
+| `cannot reach the database` | `cannot reach the <secret>` | Step 2: with the password `Pa55@database-unshelve`, the part `database-unshelve` is a value |
+| `database "unshelve_production" does not exist` | `database "<secret>" does not exist` | The address `postgresql+psycopg://unshelve:Abcdefgh12345@db:5432/unshelve_production?application_name=watch@host` has an "@" in its query. The raw password ends at that "@", so the name of the database and the key `application_name` are values |
+
+The quickstart asks for letters and digits only in the password, so the case of `Pa55@database-unshelve` does not occur with such a password. The last case occurs also with such a password, here `Abcdefgh12345`. But `deploy/compose.yaml` writes the address with no query, so the last case does not occur with it. The work package m6-7e adds the address of the ping as a secret (part 9). Then step 2 can hide `https://` at the end of a text, so m6-7e must look at this case.
+
+**A comparison from daily life:** an office blacks out each name in a letter before the letter leaves the office. A name that the edge of the page cut in half gets a black bar too. The office cuts the letter to one page only after the black bars are on it.
 
 ## A choice that we made
 
