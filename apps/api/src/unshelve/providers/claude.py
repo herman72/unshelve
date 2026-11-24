@@ -37,7 +37,7 @@ from unshelve.contracts.dto import (
     SourceText,
     TextPart,
 )
-from unshelve.contracts.errors import ProviderError
+from unshelve.contracts.errors import FIX_BY_HAND, ProviderError
 
 # Claude Opus 5.5 and Claude Haiku 5.5 always think a little, and the thinking counts toward
 # max_tokens. This room comes on top of the visible answer that the caller asks for.
@@ -57,13 +57,14 @@ _CAN_PASS = (
     anthropic.APIConnectionError,
 )
 # A person must fix these: the key, the permissions or the name of the model. The item
-# waits, so that it gets its card after the fix.
-_FIX_BY_HAND = (
+# waits, so that it gets its card after the fix. The error holds the mark FIX_BY_HAND.
+_NEEDS_A_PERSON = (
     anthropic.AuthenticationError,
     anthropic.PermissionDeniedError,
     anthropic.NotFoundError,
 )
-_NO_CREDIT = 402  # "billing_error": the account has no credit
+# "billing_error": the account has no credit. A person must fix it too, and the item waits.
+_NO_CREDIT = 402
 # The API takes a document title of 1 to 500 characters.
 TITLE_LIMIT = 500
 
@@ -221,13 +222,16 @@ def _quotes(block: BetaTextBlock) -> list[Quote]:
 
 
 def provider_error(error: anthropic.APIError) -> ProviderError:
-    """The error of the API as a ``ProviderError`` that says if a second try can help."""
+    """The error of the API as a ``ProviderError`` that says if a second try can help. The
+    text of an error that a person must fix holds the mark ``FIX_BY_HAND``."""
     if isinstance(error, _CAN_PASS):
         return ProviderError(_name(error), retryable=True, retry_after=_wait(error))
-    if isinstance(error, _FIX_BY_HAND):
-        return ProviderError(f"{_name(error)}: a person must fix it", retryable=True)
-    retryable = isinstance(error, anthropic.APIStatusError) and error.status_code == _NO_CREDIT
-    return ProviderError(_name(error), retryable=retryable)
+    if isinstance(error, _NEEDS_A_PERSON):
+        return ProviderError(f"{_name(error)}: {FIX_BY_HAND}", retryable=True)
+    if isinstance(error, anthropic.APIStatusError) and error.status_code == _NO_CREDIT:
+        reason = "the account has no credit"
+        return ProviderError(f"{_name(error)}: {FIX_BY_HAND}: {reason}", retryable=True)
+    return ProviderError(_name(error), retryable=False)
 
 
 def content_of(
