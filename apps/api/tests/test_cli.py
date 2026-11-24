@@ -1379,14 +1379,16 @@ def test_embeddings_check_says_why_there_are_no_vectors(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     async def refused(self: VoyageEmbedder, text: str) -> list[float]:
-        raise ProviderError("voyage 401: Provided API key is invalid.", retryable=True)
+        raise ProviderError(
+            f"voyage 401: {FIX_BY_HAND}: Provided API key is invalid.", retryable=True
+        )
 
     monkeypatch.setattr(VoyageEmbedder, "embed_query", refused)
 
     result = _run(monkeypatch, tmp_path, "embeddings", "check", UNSHELVE_EMBEDDER="voyage")
 
     assert result.exit_code == 1
-    assert "No vectors: voyage 401: Provided API key is invalid." in result.stderr
+    assert f"No vectors: voyage 401: {FIX_BY_HAND}: Provided API key is invalid." in result.stderr
 
 
 # --- Scores against the goals ------------------------------------------------------------

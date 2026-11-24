@@ -14,7 +14,7 @@ import pytest
 import structlog
 from structlog.testing import capture_logs
 
-from unshelve.contracts.errors import ProviderError
+from unshelve.contracts.errors import FIX_BY_HAND, ProviderError
 from unshelve.providers import voyage as voyage_module
 from unshelve.providers.voyage import MAX_CHARS, MAX_TEXTS, VoyageEmbedder
 from unshelve.testing.conformance import EmbedderConformance
@@ -185,22 +185,23 @@ def _always(status: int, body: object, headers: dict[str, str] | None = None) ->
 
 
 @pytest.mark.parametrize(
-    ("status", "retryable"),
+    ("status", "retryable", "text"),
     [
-        (429, True),  # too many requests: it can pass
-        (500, True),
-        (502, True),
-        (503, True),
-        (504, True),
-        (401, True),  # a person must fix the key; the step waits
-        (403, True),
-        (404, True),
-        (400, False),  # this request cannot work
-        (422, False),
+        (429, True, "voyage 429: reason 429"),  # too many requests: it can pass
+        (500, True, "voyage 500: reason 500"),
+        (502, True, "voyage 502: reason 502"),
+        (503, True, "voyage 503: reason 503"),
+        (504, True, "voyage 504: reason 504"),
+        # A person must fix the key; the step waits. The mark comes before the reason.
+        (401, True, f"voyage 401: {FIX_BY_HAND}: reason 401"),
+        (403, True, f"voyage 403: {FIX_BY_HAND}: reason 403"),
+        (404, True, f"voyage 404: {FIX_BY_HAND}: reason 404"),
+        (400, False, "voyage 400: reason 400"),  # this request cannot work
+        (422, False, "voyage 422: reason 422"),
     ],
 )
 async def test_each_status_of_voyage_has_its_group(
-    voyage: PretendVoyage, status: int, retryable: bool
+    voyage: PretendVoyage, status: int, retryable: bool, text: str
 ) -> None:
     voyage.next.append(_always(status, {"detail": f"reason {status}"}))
 
@@ -208,7 +209,7 @@ async def test_each_status_of_voyage_has_its_group(
         await _embedder(voyage).embed_documents(["a text"])
 
     assert caught.value.retryable is retryable
-    assert str(caught.value) == f"voyage {status}: reason {status}"
+    assert str(caught.value) == text
 
 
 async def test_a_wrong_key_is_a_401_that_can_be_fixed(voyage: PretendVoyage) -> None:
@@ -216,7 +217,19 @@ async def test_a_wrong_key_is_a_401_that_can_be_fixed(voyage: PretendVoyage) -> 
         await _embedder(voyage, key="").embed_documents(["a text"])
 
     assert caught.value.retryable is True
-    assert str(caught.value) == "voyage 401: Provided API key is invalid."
+    assert str(caught.value) == f"voyage 401: {FIX_BY_HAND}: Provided API key is invalid."
+
+
+async def test_a_long_reason_is_cut_at_200_characters_after_the_mark(
+    voyage: PretendVoyage,
+) -> None:
+    voyage.next.append(_always(401, {"detail": "x" * 500}))
+
+    with pytest.raises(ProviderError) as caught:
+        await _embedder(voyage).embed_documents(["a text"])
+
+    # The cut keeps the first 200 characters of the reason. The mark comes before the reason.
+    assert str(caught.value) == f"voyage 401: {FIX_BY_HAND}: " + "x" * 200
 
 
 async def test_a_429_keeps_the_wait_that_voyage_asks_for(voyage: PretendVoyage) -> None:

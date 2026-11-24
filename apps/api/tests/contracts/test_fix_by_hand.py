@@ -6,10 +6,12 @@ a person must fix can be tried again, and so can each error that can pass. So ``
 alone cannot tell these two groups apart.
 """
 
+import json
 from collections.abc import Callable
 from decimal import Decimal
 from typing import Any, Literal
 
+import httpx
 import httpx2
 import pytest
 from pydantic import BaseModel
@@ -21,6 +23,7 @@ from unshelve.contracts.errors import FIX_BY_HAND, ProviderError
 from unshelve.providers.batches import ClaudeBatches
 from unshelve.providers.claude import ClaudeLLM
 from unshelve.providers.ledger import CachedLLM
+from unshelve.providers.voyage import VoyageEmbedder
 from unshelve.testing.fakes import FakeLLM
 
 Answer = Callable[[dict[str, Any]], httpx2.Response]
@@ -149,6 +152,39 @@ async def test_an_error_of_the_batch_api_that_a_person_must_fix_holds_the_mark(
 
     assert caught.value.retryable is True
     assert FIX_BY_HAND in str(caught.value)
+
+
+# --- Voyage ------------------------------------------------------------------------------
+
+
+async def _voyage_error(status: int, detail: str) -> ProviderError:
+    body = json.dumps({"detail": detail}).encode()
+
+    def answer(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, stream=httpx.ByteStream(body))
+
+    voyage = VoyageEmbedder(api_key="test-key", transport=httpx.MockTransport(answer))
+    with pytest.raises(ProviderError) as caught:
+        await voyage.embed_documents(["a text"])
+    return caught.value
+
+
+@pytest.mark.parametrize("status", [401, 403, 404])
+async def test_a_voyage_error_that_a_person_must_fix_holds_the_mark(status: int) -> None:
+    found = await _voyage_error(status, "Provided API key is invalid.")
+
+    assert found.retryable is True  # the item waits, and gets its vectors after the fix
+    # The mark comes before the detail of Voyage, so a longer detail cannot remove it. Each cut
+    # of the whole text (300 or 2,000 characters) keeps more than the start that holds the mark.
+    assert str(found) == f"voyage {status}: {FIX_BY_HAND}: Provided API key is invalid."
+
+
+@pytest.mark.parametrize(("status", "retryable"), [(429, True), (500, True), (400, False)])
+async def test_any_other_voyage_error_has_no_mark(status: int, retryable: bool) -> None:
+    found = await _voyage_error(status, f"reason {status}")
+
+    assert found.retryable is retryable
+    assert FIX_BY_HAND not in str(found)
 
 
 # --- The ledger --------------------------------------------------------------------------
