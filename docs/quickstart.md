@@ -201,7 +201,7 @@ An instance without the service `backup` cannot do step 2. For it, make the fold
 
 The service `backup` makes a backup of the database and of the files that you sent, when the newest backup is older than a day. The first backup comes some seconds after the first start. A computer that slept through the time makes the backup when it wakes; a computer that is off makes none. [Note 50](learn/50-backup-and-restore.md) explains how a backup and a restore work.
 
-The backups are in the folder `backups/` of the clone, or in `UNSHELVE_BACKUP_DIR` (an absolute path). The service runs as root; after each backup, it gives the new files to the owner of the folder. Each backup is a folder with the time of its start in UTC, for example `backups/db/20261026T090000Z/`. The files that you sent are in one mirror, `backups/blobs/`, for all the backups. The service keeps the 7 newest backups and the newest one of each of the last 6 calendar weeks, so the oldest backup is 29 to 35 days old.
+The backups are in the folder `backups/` of the clone, or in `UNSHELVE_BACKUP_DIR` (an absolute path). The service runs as root; after each backup, it gives the new files to the owner of the folder. Each backup is a folder with the time of its start in UTC, for example `backups/db/20261026T090000Z/`. The files that you sent are in one mirror, `backups/blobs/`, for all the backups. The service keeps the 7 newest backups and the newest one of each of the last 6 calendar weeks, so the oldest backup that this rule keeps is 29 to 35 days old. The newest backup with items also stays at any age.
 
 1. Make a backup now, and see the state of the backups (or `make backup` and `make backup-status`):
 

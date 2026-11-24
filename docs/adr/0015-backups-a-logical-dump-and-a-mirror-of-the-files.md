@@ -36,6 +36,8 @@ Three designs were compared, and three judges scored them for restore safety, si
 - Work after the snapshot is lost in a restore: the captures after it come back through an import of a Telegram export with `--since`.
 - The fingerprints read each row at each backup. For one owner this takes seconds; at millions of rows it needs counts and samples instead.
 - A future delete of a file must keep each file that a kept backup still needs.
+- Added on 2026-11-24 (#156): the newest backup with items also stays at any age, so an empty database cannot push out the newest backup with items. When the prune cannot get the count of items of a backup that it must read, it removes nothing, and the run fails.
+- Added on 2026-11-24 (#156), the cost of that rule: a backup whose count the prune cannot get stops the prune. Each run then fails and keeps one more backup, until a new backup has items or a person repairs that backup ([note 50](../learn/50-backup-and-restore.md)).
 
 ## Alternatives considered
 

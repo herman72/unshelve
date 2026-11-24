@@ -24,6 +24,8 @@ KEEP_DAILY=${UNSHELVE_BACKUP_KEEP_DAILY:-7}
 KEEP_WEEKLY=${UNSHELVE_BACKUP_KEEP_WEEKLY:-6}
 RETRY_MINUTES=${UNSHELVE_BACKUP_RETRY_MINUTES:-60}
 HERE=$(cd "$(dirname "$0")" && pwd)
+# log, status_get, status_set, epoch_of and give_to_owner.
+source "$HERE/lib.sh"
 # The password of the database from .env; without it, the default of deploy/compose.yaml.
 export PGPASSWORD=${UNSHELVE_DB_PASSWORD:-unshelve}
 # The lock lies on the volume of the status, a file system of Docker. On a shared folder of
@@ -47,29 +49,6 @@ for setting in EVERY_HOURS KEEP_DAILY; do
 	fi
 done
 
-log() { # one JSON line for docker compose logs: log <event> <text>
-	printf '{"event": "%s", "time": "%s", "detail": "%s"}\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		"$(printf '%s' "$2" | tr '\n"\\' "  '")"
-}
-
-# The status file holds key=value lines, and no secret.
-status_get() { [ -f "$STATE/status" ] && sed -n "s/^$1=//p" "$STATE/status" | tail -n 1 || true; }
-status_set() { # status_set key value [key value ...]: one change of the file, under its own lock
-	mkdir -p "$STATE"
-	(
-		flock 8
-		local file=$STATE/status tmp pattern="" i value
-		tmp=$(mktemp "$STATE/status.XXXXXX")
-		for ((i = 1; i < $#; i += 2)); do pattern+="${pattern:+|}^${!i}="; done
-		{ [ -f "$file" ] && grep -Ev "$pattern" "$file" || true; } >"$tmp"
-		for ((i = 1; i < $#; i += 2)); do
-			value=$((i + 1))
-			printf '%s=%s\n' "${!i}" "${!value}" >>"$tmp"
-		done
-		mv "$tmp" "$file"
-	) 8>>"$STATE/status.lock"
-}
-
 # The names of the complete backups, the oldest first. A name is its UTC time: 20261026T090000Z.
 backups() {
 	[ -d "$BACKUPS/db" ] || return 0
@@ -81,11 +60,6 @@ backups() {
 newest() { backups | awk -v limit="$(soon)" '$0 <= limit' | tail -n 1; }
 in_future() { backups | awk -v limit="$(soon)" '$0 > limit' | head -n 1; }
 soon() { date -u -d "@$(($(date -u +%s) + 300))" +%Y%m%dT%H%M%SZ; }
-
-epoch_of() { # epoch_of 20261026T090000Z
-	local s=$1
-	date -u -d "${s:0:4}-${s:4:2}-${s:6:2}T${s:9:2}:${s:11:2}:${s:13:2}Z" +%s
-}
 
 resolve() { # resolve NAME|latest: the name of a complete backup, or exit
 	local name=$1
@@ -162,17 +136,6 @@ wait_for_database() { # after a cold start of Docker, the database can need a mi
 	done
 }
 
-# On Linux the service writes as root: give the new files to the owner of the folder, so that
-# the owner can read them without sudo, also after a failure. Docker Desktop shows them as the
-# owner's anyway.
-give_to_owner() {
-	local owner
-	owner=$(stat -c %u:%g "$BACKUPS")
-	if [ "$(id -u)" = 0 ] && [ "$owner" != 0:0 ]; then
-		chown -R "$owner" "$BACKUPS/db" "$BACKUPS/blobs" "$BACKUPS/.gitignore" || true
-	fi
-}
-
 work=""
 once() {
 	mkdir -p "$BACKUPS/db" "$BACKUPS/blobs" "$STATE"
@@ -182,7 +145,9 @@ once() {
 	flock 9
 	# A stop or a failure removes the part of this backup: a lasting failure must not fill the disk.
 	trap 'exit 143' TERM INT
-	trap '[ -n "$work" ] && rm -rf "$work"; find "$BACKUPS/blobs" -type f -name "*.part" -delete || true; give_to_owner' EXIT
+	# Then the owner of the folder gets the files, also after a failure (give_to_owner, lib.sh).
+	trap '[ -n "$work" ] && rm -rf "$work"; find "$BACKUPS/blobs" -type f -name "*.part" -delete || true
+		give_to_owner "$BACKUPS" "$BACKUPS/db" "$BACKUPS/blobs" "$BACKUPS/.gitignore"' EXIT
 	clean_parts
 	wait_for_database
 
@@ -242,6 +207,9 @@ once() {
 	work=""
 	sync "$BACKUPS/db"
 
+	# When prune.sh cannot get a count of items, it removes nothing and exits 1: set -e stops this
+	# run. The new backup keeps its name, and this run does not set last_ok: last_ok keeps its old
+	# value. health shows the line of prune.sh.
 	"$HERE/prune.sh" "$BACKUPS/db" "$KEEP_DAILY" "$KEEP_WEEKLY"
 	local size
 	size=$(du -sk "$BACKUPS/db/$name/unshelve.dump" | cut -f1)

@@ -1,6 +1,6 @@
 # 50. Backups, and a restore that is tested
 
-> Pull requests: [#123](https://github.com/herman72/unshelve/pull/123) (the backups), [#124](https://github.com/herman72/unshelve/pull/124) (the restore and the drill) · Decision: [ADR 0015](../adr/0015-backups-a-logical-dump-and-a-mirror-of-the-files.md) · Code: [`deploy/backup/`](../../deploy/backup), the service `backup` in [`deploy/compose.yaml`](../../deploy/compose.yaml) · Tests: [`tests/deploy/test_backup.py`](../../apps/api/tests/deploy/test_backup.py), [`test_restore.py`](../../apps/api/tests/deploy/test_restore.py), [`test_backup_compose.py`](../../apps/api/tests/deploy/test_backup_compose.py), [`test_backup_scripts.py`](../../apps/api/tests/deploy/test_backup_scripts.py)
+> Pull requests: [#123](https://github.com/herman72/unshelve/pull/123) (the backups), [#124](https://github.com/herman72/unshelve/pull/124) (the restore and the drill), [#159](https://github.com/herman72/unshelve/pull/159) (the newest backup with items stays) · Decision: [ADR 0015](../adr/0015-backups-a-logical-dump-and-a-mirror-of-the-files.md) · Code: [`deploy/backup/`](../../deploy/backup) (`backup.sh`, `lib.sh` with the helpers that `backup.sh` uses, `prune.sh`, `restore.sh`, `drill.sh`), the service `backup` in [`deploy/compose.yaml`](../../deploy/compose.yaml) · Tests: [`tests/deploy/test_backup.py`](../../apps/api/tests/deploy/test_backup.py), [`test_restore.py`](../../apps/api/tests/deploy/test_restore.py), [`test_backup_compose.py`](../../apps/api/tests/deploy/test_backup_compose.py), [`test_backup_scripts.py`](../../apps/api/tests/deploy/test_backup_scripts.py)
 
 ## In one minute
 
@@ -98,14 +98,87 @@ A key that a row names, but that the store lost before the backup, goes into `mi
 | Question | Answer |
 |---|---|
 | When? | The service checks every 5 minutes. When the newest backup is older than 24 hours, it makes one. A computer that slept makes it when it wakes; a computer that is off makes none |
-| How many stay? | The 7 newest backups, and the newest one of each of the last 6 calendar weeks (Monday to Sunday). The oldest backup is 29 to 35 days old: a month of history |
-| What if one fails? | It tries again after 60 minutes. The failed run removes its unfinished folder `.part-<time>`, so a lasting failure does not fill the disk with one dump for each try |
-| How do you see it? | `docker compose ps` shows `backup` as `unhealthy` when the last run failed, when no backup worked for 2 days (one hour after a start of the service, also after a restart), or when a backup has a name in the future (a clock that was wrong). `make backup-status` says why. `docker compose logs backup` has one JSON line for each run of the service; `make backup` writes its line in the terminal |
+| How many stay? | The 7 newest backups, and the newest one of each of the last 6 calendar weeks (Monday to Sunday). The oldest backup that this rule keeps is 29 to 35 days old: a month of history. The newest backup with items also stays, at any age (below) |
+| What if one fails? | It tries again after 60 minutes. The failed run removes its unfinished folder `.part-<time>`, so a lasting failure does not fill the disk with one dump for each try. A prune that removes nothing is different: that run leaves a complete backup (below) |
+| How do you see it? | `docker compose ps` shows `backup` as `unhealthy` when the last run failed, when no backup worked for 2 days (one hour after a start of the service, also after a restart), or when a backup has a name in the future (a clock that was wrong). `make backup-status` says why. `docker compose logs backup` has one JSON line for each run of the service, and one more, `backup.chown_failed`, when `chown` cannot give the new files to the owner; `make backup` writes these lines in the terminal |
 | Is there room? | Before the dump, the backup checks the free space: two dumps of the last size, the new files, and 100 MB. When the room is too small, it stops with the numbers |
 
 A backup that you start (`make backup`) and the schedule never run at the same time: a lock keeps the second one waiting. The lock lies on the Docker volume `backup-status`, not in the folder of the backups. On a shared folder of Docker Desktop, a lock taken by the call that made the file keeps nobody out.
 
 A name is a second. A backup in a taken second waits for the next free one. Any other failure of `mkdir`, for example a disk that became read-only, stops the backup with the message of `mkdir`. (An earlier version waited in that case too, without end and without a message.)
+
+### The newest backup with items always stays
+
+A rule of age alone has a silent failure. The database can become empty, for example after `docker compose down --volumes`, a fresh start or a bad migration. Then each new backup is empty. After 7 new backups, the prune removes the newest backup with items (unless it is the newest backup of its calendar week). After about a month, no backup with items is left. So `prune.sh` also keeps the *pin*: the newest backup whose `info.txt` has `items` more than 0.
+
+This example runs the real `prune.sh` in the image of the database. It has ten backups and the settings `UNSHELVE_BACKUP_KEEP_DAILY=3` and `UNSHELVE_BACKUP_KEEP_WEEKLY=0` (`prune.sh <folder> 3 0`). The database became empty after the backup of 17 November:
+
+```text
+$ grep -H items /backups/db/*/info.txt
+/backups/db/20261115T090000Z/info.txt:items	41
+/backups/db/20261116T090000Z/info.txt:items	41
+/backups/db/20261117T090000Z/info.txt:items	42
+/backups/db/20261118T090000Z/info.txt:items	0
+/backups/db/20261119T090000Z/info.txt:items	0
+/backups/db/20261120T090000Z/info.txt:items	0
+/backups/db/20261121T090000Z/info.txt:items	0
+/backups/db/20261122T090000Z/info.txt:items	0
+/backups/db/20261123T090000Z/info.txt:items	0
+/backups/db/20261124T090000Z/info.txt:items	0
+$ sh /deploy/backup/prune.sh /backups/db 3 0; echo "exit $?"
+exit 0
+$ grep -H items /backups/db/*/info.txt
+/backups/db/20261117T090000Z/info.txt:items	42
+/backups/db/20261122T090000Z/info.txt:items	0
+/backups/db/20261123T090000Z/info.txt:items	0
+/backups/db/20261124T090000Z/info.txt:items	0
+```
+
+The 3 newest backups stay by their age, and 17 November stays as the pin. When a newer backup has items again, that backup becomes the pin, and 17 November goes by its age.
+
+The prune *fails closed*: when it cannot get the count of items of a backup, it removes nothing. It stops with exit 1 and one line that names the file. It cannot get the count in these cases:
+
+- no `info.txt`
+- an `info.txt` that the prune cannot read
+- no line `items`
+- a value that is not a whole number
+
+A count that the prune cannot get is not 0 items, because that backup can be the newest backup with items:
+
+```text
+$ rm /backups/db/20261123T090000Z/info.txt
+$ sh /deploy/backup/prune.sh /backups/db 3 0; echo "exit $?"
+prune.sh removed nothing: no file /backups/db/20261123T090000Z/info.txt
+exit 1
+$ ls /backups/db
+20261117T090000Z
+20261122T090000Z
+20261123T090000Z
+20261124T090000Z
+```
+
+`backup.sh` then fails the run. The new backup keeps its name, `make backup-status` shows the line, and the service becomes `unhealthy`.
+
+The failed run leaves a complete backup, so the next try comes after a day, not after 60 minutes. Each run then adds one backup and removes none. This continues until a new backup has items, or until a person repairs the backup that the line names.
+
+The line names the path in the container. On the host, `/backups/db` is `backups/db` in the clone, or `$UNSHELVE_BACKUP_DIR/db`. Each line has its own cause:
+
+| The line | What it means | What to do on the host |
+|---|---|---|
+| `no file <path>` | The folder of the backup has no `info.txt`. On Docker Desktop, an `info.txt` without the right to read, or a folder without the rights to read and open, gives this line too. In the container, `ls` can show the name, but a read finds no file | Run `ls -l` on the folder. If the file is there, or `ls` says `Permission denied`, give back the rights. Use `chmod u+rwx` on the folder and `chmod u+r` on the file. If the file is not there, it is lost: go to step 3 |
+| `cannot read <path>` | The file is there, but a read fails | Run `cat` on the file. If `cat` also fails, its message names the cause. If a sync tool took the bytes of the file off the disk, make the tool bring them back |
+| `no count of items in <path>` | The file has no line `items`, or the value of that line is not a whole number | Run `cat` on the file. A changed or cut file is damaged: go to step 3 |
+
+1. Look at the file on the host with `ls -l` and `cat`. Do what the table says.
+2. Run `make backup`. If the run works, the repair is complete, and the service becomes healthy again.
+3. If `info.txt` is really lost or damaged, check the backup. In its folder, run `sha256sum --check SHA256SUMS` (on macOS, `shasum -a 256 --check SHA256SUMS`).
+4. If the check fails, a restore refuses this backup too. Then move the folder of the backup out of `backups/db`. Run `make backup` again.
+
+Move a folder only in step 4, as the last step. An intact backup can be the newest backup with items. A backup outside `backups/db` cannot be the pin.
+
+The walk reads each `info.txt`, from the newest backup to the oldest. It stops at the pin, and it never reads an older backup. A sync tool can take the bytes of an old file off the disk. The prune must not stop for such a file.
+
+On Docker Desktop, a folder of a backup without the right to read can also stop the prune after the walk. Then the line comes from `rm` or `find`, for example `rm: cannot remove '/backups/db/20261115T090000Z': Is a directory`. This line does not start with `prune.sh removed nothing`: the prune can have removed other old backups before it stopped. Run `ls -l` on the folder that the line names. Give back the rights with `chmod u+rwx`. Then run `make backup`.
 
 ## 5. The restore, and its data check
 
@@ -194,6 +267,8 @@ Two tests fail. `test_a_file_with_other_bytes_than_its_name_stops_the_backup` fa
 | Sequence | The counter of Postgres that gives the next id; its value is not part of a snapshot |
 | Content-addressed | The name of a file is the hash of its bytes, so the same bytes always have the same name |
 | Retention | The rule about which old backups stay |
+| Pin | The newest backup with items: the prune keeps it at any age |
+| Fail closed | When a check cannot decide, do nothing that cannot be undone |
 
 ## To read more
 
