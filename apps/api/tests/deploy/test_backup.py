@@ -289,6 +289,23 @@ async def test_a_failed_backup_leaves_no_part_behind(committed_db: Sessions, pla
     assert parts(place) == []
 
 
+async def test_a_copy_of_the_mirror_that_fails_leaves_no_part_behind(
+    committed_db: Sessions, place: Place
+) -> None:
+    await seed(committed_db, place)
+    # A cp that stops halfway, as on a full disk: the first bytes of the file stay in <key>.part.
+    fakes = {
+        "cp": '#!/bin/sh\nhead -c 3 "$1" >"$2"\necho "cp: No space left on device" >&2\nexit 1\n'
+    }
+
+    done = script(place, "once", fakes=fakes)
+
+    assert done.returncode == 1
+    assert b"No space left on device" in done.stderr
+    # The EXIT trap removes the part of the mirror too, not only the part folder of the dump.
+    assert parts(place) == []
+
+
 async def test_a_success_after_a_failure_makes_the_backup_healthy_again(
     committed_db: Sessions, place: Place
 ) -> None:
@@ -406,6 +423,130 @@ async def test_a_failed_backup_also_gives_its_files_to_the_owner(
     # The owner must be able to look for the cause without sudo.
     assert done.returncode == 1
     assert {path.stat().st_uid for path in place.backups.rglob("*")} == {os.getuid()}
+
+
+@pytest.mark.parametrize(
+    ("room", "reason"),
+    [(209715200, b"pg_dump did not finish"), (52428800, b"KB are free in the backup folder")],
+    ids=["after the part folder exists", "before the part folder exists"],
+)
+def test_a_failed_backup_as_root_calls_chown_for_the_owner_of_the_folder(
+    place: Place, room: int, reason: bytes
+) -> None:
+    # Docker Desktop shows each file of a shared folder as root, so a stat and a chown stand in
+    # for Linux: the stat gives /backups an owner and writes down the path that it gets, and the
+    # chown only writes down its arguments. /backups is a tmpfs, so on Linux no folder of root
+    # that the test user cannot remove stays behind. A tmpfs of 50 MB stops the backup at the
+    # check of the room, before the part folder exists; 200 MB lets it go on to pg_dump.
+    stats = "/var/lib/unshelve/backup-status/stat-calls"
+    calls = "/var/lib/unshelve/backup-status/chown-calls"
+    fakes = {
+        "pg_dump": "#!/bin/sh\nexit 1\n",
+        # backup.sh sets umask 077: the test must be able to read the files of root.
+        "stat": f"""#!/bin/sh
+if [ "$1 $2" = "-c %u:%g" ]; then
+    (umask 022; echo "$3" >>{stats})
+    if [ "$3" = /backups ]; then echo 1234:5678; else echo 0:0; fi
+    exit 0
+fi
+exec /usr/bin/stat "$@"
+""",
+        "chown": f'#!/bin/sh\numask 022\necho "$*" >>{calls}\n',
+    }
+
+    done = script(
+        place,
+        "once",
+        as_root=True,
+        backups=f"type=tmpfs,destination=/backups,tmpfs-size={room}",
+        fakes=fakes,
+    )
+
+    assert done.returncode == 1
+    assert reason in done.stderr
+    # The EXIT trap gives each path of the backups to the owner of /backups, also after a failure.
+    assert (place.state / "stat-calls").read_text().splitlines() == ["/backups"]
+    assert (place.state / "chown-calls").read_text().splitlines() == [
+        "-R 1234:5678 /backups/db /backups/blobs /backups/.gitignore"
+    ]
+
+
+def test_a_chown_that_fails_does_not_fail_the_backup(place: Place) -> None:
+    # A backup folder on a file system without owners, such as exFAT, or on an NFS share with
+    # root_squash, refuses each chown. The backup itself is complete, so the run is a success.
+    # As in the test above, a stat gives /backups an owner; the chown writes down its arguments
+    # and fails.
+    calls = "/var/lib/unshelve/backup-status/chown-calls"
+    fakes = {
+        "stat": """#!/bin/sh
+if [ "$1 $2 $3" = "-c %u:%g /backups" ]; then echo 1234:5678; exit 0; fi
+exec /usr/bin/stat "$@"
+""",
+        "chown": f"""#!/bin/sh
+(umask 022; echo "$*" >>{calls})
+echo "chown: Operation not permitted" >&2
+exit 1
+""",
+    }
+
+    done = script(
+        place,
+        "once",
+        as_root=True,
+        backups="type=tmpfs,destination=/backups,tmpfs-size=209715200",
+        fakes=fakes,
+    )
+
+    assert done.returncode == 0, done.stderr.decode()
+    assert b'"event": "backup.ok"' in done.stdout
+    assert (place.state / "chown-calls").read_text().splitlines() == [
+        "-R 1234:5678 /backups/db /backups/blobs /backups/.gitignore"
+    ]
+
+
+def test_give_to_owner_changes_only_the_paths_that_it_gets(place: Place) -> None:
+    # Folders inside the container, as root: Docker Desktop hides the owner of a shared folder.
+    probe = """set -euo pipefail
+source /deploy/backup/lib.sh
+mkdir -p /work/backups/db /work/backups/blobs /work/other
+chown 1234:5678 /work/backups
+touch /work/backups/db/a /work/backups/.gitignore /work/other/b
+give_to_owner /work/backups /work/backups/db /work/backups/.gitignore
+stat -c '%n %u:%g' /work/backups/db/a /work/backups/.gitignore /work/backups/blobs /work/other/b
+"""
+
+    done = in_image(place, "bash", "-c", probe, as_root=True)
+
+    assert done.returncode == 0, done.stderr.decode()
+    # The first argument names the owner; only the paths after it change.
+    assert done.stdout.decode().splitlines() == [
+        "/work/backups/db/a 1234:5678",
+        "/work/backups/.gitignore 1234:5678",
+        "/work/backups/blobs 0:0",
+        "/work/other/b 0:0",
+    ]
+
+
+def test_two_writers_of_the_status_at_the_same_time_lose_no_key(place: Place) -> None:
+    # Each change of the status reads the file, writes a new one and renames it. Without the lock,
+    # two writers start from the same old file, and the second rename drops the key of the first.
+    # The folder of the status is inside the container, as the volume `backup-status` is.
+    probe = """set -euo pipefail
+STATE=$(mktemp -d)
+source /deploy/backup/lib.sh
+writer() { for i in $(seq 1 200); do status_set "$1$i" "$i"; done; }
+writer a & first=$!
+writer b & second=$!
+wait "$first"
+wait "$second"
+cat "$STATE/status"
+"""
+
+    done = in_image(place, "bash", "-c", probe)
+
+    assert done.returncode == 0, done.stderr.decode()
+    status = dict(line.split("=", 1) for line in done.stdout.decode().splitlines())
+    assert status == {f"{writer}{i}": str(i) for writer in "ab" for i in range(1, 201)}
 
 
 async def test_a_backup_that_you_start_waits_for_the_one_that_runs(
