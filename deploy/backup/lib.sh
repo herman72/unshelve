@@ -42,12 +42,14 @@ epoch_of() { # epoch_of 20261026T090000Z
 
 # On Linux the service writes as root: give the new files to the owner of the folder, so that
 # the owner can read them without sudo, also after a failure. Docker Desktop shows them as the
-# owner's anyway.
+# owner's anyway. A file system without owners, such as exFAT, refuses each chown. The first line
+# of its error goes into the log, not on stderr: the EXIT trap of backup.sh runs this after the
+# line of a failure, and the status keeps the last line of stderr.
 give_to_owner() { # give_to_owner <folder whose owner gets the files> <path>...
-	local owner
+	local owner error
 	owner=$(stat -c %u:%g "$1")
 	shift
 	if [ "$(id -u)" = 0 ] && [ "$owner" != 0:0 ]; then
-		chown -R "$owner" "$@" || true
+		error=$(chown -R "$owner" "$@" 2>&1) || log backup.chown_failed "chown -R $owner: ${error%%$'\n'*}"
 	fi
 }

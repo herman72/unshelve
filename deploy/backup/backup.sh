@@ -207,6 +207,9 @@ once() {
 	work=""
 	sync "$BACKUPS/db"
 
+	# When prune.sh cannot get a count of items, it removes nothing and exits 1: set -e stops this
+	# run. The new backup keeps its name, and this run does not set last_ok: last_ok keeps its old
+	# value. health shows the line of prune.sh.
 	"$HERE/prune.sh" "$BACKUPS/db" "$KEEP_DAILY" "$KEEP_WEEKLY"
 	local size
 	size=$(du -sk "$BACKUPS/db/$name/unshelve.dump" | cut -f1)
