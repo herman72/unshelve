@@ -11,8 +11,3 @@ def shutdown_event() -> asyncio.Event:
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
     return stop
-
-
-async def wait_for_shutdown() -> None:
-    """Return when the process receives SIGINT or SIGTERM."""
-    await shutdown_event().wait()

@@ -100,6 +100,8 @@ The extractor gives each error of the model to the fetch step unchanged. The fet
 | A person must fix it | 401 (key), 402 (no credit) | the fetch step waits in the same way |
 | This image cannot be read | the model declines, an answer that does not fit | the item keeps its caption; the event says `"reason": "model"` |
 
+An error that a person must fix holds the mark of [note 17](17-model-card.md), part 5. A row of `jobs.last_error` then says, for example, `model: 402 billing_error: a person must fix it: the account has no credit`.
+
 A file that cannot be read (too large, no bot token) is left out, and the other images of the album are read. When no image is left, the reason of the last one goes to the event.
 
 ## A choice that we made

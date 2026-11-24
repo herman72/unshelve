@@ -12,6 +12,14 @@ FetchFailure = Literal[
     "no_such_host",  # DNS has no address for the name: a dead link, not a broken network
 ]
 
+# The mark of an error that a person must fix: a key, a permission, a model name, credit.
+# A ProviderError whose text holds it waits and tries again, so that the item goes on after
+# the fix. The text reaches jobs.last_error, and a watcher searches for the mark there. Keep
+# the text as it is: the old rows of a Claude 401, 403 or 404 hold it too. The old rows of a
+# Voyage 401, 403 or 404 and of a Claude 402 do not hold it. A job that still waits gets the
+# mark at its next try.
+FIX_BY_HAND = "a person must fix it"
+
 # Failures that can succeed on a later attempt.
 _RETRYABLE_FETCH: frozenset[FetchFailure] = frozenset({"timeout", "network"})
 _RETRYABLE_HTTP: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})

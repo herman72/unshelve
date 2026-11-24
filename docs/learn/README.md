@@ -66,6 +66,7 @@ These notes explain how Unshelve works and why it is built this way. Each note b
 | 52 | [A page for the stats](52-stats-page.md) | How the web app shows the queue, the costs and the items of one moment, why one answer needs a limit to find a long wait, why the page tests the budget as the ledger does, and how a wide table scrolls in its own box on a phone | |
 | 53 | [Fewer minutes of CI](53-fewer-minutes-of-ci.md) | How a pull request runs only the groups of CI that its files select, why many short jobs cost more than one long job, and how main skips a group that a pull request run proved on the same tree | |
 | 54 | [Compose from the root, an update and a new start](54-compose-from-the-root.md) | Why the same command gives another stack in `deploy/`, how the project name chooses the volumes, how an update finds a new C library before the app writes, and how to start again with an empty instance and a tested way back | |
+| 55 | [Who says that it stopped](55-who-says-that-it-stopped.md) | How the worker and the bot leave a sign of life in a file, why only an answer of getUpdates counts for the bot, why the check must load little, and why a healthcheck shows a problem but does not repair it | |
 
 The interactive pages are HTML files. GitHub shows their source code, not the page. Clone the repository and open the file in a browser.
 

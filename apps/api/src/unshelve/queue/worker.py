@@ -7,6 +7,9 @@
 3. The handler finished: ``complete``. It failed: ``fail``, with a wait before the next try.
 4. From time to time, run the reaper for jobs whose worker died.
 
+Each round, and each keep-alive of a lease, also marks the liveness file ``worker``
+(``unshelve.alive``). The healthcheck of Docker reads it (docs/learn/55).
+
 To see these steps move, open docs/queue-simulator.html in a browser.
 """
 
@@ -22,6 +25,7 @@ from datetime import timedelta
 import structlog
 from pydantic import ValidationError
 
+from unshelve import alive
 from unshelve.contracts.enums import JobState
 from unshelve.contracts.jobs import ClaimedJob, JobContext, Permanent, Retry, Services
 from unshelve.queue import store
@@ -31,6 +35,8 @@ from unshelve.queue.store import LeaseLostError
 log = structlog.get_logger()
 
 MAX_ERROR_LENGTH = 2000
+# The name of the liveness file of the worker (unshelve.alive, deploy/compose.yaml).
+ALIVE_NAME = "worker"
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +84,8 @@ class Worker:
         loop = asyncio.get_running_loop()
         next_reap = loop.time()
         while not stop.is_set():
+            # A sign of life: the loop turns. unshelve.alive writes at most once in 10 s.
+            alive.mark(ALIVE_NAME)
             worked = False
             try:
                 if loop.time() >= next_reap:
@@ -92,6 +100,8 @@ class Worker:
                     await asyncio.wait_for(
                         stop.wait(), timeout=self._config.poll_interval.total_seconds()
                     )
+        # Only a clean stop gets here: a cancelled loop leaves the file without it.
+        alive.stopped(ALIVE_NAME)
 
     async def run_one(self) -> bool:
         """Take one job and run it. Returns False when there was no job to take."""
@@ -189,6 +199,8 @@ class Worker:
                     lease_lost = True
                     handler.cancel()  # its result would be refused; do not waste the work
                     return
+                # A job can run for 120 s: the round does not mark in that time, so this does.
+                alive.mark(ALIVE_NAME)
 
         heartbeats = asyncio.create_task(keep_alive())
         try:

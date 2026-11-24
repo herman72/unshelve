@@ -1,6 +1,6 @@
 # 17. Asking the model: a card, a cache and a budget
 
-> Pull requests: [#71](https://github.com/herman72/unshelve/pull/71), [#84](https://github.com/herman72/unshelve/pull/84) (the prompt `enrich-2`) · Decision record: [ADR 0011](../adr/0011-claude-for-the-cards.md) · Code: [`providers/claude.py`](../../apps/api/src/unshelve/providers/claude.py), [`providers/ledger.py`](../../apps/api/src/unshelve/providers/ledger.py), [`enrich/card.py`](../../apps/api/src/unshelve/enrich/card.py), [`pipeline/items.py`](../../apps/api/src/unshelve/pipeline/items.py) (`enrich_item`) · Tests: [`tests/providers/`](../../apps/api/tests/providers/), [`tests/enrich/`](../../apps/api/tests/enrich/), [`tests/pipeline/test_enrich.py`](../../apps/api/tests/pipeline/test_enrich.py)
+> Pull requests: [#71](https://github.com/herman72/unshelve/pull/71), [#84](https://github.com/herman72/unshelve/pull/84) (the prompt `enrich-2`) · Decision record: [ADR 0011](../adr/0011-claude-for-the-cards.md) · Code: [`providers/claude.py`](../../apps/api/src/unshelve/providers/claude.py), [`providers/ledger.py`](../../apps/api/src/unshelve/providers/ledger.py), [`enrich/card.py`](../../apps/api/src/unshelve/enrich/card.py), [`pipeline/items.py`](../../apps/api/src/unshelve/pipeline/items.py) (`enrich_item`) · Tests: [`tests/providers/`](../../apps/api/tests/providers/), [`tests/enrich/`](../../apps/api/tests/enrich/), [`tests/pipeline/test_enrich.py`](../../apps/api/tests/pipeline/test_enrich.py), [`tests/contracts/test_fix_by_hand.py`](../../apps/api/tests/contracts/test_fix_by_hand.py), [`tests/pipeline/test_last_error.py`](../../apps/api/tests/pipeline/test_last_error.py)
 
 ## In one minute
 
@@ -111,6 +111,15 @@ The job tries again after that wait. A stored answer needs no budget.
 The last of the 5 attempts also goes on with an empty card. Each empty card after a failure gets an event `enrich_failed` with the reason. This is the lesson of [note 16](16-fetch-step.md): a retry needs an end, and the end needs a plan for the item.
 
 A refusal has one more way out. On Claude Opus 5.5 and Claude Sonnet 5.5, the request says `"fallbacks": "default"`: the API itself runs a refused request again on a different model, in the same call. Claude Haiku 5.5 has no such fallback.
+
+Each error of the first two groups waits in the same way, so the flag `retryable` cannot tell them apart. So the text of each error that a person must fix holds one **mark**: `FIX_BY_HAND` in [`contracts/errors.py`](../../apps/api/src/unshelve/contracts/errors.py). Here are two rows of `jobs.last_error` with the mark:
+
+```text
+model: 401 authentication_error: a person must fix it
+model: 402 billing_error: a person must fix it: the account has no credit
+```
+
+A 402 holds the mark and its reason: a person must add credit to the account. A watcher (a later service that looks at the queue and sends an alert) can find these jobs with one search for the mark. The error of the daily budget has no mark: its wait ends by itself at midnight. A test writes the text of the mark out one time, so a change of the constant fails that test. Two more tests run the steps through the worker and find the mark in `jobs.last_error` each time. The steps are the image reader, the card, the vectors, the score and the collect step of a batch.
 
 ## 6. Which model?
 
@@ -253,6 +262,7 @@ The lesson: a test that checks only the result cannot see a cost. Count the call
 | Ledger | The table of each call with its tokens and its price |
 | Budget | The most that the calls of one day may cost |
 | Fallback | A second model that answers when the first one declines |
+| Mark | One fixed text in an error. A search for it finds each error of one group. |
 
 ## To read more
 

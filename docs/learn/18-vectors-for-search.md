@@ -1,6 +1,6 @@
 # 18. Vectors for search: pieces, sets and Voyage
 
-> Pull request: [#73](https://github.com/herman72/unshelve/pull/73) · Decision record: [ADR 0012](../adr/0012-voyage-vectors-through-a-client-for-fixed-services.md) · Code: [`embed/chunks.py`](../../apps/api/src/unshelve/embed/chunks.py), [`embed/sets.py`](../../apps/api/src/unshelve/embed/sets.py), [`providers/voyage.py`](../../apps/api/src/unshelve/providers/voyage.py), [`net/service.py`](../../apps/api/src/unshelve/net/service.py), [`pipeline/items.py`](../../apps/api/src/unshelve/pipeline/items.py) (`embed_item`) · Tests: [`tests/embed/`](../../apps/api/tests/embed/), [`tests/pipeline/test_embed.py`](../../apps/api/tests/pipeline/test_embed.py), [`tests/providers/test_voyage.py`](../../apps/api/tests/providers/test_voyage.py), [`tests/net/test_service.py`](../../apps/api/tests/net/test_service.py)
+> Pull request: [#73](https://github.com/herman72/unshelve/pull/73) · Decision record: [ADR 0012](../adr/0012-voyage-vectors-through-a-client-for-fixed-services.md) · Code: [`embed/chunks.py`](../../apps/api/src/unshelve/embed/chunks.py), [`embed/sets.py`](../../apps/api/src/unshelve/embed/sets.py), [`providers/voyage.py`](../../apps/api/src/unshelve/providers/voyage.py), [`net/service.py`](../../apps/api/src/unshelve/net/service.py), [`pipeline/items.py`](../../apps/api/src/unshelve/pipeline/items.py) (`embed_item`) · Tests: [`tests/embed/`](../../apps/api/tests/embed/), [`tests/pipeline/test_embed.py`](../../apps/api/tests/pipeline/test_embed.py), [`tests/providers/test_voyage.py`](../../apps/api/tests/providers/test_voyage.py), [`tests/net/test_service.py`](../../apps/api/tests/net/test_service.py), [`tests/contracts/test_fix_by_hand.py`](../../apps/api/tests/contracts/test_fix_by_hand.py)
 
 ## In one minute
 
@@ -112,7 +112,17 @@ A test runs the step two times and counts the requests: one. A second test chang
 
 One more check happens just before the write. The step reads the item, asks Voyage, and waits for the answer. If the item gets a new card during that time, the answer is for the old card. So the write happens only if the card and the text of the item are still the ones that the step read. A test changes the summary while a slow pretend embedder waits, and checks that no vector of the old card is written.
 
-When Voyage fails, the step uses the three groups of [note 17](17-model-card.md), part 5: it can pass (429, 5xx, no connection), a person must fix it (401: the key), or this request cannot work (400). After the last attempt, the item is ready without its new vectors, and an event `embed_failed` says why. A vector of an old text is removed: it is worse than none, because a search would find the item for words that it does not have now.
+When Voyage fails, the step uses the three groups of [note 17](17-model-card.md), part 5: it can pass (429, 5xx, no connection), a person must fix it (401: the key, 403, 404), or this request cannot work (400). After the last attempt, the item is ready without its new vectors, and an event `embed_failed` says why. A vector of an old text is removed: it is worse than none, because a search would find the item for words that it does not have now.
+
+An error that a person must fix holds the mark of note 17, part 5, before the reason of Voyage:
+
+```text
+embed: voyage 401: a person must fix it: Provided API key is invalid.
+```
+
+The step writes this text to `jobs.last_error` as the reason of its retry. The worker does not cut that reason. The adapter cuts only the reason of Voyage, at 200 characters. The mark comes before the reason, so a longer reason cannot remove the mark.
+
+Other places cut the whole text and keep its start. For example, the event `embed_failed` keeps 300 characters. Each of these cuts keeps more characters than the start that holds the mark. Two tests check the exact text, so they also check the order: `test_each_status_of_voyage_has_its_group` and `test_a_voyage_error_that_a_person_must_fix_holds_the_mark`. A third test checks the cut of the adapter: `test_a_long_reason_is_cut_at_200_characters_after_the_mark`.
 
 ## 6. Embedding sets: a new model without a broken search
 

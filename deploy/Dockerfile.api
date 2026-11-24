@@ -17,6 +17,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 COPY --from=uv /uv /bin/uv
 
+# The base image has no bytecode of the standard library, and PYTHONDONTWRITEBYTECODE keeps
+# Python from writing it at run time. So each start of Python compiled each module again: the
+# healthcheck of the worker and the bot (unshelve.alive) took about 300 ms, not about 60 ms.
+RUN python -m compileall -q -j 0 "$(python -c 'import sysconfig; print(sysconfig.get_path("stdlib"))')"
+
 # git and ssh for the git target of the public feed (docs/learn/43).
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends git openssh-client \
@@ -30,12 +35,16 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 
 COPY apps/api/ ./
+# UV_COMPILE_BYTECODE compiles the packages, but not the code of the app: uv installs the app
+# as editable, so its modules stay in /app/src.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-dev \
+    && python -m compileall -q /app/src
 
-# A new volume at /app/var/blobs takes the owner of this folder, so the app can write there.
+# A new volume takes the owner of its folder in the image, so the app can write there:
+# /app/var/blobs for the files, /app/var/alive for the liveness files (unshelve.alive).
 RUN useradd --system --uid 10001 --create-home app \
-    && mkdir -p /app/var/blobs \
+    && mkdir -p /app/var/blobs /app/var/alive \
     && chown -R app /app/var
 USER app
 
