@@ -13,7 +13,7 @@ The errors fall into the same three groups as the errors of the model (ADR 0011)
 
 - It can pass: 429, 5xx, no connection, a timeout, an answer that does not fit.
 - A person must fix it: 401 (the key), 403, 404. The step waits in the same way, so that the
-  item gets its vectors after the fix.
+  item gets its vectors after the fix. The text holds the mark ``FIX_BY_HAND``.
 - This request cannot work: 400, such as a model name that Voyage does not know.
 """
 
@@ -26,7 +26,7 @@ from pydantic import BaseModel, ValidationError
 
 from unshelve.contracts.dto import EmbeddingSpec
 from unshelve.contracts.enums import Distance
-from unshelve.contracts.errors import ProviderError
+from unshelve.contracts.errors import FIX_BY_HAND, ProviderError
 from unshelve.net.service import (
     ServiceAnswer,
     ServiceClient,
@@ -45,7 +45,7 @@ MAX_TEXTS = 128
 MAX_CHARS = 100_000
 # 128 vectors of 2,048 numbers, as JSON text, are about 6 MB.
 MAX_ANSWER_BYTES = 32_000_000
-_FIX_BY_HAND = frozenset({401, 403, 404})
+_NEEDS_A_PERSON = frozenset({401, 403, 404})
 
 
 class _Vector(BaseModel):
@@ -173,10 +173,18 @@ def _read(answer: ServiceAnswer, *, count: int, dim: int) -> tuple[list[list[flo
 
 
 def _error(answer: ServiceAnswer) -> ProviderError:
-    message = f"voyage {answer.status}: {_detail(answer)}"
-    if answer.status == 429 or answer.status >= 500:
-        return ProviderError(message, retryable=True, retry_after=answer.retry_after)
-    return ProviderError(message, retryable=answer.status in _FIX_BY_HAND)
+    status, detail = answer.status, _detail(answer)
+    if status == 429 or status >= 500:
+        return ProviderError(
+            f"voyage {status}: {detail}", retryable=True, retry_after=answer.retry_after
+        )
+    if status in _NEEDS_A_PERSON:
+        # The mark comes before the detail, so a longer detail cannot remove it. _detail cuts
+        # only the detail, at 200 characters. An event keeps the first 300 characters of the
+        # text, and the worker keeps the first 2,000 of an unexpected error. These two cuts
+        # keep more than the start that holds the mark.
+        return ProviderError(f"voyage {status}: {FIX_BY_HAND}: {detail}", retryable=True)
+    return ProviderError(f"voyage {status}: {detail}", retryable=False)
 
 
 def _detail(answer: ServiceAnswer) -> str:
