@@ -7,8 +7,10 @@ test checks these rules (tests/watch/test_pure.py).
 The modules:
 
 - ``limits``: the limits of the watcher, as constants.
+- ``observations``: what one check saw, as frozen dataclasses.
 - ``hide``: the secrets that the watcher holds, and ``hide_secrets``, which removes each secret
-  from a text before the text leaves the watcher.
+  from a text before the text leaves the watcher. ``scrub`` does it for each error text of an
+  observation.
 
 This file imports nothing.
 """

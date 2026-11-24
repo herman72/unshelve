@@ -19,18 +19,21 @@ removes each secret first. These are its steps, in this order:
    a secret, so steps 1 to 3 run again on the clean text.
 5. Cut: an error text is cut to ``limit`` characters. The cut comes last, so it never leaves
    the first part of a secret at the end.
+
+``scrub`` runs ``hide_secrets`` on each error text of an observation.
 """
 
 import re
 import unicodedata
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final
 from urllib.parse import quote, quote_plus, unquote, unquote_plus, urlsplit
 
 from pydantic import SecretStr
 
 from unshelve.watch.limits import ERROR_CHARS, SECRET_MIN, SECRET_PART_MIN
+from unshelve.watch.observations import Observation, Refusals
 
 if TYPE_CHECKING:
     from unshelve.config import Settings
@@ -236,6 +239,30 @@ def hide_secrets(text: str, secrets: Secrets, *, limit: int | None = ERROR_CHARS
     if limit is not None and len(text) > limit:
         text = text[: limit - 1] + CUT
     return text
+
+
+def scrub(obs: Observation, secrets: Secrets) -> Observation:
+    """``obs`` with each error text hidden and cut to ``ERROR_CHARS``. The mark and the status
+    are at the start of an error text, so the cut keeps them."""
+
+    def hide(text: str | None) -> str | None:
+        return None if text is None else hide_secrets(text, secrets)
+
+    def hide_refusals(refusals: Refusals | None) -> Refusals | None:
+        return None if refusals is None else replace(refusals, error=hide(refusals.error))
+
+    database = obs.database
+    if database is not None:
+        database = replace(
+            database,
+            dead=replace(database.dead, newest_error=hide(database.dead.newest_error)),
+            model=hide_refusals(database.model),
+            voyage=hide_refusals(database.voyage),
+        )
+    backup = obs.backup
+    if backup is not None:
+        backup = replace(backup, text=hide_secrets(backup.text, secrets))
+    return replace(obs, database=database, database_error=hide(obs.database_error), backup=backup)
 
 
 def _hide(text: str, values: tuple[str, ...]) -> str:
