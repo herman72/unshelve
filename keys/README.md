@@ -6,9 +6,11 @@ Git ignores everything in this folder, except this file, and `docker build` does
 
 A new clone has no keys, and `git clean -fdx` deletes them. To keep the keys outside the clone, set `UNSHELVE_KEYS_DIR=<an absolute path>` in `.env`. Then make that folder with `mkdir -p` before the first `docker compose up`, and use that path in place of `keys/` in steps 1, 2, 3 and 6. If Docker already made the folder for root, run `sudo chown "$(id -u)"` of that path.
 
+Run each command of this file in the root of the clone. In `deploy/`, Compose does not put the values of `.env` into its own file, so `UNSHELVE_KEYS_DIR` does not apply there ([note 54](../docs/learn/54-compose-from-the-root.md)).
+
 ## A deploy key for a repository on GitHub
 
-1. Make a key with no passphrase. The worker cannot type one. In the root of the clone:
+1. Make a key with no passphrase. The worker cannot type one:
 
    ```bash
    ssh-keygen -t ed25519 -N "" -C "unshelve feed" -f keys/deploy_key

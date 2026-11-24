@@ -8,6 +8,20 @@
 - **CI must pass.** Lint, type check, tests and the OpenAPI drift check. A pull request runs only the groups of CI whose files it changes. If a test or a step starts to read a new file, add the file to the `paths` of its group ([note 53](docs/learn/53-fewer-minutes-of-ci.md)).
 - **No private data in the repository.** Fixtures are synthetic. Exports, roadmaps and `.env` files stay outside git.
 
+## Run the stack
+
+- Run `make` and `docker compose` in the root of the clone ([note 54](docs/learn/54-compose-from-the-root.md)). In `deploy/`, Compose does not put the values of `.env` into its own file, and the project gets the name `unshelve`. In `apps/api`, Compose ignores `COMPOSE_FILE`.
+- A worktree or a second clone gets the name of its folder as its project name. So two folders with the same name are one project: give a second clone another folder name. Do not copy a `.env` that sets `COMPOSE_PROJECT_NAME` into a worktree or a clone. There, each Compose command acts on the project of that name, also `down --volumes`.
+- The tests use the database server of the stack on port 54329, with the user `unshelve` and the password `unshelve` (`apps/api/tests/conftest.py`). If `.env` sets another `UNSHELVE_DB_PASSWORD`, start a database for the tests in a project of its own, and give its address to the tests:
+
+  ```bash
+  COMPOSE_PROJECT_NAME=unshelve-dev UNSHELVE_DB_PORT=54330 UNSHELVE_DB_PASSWORD=unshelve docker compose up -d --wait db
+  cd apps/api
+  UNSHELVE_TEST_SERVER_URL=postgresql+psycopg://unshelve:unshelve@localhost:54330/postgres uv run pytest
+  ```
+
+  The values of the shell win over the values of `.env`. So this database keeps the default password, and it gets volumes of its own.
+
 ## Frozen interfaces
 
 Two areas are changed only by the maintainer, in their own pull requests:
@@ -36,6 +50,7 @@ Everything else depends on these. If your change needs a new field or a new meth
 - Text that came from the internet is untrusted. It is never given to a model that has tools, and it is escaped when rendered.
 - A workflow uses each action, and each reusable workflow of another repository, only at a full commit SHA, with its release in a comment on the same line: `uses: owner/action@<40 hex characters> # v1.2.3`. A tag can move to other code; a commit cannot. Dependabot moves the pin and the comment together, and `test_ci_workflows.py` fails for a tag.
 - Each image in `deploy/` and in CI has its tag and its digest: `name:tag@sha256:<64 hex characters>`. The owner of an image can push a tag again with other content; a digest cannot change. Dependabot updates the tag and the digest together, but it reads no workflow and no `COPY --from=`: copy a new database image of `deploy/compose.yaml` to `api.yml` by hand, and take files (`COPY --from`, `RUN --mount=...,from=`) only from a named stage. `test_image_pins.py` fails for an image without a digest in a Dockerfile, a Compose file of `deploy/` or a workflow.
+- A new database image can bring a new C library. Then `test_site_search.py` fails in CI. On a laptop, run `make db`, and then steps 5 and 6 of [Update](docs/quickstart.md#update). The tests make their databases from `template1`, and Postgres refuses a template with an old version. Then run `make site-search`, and commit the new `packages/site-search/src/u-norm-table.ts` ([note 46](docs/learn/46-site-search.md)).
 
 ## Learning notes
 
