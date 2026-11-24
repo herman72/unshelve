@@ -4,6 +4,8 @@ import re
 import string
 import typing
 import unicodedata
+from dataclasses import MISSING, fields, replace
+from decimal import Decimal
 
 import pytest
 from hypothesis import given
@@ -11,8 +13,18 @@ from hypothesis import strategies as st
 from pydantic import SecretStr
 
 from unshelve.config import Settings
-from unshelve.watch.hide import Secrets, hide_secrets, secrets_of
+from unshelve.watch.hide import Secrets, hide_secrets, scrub, secrets_of
 from unshelve.watch.limits import ERROR_CHARS, SECRET_MIN, SECRET_PART_MIN
+from unshelve.watch.observations import (
+    BackupVerdict,
+    Budget,
+    DatabaseView,
+    DeadJobs,
+    Liveness,
+    Observation,
+    Queue,
+    Refusals,
+)
 
 # Made up for the tests: 40 upper case letters and digits. No 4 of its characters in a row are
 # in "<secret>", so a test can look for each part of it in a text that holds "<secret>".
@@ -1017,6 +1029,223 @@ def test_an_error_text_is_one_clean_line_and_a_message_keeps_its_lines() -> None
 
     assert hide_secrets(text, Secrets()) == "line 1 line2 line 3"
     assert hide_secrets(text, Secrets(), limit=None) == "line 1\nline2\n\nline 3"
+
+
+def _hidden_and_cut(text: str) -> str:
+    """``text`` with SECRET hidden, cut to 200 characters."""
+    hidden = text.replace(SECRET, "<secret>")
+    return hidden if len(hidden) <= 200 else hidden[:199] + "…"
+
+
+def test_scrub_hides_each_error_text_of_an_observation() -> None:
+    # The secret is in the first 200 characters, so only the hide can remove it, not the cut.
+    error = f"ProviderError: voyage 401: a person must fix it: key {SECRET} " + "z" * 300
+    # Each other field has a value that is not its default, and model and voyage differ. So a
+    # scrub that drops a field, or takes the field of another part, gives another observation.
+    model = Refusals(
+        newest_failure_at=1795392190.0,
+        newest_success_at=1795391400.0,
+        error=f"model: {error}",
+        waiting=(("enrich_item", 2),),
+        next_try_at=1795392310.0,
+        last_try_at=1795395790.0,
+        gave_up=(("enrich_failed", 1),),
+    )
+    voyage = Refusals(
+        newest_failure_at=1795392250.0,
+        newest_success_at=1795390000.0,
+        error=f"embed: {error}",
+        waiting=(("embed_item", 3),),
+        next_try_at=1795392370.0,
+        last_try_at=1795394170.0,
+        gave_up=(("embed_failed", 4),),
+    )
+    dead = DeadJobs(totals=(("publish_feed", 2),), newest_kind="publish_feed", newest_error=error)
+    database = DatabaseView(
+        queue=Queue(ready=1, oldest_ready_at=1795391000.0, newest_attempt_end_at=1795391900.0),
+        dead=dead,
+        model=model,
+        voyage=voyage,
+        budget=Budget(spent_usd=Decimal("1.0021"), budget_usd=Decimal("1.00"), waiting=3),
+    )
+    backup = BackupVerdict(ok=False, text=error, at=1795392000.0)
+    seen = Observation(
+        worker=Liveness(mtime=1795392000.0, started=1795390000, stopped=1795391990),
+        bot=Liveness(mtime=1795391990.0, started=1795390010, chats_ready=(0, 1)),
+        database=database,
+        database_error=error,
+        web_ok=False,
+        backup=backup,
+    )
+
+    clean = scrub(seen, Secrets((SECRET,)))
+
+    assert clean == replace(
+        seen,
+        database=replace(
+            database,
+            dead=replace(dead, newest_error=_hidden_and_cut(error)),
+            model=replace(model, error=_hidden_and_cut(f"model: {error}")),
+            voyage=replace(voyage, error=_hidden_and_cut(f"embed: {error}")),
+        ),
+        database_error=_hidden_and_cut(error),
+        backup=replace(backup, text=_hidden_and_cut(error)),
+    )
+    assert _hidden_and_cut(error).endswith("zz…")
+
+
+def test_scrub_keeps_each_unknown_as_none() -> None:
+    seen = Observation(worker=None, bot=None)
+
+    assert scrub(seen, Secrets((SECRET,))) == seen
+
+
+def test_scrub_keeps_an_empty_error_text_empty() -> None:
+    # str(TimeoutError()) is "". An empty text is a known error with no words. None would say
+    # that no error is known, for example that the connection did not fail.
+    seen = Observation(
+        worker=None,
+        bot=None,
+        database=DatabaseView(
+            queue=Queue(0, None, None),
+            dead=DeadJobs(totals=(), newest_error=""),
+            model=Refusals(None, None, ""),
+            voyage=Refusals(None, None, ""),
+        ),
+        database_error="",
+        backup=BackupVerdict(ok=False, text="", at=1795392000.0),
+    )
+
+    assert scrub(seen, Secrets((SECRET,))) == seen
+
+
+def test_scrub_keeps_each_unknown_inside_the_view_of_the_database() -> None:
+    # An error that is None stays None, not "". A provider that is None (not in use) stays None.
+    seen = Observation(
+        worker=None,
+        bot=None,
+        database=DatabaseView(
+            queue=Queue(ready=0, oldest_ready_at=None, newest_attempt_end_at=None),
+            dead=DeadJobs(totals=()),
+            model=Refusals(newest_failure_at=None, newest_success_at=1795391400.0),
+            voyage=None,
+        ),
+    )
+
+    assert scrub(seen, Secrets((SECRET,))) == seen
+
+
+def test_scrub_hides_the_text_of_a_good_backup_too() -> None:
+    # A verdict that the backup is fine can quote a secret too.
+    seen = Observation(
+        worker=None,
+        bot=None,
+        backup=BackupVerdict(ok=True, text=f"backup ok, key {SECRET}", at=1795392000.0),
+    )
+
+    clean = scrub(seen, Secrets((SECRET,)))
+
+    assert clean == replace(
+        seen, backup=BackupVerdict(ok=True, text="backup ok, key <secret>", at=1795392000.0)
+    )
+
+
+def test_scrub_hides_an_error_text_also_when_the_fields_next_to_it_are_unknown() -> None:
+    # scrub reads only the text. An error with no count of dead jobs, or with no time of the
+    # failure, is hidden too.
+    def view(error: str) -> DatabaseView:
+        return DatabaseView(
+            queue=Queue(ready=0, oldest_ready_at=None, newest_attempt_end_at=None),
+            dead=DeadJobs(totals=(), newest_error=error),
+            model=Refusals(newest_failure_at=None, newest_success_at=None, error=error),
+            voyage=Refusals(newest_failure_at=None, newest_success_at=None, error=error),
+        )
+
+    seen = Observation(worker=None, bot=None, database=view(f"key {SECRET}"))
+
+    clean = scrub(seen, Secrets((SECRET,)))
+
+    assert clean == replace(seen, database=view("key <secret>"))
+
+
+def test_a_field_that_a_check_does_not_give_is_unknown_or_empty() -> None:
+    # A default that is not None, such as True or "", would look like a known state. A default
+    # can also come from a factory: dataclasses keeps it in default_factory, not in default.
+    kinds = (Liveness, Refusals, Budget, Queue, DeadJobs, DatabaseView, BackupVerdict, Observation)
+    defaults = {
+        f"{kind.__name__}.{field.name}": (
+            field.default if field.default_factory is MISSING else field.default_factory()
+        )
+        for kind in kinds
+        for field in fields(kind)
+        if field.default is not MISSING or field.default_factory is not MISSING
+    }
+    # Each default is None or (), and a frozen value needs no factory for them. So a field
+    # with a factory is reported, also when its factory gives the same value.
+    factories = [
+        f"{kind.__name__}.{field.name}"
+        for kind in kinds
+        for field in fields(kind)
+        if field.default_factory is not MISSING
+    ]
+
+    assert factories == []
+    assert defaults == {
+        "Liveness.started": None,
+        "Liveness.stopped": None,
+        "Liveness.chats_ready": None,
+        "Refusals.error": None,
+        "Refusals.waiting": (),
+        "Refusals.next_try_at": None,
+        "Refusals.last_try_at": None,
+        "Refusals.gave_up": (),
+        "DeadJobs.newest_kind": None,
+        "DeadJobs.newest_error": None,
+        "DatabaseView.model": None,
+        "DatabaseView.voyage": None,
+        "DatabaseView.budget": None,
+        "Observation.database": None,
+        "Observation.database_error": None,
+        "Observation.web_ok": None,
+        "Observation.backup": None,
+    }
+
+
+def test_the_fields_keep_their_order() -> None:
+    # Many fields have the type of the field next to them. A reader that builds a value by
+    # position must not swap two of them, such as a failure and a success of a provider.
+    order = {
+        kind.__name__: [field.name for field in fields(kind)]
+        for kind in (
+            Liveness,
+            Refusals,
+            Budget,
+            Queue,
+            DeadJobs,
+            DatabaseView,
+            BackupVerdict,
+            Observation,
+        )
+    }
+
+    assert order == {
+        "Liveness": ["mtime", "started", "stopped", "chats_ready"],
+        "Refusals": [
+            "newest_failure_at",
+            "newest_success_at",
+            "error",
+            "waiting",
+            "next_try_at",
+            "last_try_at",
+            "gave_up",
+        ],
+        "Budget": ["spent_usd", "budget_usd", "waiting"],
+        "Queue": ["ready", "oldest_ready_at", "newest_attempt_end_at"],
+        "DeadJobs": ["totals", "newest_kind", "newest_error"],
+        "DatabaseView": ["queue", "dead", "model", "voyage", "budget"],
+        "BackupVerdict": ["ok", "text", "at"],
+        "Observation": ["worker", "bot", "database", "database_error", "web_ok", "backup"],
+    }
 
 
 # --- Properties --------------------------------------------------------------------------
