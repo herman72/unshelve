@@ -8,6 +8,7 @@ import asyncio
 import functools
 import hashlib
 import io
+import json
 import os
 import re
 import subprocess
@@ -255,6 +256,33 @@ async def test_a_backup_removes_the_backups_that_the_rule_does_not_keep(
     assert kept_old.name == stamp(today - timedelta(days=1))
 
 
+async def test_a_backup_of_an_empty_database_keeps_the_newest_backup_with_items(
+    committed_db: Sessions, place: Place
+) -> None:
+    await seed(committed_db, place)
+    assert script(place, "once").returncode == 0
+    [with_items] = complete_backups(place)
+    # The database loses its items, for example after `down --volumes`, and nobody sees it.
+    async with committed_db() as db:
+        await db.execute(text("DELETE FROM items"))
+        await db.commit()
+
+    done = script(
+        place,
+        "once",
+        environment={"UNSHELVE_BACKUP_KEEP_DAILY": "1", "UNSHELVE_BACKUP_KEEP_WEEKLY": "0"},
+    )
+
+    assert done.returncode == 0, done.stderr.decode()
+    # By its age the first backup would go: it is the newest backup with items, so it stays.
+    [kept, empty] = complete_backups(place)
+    assert kept == with_items
+    assert "items\t0" in (empty / "info.txt").read_text().splitlines()
+    # docker compose logs gets only JSON lines, also from a run with a walk to an older pin.
+    events = [json.loads(line)["event"] for line in done.stdout.decode().splitlines()]
+    assert events == ["backup.ok"]
+
+
 # --- A failure ---------------------------------------------------------------------------
 
 
@@ -338,6 +366,110 @@ async def test_a_backup_stops_when_the_disk_has_too_little_room(
     assert done.returncode == 1
     assert b"KB are free in the backup folder" in done.stderr
     assert status_of(place)["last_error_text"].startswith("only ")
+
+
+def test_a_prune_that_removes_nothing_fails_the_run_and_keeps_the_new_backup(
+    place: Place,
+) -> None:
+    # The database is empty, so the walk of the prune reads the next older backup, and that one
+    # has no info.txt: the prune cannot know if it has items, and removes nothing.
+    older = old_backup(place, datetime.now(UTC) - timedelta(days=1))
+    # A pg_dump that writes a warning: the run writes more than one line on stderr before the line
+    # of the prune.
+    warns = """#!/bin/sh
+echo "pg_dump: warning: a line before the failure" >&2
+exec /usr/bin/pg_dump "$@"
+"""
+
+    done = script(
+        place,
+        "once",
+        environment={"UNSHELVE_BACKUP_KEEP_DAILY": "1", "UNSHELVE_BACKUP_KEEP_WEEKLY": "0"},
+        fakes={"pg_dump": warns},
+    )
+    health = script(place, "health")
+    shown = script(place, "status")
+
+    message = f"prune.sh removed nothing: no file /backups/db/{older.name}/info.txt"
+    assert done.returncode == 1
+    errors = done.stderr.decode().splitlines()
+    assert "pg_dump: warning: a line before the failure" in errors
+    assert errors[-1] == message
+    # The new backup is complete under its name, and the older one is still there.
+    [kept, new] = complete_backups(place)
+    assert kept == older
+    sums = in_image(
+        place, "bash", "-c", f"cd /backups/db/{new.name} && sha256sum --quiet --check SHA256SUMS"
+    )
+    assert sums.returncode == 0, sums.stdout.decode() + sums.stderr.decode()
+    assert parts(place) == []
+    # The run counts as a failure, and the health and the status say why: with the last line of
+    # the failure, not its first.
+    status = status_of(place)
+    assert "last_ok" not in status
+    assert status["last_error_text"] == message
+    assert health.returncode == 1
+    assert health.stdout.decode() == f"the last backup failed: {message}\n"
+    assert shown.returncode == 0, shown.stderr.decode()
+    # The line "health: ..." of the status holds the message too, so only this line counts here.
+    [failure] = [
+        line for line in shown.stdout.decode().splitlines() if line.startswith("last failure: ")
+    ]
+    assert failure.endswith(f" hours ago: {message}")
+
+
+def test_a_chown_that_fails_does_not_hide_the_line_of_the_prune(place: Place) -> None:
+    # The service runs as root. After the line of the prune, the EXIT trap gives the files to the
+    # owner of /backups, and on a file system without owners each chown fails. The status keeps
+    # the last line of stderr, so the error of chown must not go there. As in the tests of the
+    # owner below, a stat gives /backups an owner, and the chown fails. /backups is a tmpfs, so
+    # the older backup, without info.txt, is made in the container. The status is a file of root:
+    # the health check runs as root too.
+    older = stamp(datetime.now(UTC) - timedelta(days=1))
+    fakes = {
+        "stat": """#!/bin/sh
+if [ "$1 $2 $3" = "-c %u:%g /backups" ]; then echo 1234:5678; exit 0; fi
+exec /usr/bin/stat "$@"
+""",
+        "chown": """#!/bin/sh
+echo "chown: changing ownership of '/backups/db': Operation not permitted" >&2
+echo "chown: changing ownership of '/backups/blobs': Operation not permitted" >&2
+echo "chown: changing ownership of '/backups/.gitignore': Operation not permitted" >&2
+exit 1
+""",
+    }
+    run = f"""set -e
+mkdir -p /backups/db/{older}
+echo 'an old dump' >/backups/db/{older}/unshelve.dump
+exec bash /deploy/backup/backup.sh once
+"""
+
+    done = in_image(
+        place,
+        "bash",
+        "-c",
+        run,
+        environment={"UNSHELVE_BACKUP_KEEP_DAILY": "1", "UNSHELVE_BACKUP_KEEP_WEEKLY": "0"},
+        as_root=True,
+        backups="type=tmpfs,destination=/backups,tmpfs-size=209715200",
+        fakes=fakes,
+    )
+    health = script(place, "health", as_root=True)
+
+    message = f"prune.sh removed nothing: no file /backups/db/{older}/info.txt"
+    assert done.returncode == 1
+    assert done.stderr.decode().splitlines()[-1] == message
+    assert health.stdout.decode() == f"the last backup failed: {message}\n"
+    # The log keeps the first line of the error of chown. chown -R can print one line for each
+    # file that it cannot change, and the other lines do not go into the log.
+    [failed] = [
+        record
+        for record in map(json.loads, done.stdout.decode().splitlines())
+        if record["event"] == "backup.chown_failed"
+    ]
+    assert failed["detail"] == (
+        "chown -R 1234:5678: chown: changing ownership of '/backups/db': Operation not permitted"
+    )
 
 
 async def test_a_disk_that_became_read_only_stops_the_backup_with_the_reason(
