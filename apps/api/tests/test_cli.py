@@ -46,7 +46,7 @@ from unshelve.contracts.enums import (
     JobState,
     LabelSource,
 )
-from unshelve.contracts.errors import ExtractError, ProviderError
+from unshelve.contracts.errors import FIX_BY_HAND, ExtractError, ProviderError
 from unshelve.contracts.protocols import ExtractContext
 from unshelve.db.engine import create_engine, create_session_factory
 from unshelve.db.models import (
@@ -502,14 +502,14 @@ def test_llm_check_says_why_there_is_no_answer(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, private_database_url: str
 ) -> None:
     async def refused(self: ClaudeLLM, **question: Any) -> LLMResult[Any]:
-        raise ProviderError("401 authentication_error: a person must fix it", retryable=True)
+        raise ProviderError(f"401 authentication_error: {FIX_BY_HAND}", retryable=True)
 
     monkeypatch.setattr(ClaudeLLM, "generate", refused)
 
     result = _run(monkeypatch, tmp_path, "llm", "check", UNSHELVE_DATABASE_URL=private_database_url)
 
     assert result.exit_code == 1
-    assert "No answer: 401 authentication_error: a person must fix it." in _plain(result.output)
+    assert f"No answer: 401 authentication_error: {FIX_BY_HAND}." in _plain(result.output)
 
 
 async def _count_llm_calls(database_url: str) -> int:
